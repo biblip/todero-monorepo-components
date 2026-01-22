@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.djmusic.vlc</groupId>
+  <artifactId>vlc-component</artifactId>
+  <version>1.0-SNAPSHOT</version>
+  <description>Todero platform modules, SDKs, and tooling.</description>
+  <url>https://github.com/biblip/todero/components-develop/vlc-component</url>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>maintainer</id>
+      <name>Todero Project Maintainer</name>
+      <email>security@shellaia.com</email>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/biblip/todero.git/components-develop/vlc-component</connection>
+    <developerConnection>scm:git:ssh://git@github.com/biblip/todero.git/components-develop/vlc-component</developerConnection>
+    <url>https://github.com/biblip/todero/components-develop/vlc-component</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>com.social100.todero</groupId>
+      <artifactId>todero-component-api</artifactId>
+      <version>1.0-SNAPSHOT</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.github.cdimascio</groupId>
+      <artifactId>java-dotenv</artifactId>
+      <version>5.2.2</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>uk.co.caprica</groupId>
+      <artifactId>vlcj</artifactId>
+      <version>4.8.3</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.reflections</groupId>
+      <artifactId>reflections</artifactId>
+      <version>0.10.2</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.javassist</groupId>
+          <artifactId>javassist</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+  </dependencies>
+</project>

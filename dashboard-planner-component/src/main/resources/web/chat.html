@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title>WS Echo (single port)</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; }
+        #log { border: 1px solid #ccc; padding: 8px; height: 300px; overflow: auto; white-space: pre-wrap; }
+        input { width: 70%; padding: 8px; }
+        button { padding: 8px 12px; }
+    </style>
+</head>
+<body>
+<h2>WebSocket Echo Client</h2>
+<p>Server: <code id="server"></code></p>
+
+<input id="messageInput" placeholder="Type a message…" type="text"/>
+<button id="sendBtn">Send</button>
+<pre id="log"></pre>
+
+<!-- IMPORTANT: relative path; file must be at src/main/resources/web/resilient-ws.js -->
+<script src="resilient-ws.js"></script>
+<script>
+    function log(msg) {
+      const pre = document.getElementById('log');
+      pre.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+      pre.scrollTop = pre.scrollHeight;
+    }
+
+    // Build WS URL from current page (works for http->ws and https->wss)
+    const wsUrl = (() => {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${location.host}/ws`;
+    })();
+    document.getElementById('server').textContent = wsUrl;
+
+    // Sanity log that JS is running
+    log('📄 Page loaded. Creating socket...');
+
+    const ws = new ResilientWebSocket(wsUrl, {
+      baseDelay: 1000,
+      maxDelay: 10000,
+      queueWhileConnecting: true,
+      debug: true
+    });
+
+    ws.connect();
+
+    ws.on('open',    () => log('✅ Connected!'));
+    ws.on('message', (ev) => log('📥 ' + ev.data));
+    ws.on('error',   (ev) => { log('❌ Error (see console)'); console.error(ev); });
+    ws.on('close',   (ev) => log(`🔒 Disconnected (code=${ev.code}${ev.reason ? ', reason=' + ev.reason : ''})`));
+
+    document.getElementById('sendBtn').addEventListener('click', () => {
+      const input = document.getElementById('messageInput');
+      const message = input.value.trim();
+      if (!message) return;
+      const ok = ws.send(message);
+      log(ok ? ('📤 Sent: ' + message) : '⚠️ Not connected. Message not sent.');
+      input.value = '';
+    });
+</script>
+</body>
+</html>

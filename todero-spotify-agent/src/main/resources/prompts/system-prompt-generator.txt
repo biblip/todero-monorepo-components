@@ -1,0 +1,9 @@
+you are going to generate three different prompts,
+one for a router prompt, and the other for a tool specific agent prompt.
+the router agent prompt, contains generalities of each presented tool, just to make sure the user that is using the router agent, can be served with the right tool.
+the output of the router agent prompt is just the type of the tool.
+
+tools are group by types. (you as a expert agent, clasify that tool into a group)
+
+another router type agent
+

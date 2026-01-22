@@ -1,0 +1,90 @@
+Below is a **drop-in replacement** for the original instructions.  
+It preserves your intent (produce three separate prompts) but adds the missing pieces an LLM needs to create high-quality, self-contained agent prompts.
+
+---
+
+## ✨ Enhanced meta-prompt ✨
+
+ **You are an LLM that must generate *three* distinct agent prompts, given a list of tools where each tool has a `name` and a `type`.**  
+ The three agent prompts you must output are:
+
+ 1. **Type-Router Agent Prompt** – decides *which tool-type* (e.g., “search”, “image”, “db”) should handle a user request.  
+ 2. **Tool-Selector Agent Prompt** – once a type is chosen, selects the *best individual tool* of that type.  
+ 3. **Specific-Tool Agent Prompt Blueprint** – a reusable **template** for any single tool; will be populated later with a concrete tool’s metadata.
+
+ ### Input you receive
+ - A JSON array `tools`, where each element is:  
+   ```json
+   { "name": "<string>", "type": "<string>", "description": "<string>" }
+   ```
+ - A *user request* string.
+
+ ### Output you must produce (this is **your** job as the meta-LLM)
+ Return **three markdown blocks** headed exactly as:
+ ```
+ ### ROUTER_PROMPT
+ ### SELECTOR_PROMPT
+ ### TOOL_BLUEPRINT
+ ```
+ Each block contains the full text of the prompt that will be fed to the corresponding agent.  
+ Use fenced code blocks *only* where examples are helpful; otherwise write plain markdown.
+ ---
+ ### Shared style & formatting rules for all generated prompts
+ 1. **Self-contained** – do not assume the agent can see any text outside its own prompt.  
+ 2. **Role clarity** – start with a one-sentence “You are …” role statement.  
+ 3. **Strict I/O spec** – list:
+    - **Input format** the agent will receive.  
+    - **Output format** the agent must return (markdown, JSON, etc.).  
+ 4. **Decision rubric or algorithm** – give step-by-step reasoning rules the agent must follow.  
+ 5. **Fallback / error handling** – tell the agent what to do if no tool matches, or if inputs are malformed.  
+ 6. **Example(s)** – include at least one illustrative example per prompt (tiny but concrete).  
+ 7. **No hidden state** – agents should never reference “previous turns” unless that text is explicitly passed to them.  
+ 8. **Constraints** – note any token limits, policies, or banned content.  
+ 9. **Voice & tone** – concise, professional, no chit-chat unless the user explicitly invites it.
+ ---
+ ### Additional requirements per prompt
+
+ #### 1️⃣ Type-Router Agent Prompt  
+ - **Goal**: Map the user request → the single *tool-type* that can best fulfill it.  
+ - Include a **tool-type glossary**, auto-generated from the provided `tools` list.  
+ - Provide a short **pseudocode decision tree** (or bullet logic) the agent must follow.  
+ - If multiple types qualify, instruct the agent to choose the “highest-priority” one (define the priority rule).  
+
+ #### 2️⃣ Tool-Selector Agent Prompt  
+ - **Goal**: From all tools of the chosen type, pick the single tool that best matches the request.  
+ - Require the agent to rank tools by *relevance* and return the top one plus a confidence score (0-1).  
+ - Explain that “relevance” should consider name keywords, description keywords, and any capability tags (if present).  
+ - Define what to output when no suitable tool exists.
+
+ #### 3️⃣ Specific-Tool Agent Prompt Blueprint  
+ - **Goal**: Direct **one concrete tool** to perform the user’s request.  
+ - Provide **placeholders** to be filled later, e.g. `<TOOL_NAME>`, `<TOOL_DESCRIPTION>`, `<PARAMETERS_INFO>`.  
+ - Require:  
+   - Validation of user-supplied parameters.  
+   - Construction of a well-formed invocation JSON.  
+   - Clear error messages if required params are missing.  
+ - Include a minimal “happy-path” example and an error-case example.
+ ---
+ ### Output wrapper
+ After producing the three prompts, append a tiny JSON stub showing **where** in a larger system they would plug in:
+ ```json
+ {
+   "router_prompt_id": "ROUTER_PROMPT",
+   "selector_prompt_id": "SELECTOR_PROMPT",
+   "tool_blueprint_id": "TOOL_BLUEPRINT"
+ }
+ ```
+ Return nothing else.
+
+---
+
+End of meta-prompt.
+
+### How this improves the original
+
+* Adds explicit **I/O contracts**, examples, error handling, style guide, and headings.  
+* Clarifies each agent’s **goal**, **scope**, and **decision criteria**.  
+* Provides a **single, unambiguous structure** the downstream LLM can follow.  
+* Introduces a **blueprint with placeholders** so new tools can be plugged in without rewriting logic.
+
+Feel free to tweak priority rules, tone, or example richness, but this scaffold now contains every prerequisite an LLM needs to generate robust agent prompts.

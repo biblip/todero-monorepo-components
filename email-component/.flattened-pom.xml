@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.social100.todero</groupId>
+  <artifactId>email-component</artifactId>
+  <version>1.0-SNAPSHOT</version>
+  <description>Todero platform modules, SDKs, and tooling.</description>
+  <url>https://github.com/biblip/todero/components-develop/email-component</url>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>maintainer</id>
+      <name>Todero Project Maintainer</name>
+      <email>security@shellaia.com</email>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/biblip/todero.git/components-develop/email-component</connection>
+    <developerConnection>scm:git:ssh://git@github.com/biblip/todero.git/components-develop/email-component</developerConnection>
+    <url>https://github.com/biblip/todero/components-develop/email-component</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>jakarta.mail</groupId>
+      <artifactId>jakarta.mail-api</artifactId>
+      <version>2.0.1</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.sun.mail</groupId>
+      <artifactId>jakarta.mail</artifactId>
+      <version>2.0.1</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.activation</groupId>
+      <artifactId>jakarta.activation-api</artifactId>
+      <version>2.0.1</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.oauth-client</groupId>
+      <artifactId>google-oauth-client</artifactId>
+      <version>1.35.0</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.api-client</groupId>
+      <artifactId>google-api-client</artifactId>
+      <version>1.35.2</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.apis</groupId>
+      <artifactId>google-api-services-gmail</artifactId>
+      <version>v1-rev110-1.25.0</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.auth</groupId>
+      <artifactId>google-auth-library-oauth2-http</artifactId>
+      <version>1.23.0</version>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+</project>

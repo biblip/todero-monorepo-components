@@ -1,0 +1,78 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.todero</groupId>
+    <artifactId>todero-component-spotify</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>vlc-component</artifactId>
+  <packaging>jar</packaging>
+
+  <name>todero-component</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.social100.todero</groupId>
+      <artifactId>todero-component-api</artifactId>
+      <version>${todero.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.social100.todero</groupId>
+      <artifactId>processor</artifactId>
+      <version>${todero.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.social100.todero</groupId>
+      <artifactId>todero-component-testkit</artifactId>
+      <version>${todero.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>io.github.cdimascio</groupId>
+      <artifactId>java-dotenv</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>uk.co.caprica</groupId>
+      <artifactId>vlcj</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.reflections</groupId>
+      <artifactId>reflections</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.javassist</groupId>
+          <artifactId>javassist</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>com.social100.todero</groupId>
+              <artifactId>processor</artifactId>
+              <version>${todero.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

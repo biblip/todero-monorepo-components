@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title>GraphOS Drill-Down (WS-driven)</title>
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.4.0/cytoscape-dagre.js"></script>
+    <script> cytoscape.use(window.cytoscapeDagre); </script>
+    <style>
+        body { font-family: sans-serif; padding: 0; margin: 0; }
+        .app {
+          display: grid;
+          grid-template-areas: "toolbar toolbar" "main main";
+          grid-template-rows: auto 1fr;
+          grid-template-columns: 1fr;
+          height: 100vh; width: 100%;
+        }
+        .toolbar {
+          grid-area: toolbar;
+          padding: .5rem .75rem;
+          border-bottom: 1px solid #e5e7eb;
+          display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+        }
+        .toolbar .btn { padding: 6px 10px; border: 1px solid #d1d5db; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .toolbar .btn[aria-pressed="true"] { background: #111827; color: #fff; border-color: #111827; }
+        .main { grid-area: main; display: grid; height: 100%; width: 100%; }
+        #cy { width: 100%; height: 100%; background: #fff; }
+        .dock-left  .main { grid-template-columns: 320px 1fr; grid-template-rows: 1fr; }
+        .dock-left  .panel { grid-column: 1; grid-row: 1; border-right: 1px solid #e5e7eb; }
+        .dock-left  #cy     { grid-column: 2; grid-row: 1; }
+        .dock-right .main { grid-template-columns: 1fr 320px; grid-template-rows: 1fr; }
+        .dock-right .panel { grid-column: 2; grid-row: 1; border-left: 1px solid #e5e7eb; }
+        .dock-right #cy     { grid-column: 1; grid-row: 1; }
+        .dock-top   .main { grid-template-rows: 220px 1fr; grid-template-columns: 1fr; }
+        .dock-top   .panel { grid-row: 1; grid-column: 1; border-bottom: 1px solid #e5e7eb; }
+        .dock-top   #cy     { grid-row: 2; grid-column: 1; }
+        .dock-bottom .main { grid-template-rows: 1fr 220px; grid-template-columns: 1fr; }
+        .dock-bottom .panel { grid-row: 2; grid-column: 1; border-top: 1px solid #e5e7eb; }
+        .dock-bottom #cy     { grid-row: 1; grid-column: 1; }
+        .floating .main { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+        .floating .panel {
+          position: fixed; z-index: 30; width: 360px; max-width: 90vw;
+          top: 72px; right: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.15);
+          border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; resize: both; overflow: auto;
+        }
+        .panel { background: #fff; display: flex; flex-direction: column; min-width: 260px; max-height: 100%; }
+        .panel-header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .5rem .75rem; border-bottom: 1px solid #e5e7eb; background: #f9fafb; border-top-left-radius: 8px; border-top-right-radius: 8px; user-select: none;}
+        .panel-header .title { font-weight: 600; }
+        .panel-content { padding: .75rem; overflow: auto; }
+        .section { margin-bottom: .75rem; }
+        .section h4 { margin: 0 0 .35rem; font-size: 13px; text-transform: uppercase; color: #6b7280; }
+        .kv { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .75rem; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 9999px; background: #eef2ff; margin: 0 6px 6px 0; font-size: 12px; }
+    </style>
+</head>
+<body class="dock-right" id="bodyRoot">
+<div class="app" id="appRoot">
+    <div class="toolbar">
+        <button class="btn" id="dockLeft">Dock Left</button>
+        <button aria-pressed="true" class="btn" id="dockRight">Dock Right</button>
+        <button class="btn" id="dockTop">Dock Top</button>
+        <button class="btn" id="dockBottom">Dock Bottom</button>
+        <button class="btn" id="floatBtn">Float</button>
+        <label style="margin-left:8px;">
+            <input checked id="hoverMode" type="checkbox"> Hover Mode
+        </label>
+        <button class="btn" id="backBtn" style="margin-left:.5rem; display:none;">⬅ Back</button>
+        <span id="status" style="margin-left:auto; font-size:12px; color:#6b7280;"></span>
+    </div>
+
+    <div class="main">
+        <div id="cy"></div>
+        <aside aria-live="polite" class="panel" id="detailsPanel">
+            <div class="panel-header" id="panelDragHandle">
+                <span class="title">Node Details</span>
+                <div style="display:flex; gap:.25rem;">
+                    <button class="btn" id="clearBtn" title="Clear selection">Clear</button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <div class="section">
+                    <h4>Properties</h4>
+                    <div class="kv" id="propList"><em style="color:#9ca3af;">Select a node…</em></div>
+                </div>
+                <div class="section">
+                    <h4>Attributes</h4>
+                    <div id="attrList"></div>
+                </div>
+                <div class="section">
+                    <h4>Description</h4>
+                    <div id="descText" style="white-space:pre-wrap; font-size:13px; color:#374151;"></div>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<!-- Your resilient WS library -->
+<script src="resilient-ws.js"></script>
+
+<script>
+    // ----- State & helpers -----
+    let currentView = 'system';
+    const viewStack = [];
+    const expanded = new Set();
+    const graphStates = { system: { elements: [] } };
+
+    const bodyRoot = document.getElementById('bodyRoot');
+    const detailsPanel = document.getElementById('detailsPanel');
+    const hoverToggle = document.getElementById('hoverMode');
+    const backBtn = document.getElementById('backBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusEl = document.getElementById('status');
+
+    function setStatus(text, ok = true) {
+      statusEl.textContent = text;
+      statusEl.style.color = ok ? '#047857' : '#b91c1c';
+    }
+
+    // Dock controls
+    document.getElementById('dockLeft').onclick   = () => setDock('dock-left');
+    document.getElementById('dockRight').onclick  = () => setDock('dock-right');
+    document.getElementById('dockTop').onclick    = () => setDock('dock-top');
+    document.getElementById('dockBottom').onclick = () => setDock('dock-bottom');
+    document.getElementById('floatBtn').onclick   = () => setDock('floating');
+
+    function setDock(mode) {
+      bodyRoot.classList.remove('dock-left','dock-right','dock-top','dock-bottom','floating');
+      bodyRoot.classList.add(mode);
+      for (const b of ['dockLeft','dockRight','dockTop','dockBottom','floatBtn']) {
+        const el = document.getElementById(b);
+        el.setAttribute('aria-pressed',
+          (b==='floatBtn' && mode==='floating') ||
+          (b==='dockLeft' && mode==='dock-left') ||
+          (b==='dockRight'&& mode==='dock-right')||
+          (b==='dockTop'  && mode==='dock-top')  ||
+          (b==='dockBottom'&&mode==='dock-bottom') ? 'true':'false');
+      }
+    }
+
+    // Floating panel drag
+    makeDraggable(detailsPanel, document.getElementById('panelDragHandle'));
+    function makeDraggable(panel, handle) {
+      let dragging=false, sx=0, sy=0, startLeft=0, startTop=0;
+      handle.addEventListener('mousedown', (e) => {
+        if (!bodyRoot.classList.contains('floating')) return;
+        dragging = true; sx = e.clientX; sy = e.clientY;
+        const rect = panel.getBoundingClientRect(); startLeft = rect.left; startTop = rect.top;
+        document.body.style.userSelect = 'none';
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const dx=e.clientX-sx, dy=e.clientY-sy;
+        panel.style.left = (startLeft+dx)+'px';
+        panel.style.top  = (startTop +dy)+'px';
+      });
+      window.addEventListener('mouseup', () => {
+        if (dragging) { dragging=false; document.body.style.userSelect = ''; }
+      });
+    }
+
+    // ----- Cytoscape -----
+    const cy = cytoscape({
+      container: document.getElementById('cy'),
+      style: [
+        { selector: 'node', style: {
+            'shape':'roundrectangle','background-color':'#47A3F3','label':'data(label)',
+            'color':'#fff','text-valign':'center','text-halign':'center',
+            'width':'100px','height':'40px','font-size':'12px'
+        }},
+        { selector: 'edge', style: {
+            'label':'data(label)','font-size':'10px','text-rotation':'autorotate',
+            'text-margin-y':-5,'width':2,'line-color':'#aaa',
+            'target-arrow-shape':'triangle','target-arrow-color':'#aaa','curve-style':'bezier'
+        }},
+        { selector: '$node > node', style: {
+            'background-color':'#F4F6F8','shape':'roundrectangle','padding':'20px',
+            'text-valign':'top','text-halign':'center','font-size':'16px','color':'#444',
+            'text-wrap':'wrap','border-color':'#aaa','border-width':1
+        }},
+        { selector: '.expanded', style: { 'border-width':3, 'border-color':'#FFC107' } },
+        { selector: '.highlighted', style: {
+            'border-width':4, 'border-color':'#FF5722', 'background-color':'#F9A825',
+            'transition-property':'background-color, border-color', 'transition-duration':'0.2s'
+        }}
+      ],
+      layout: { name: 'dagre', rankDir: 'LR' }
+    });
+
+    function bindNodeTapHandler() {
+      cy.off('tap', 'node');
+      cy.on('tap', 'node', (evt) => {
+        const id = evt.target.id();
+        if (graphStates[id]) {
+          viewStack.push(currentView);
+          loadGraph(id);
+          cy.getElementById(id).addClass('expanded');
+        }
+        populateDetails(evt.target);
+      });
+    }
+
+    function bindHoverHandlers() {
+      cy.off('mouseover', 'node'); cy.off('mouseout', 'node');
+      cy.on('mouseover', 'node', (e) => {
+        const n = e.target; n.addClass('highlighted');
+        if (hoverToggle.checked) populateDetails(n, true);
+      });
+      cy.on('mouseout', 'node', (e) => e.target.removeClass('highlighted'));
+    }
+
+    function loadGraph(viewName) {
+      cy.elements().remove();
+      cy.add(graphStates[viewName].elements || []);
+      cy.layout({ name:'dagre', rankDir:'LR' }).run();
+      currentView = viewName;
+      backBtn.style.display = currentView === 'system' ? 'none' : 'inline-block';
+      bindNodeTapHandler();
+      bindHoverHandlers();
+    }
+
+    function goBack() { if (viewStack.length) loadGraph(viewStack.pop()); }
+
+    function clearDetails() {
+      detailsPanel.querySelector('.title').textContent = 'Node Details';
+      document.getElementById('propList').innerHTML = '<em style="color:#9ca3af;">Select a node…</em>';
+      document.getElementById('attrList').innerHTML = '';
+      document.getElementById('descText').textContent = '';
+    }
+
+    function asKeyVals(obj) {
+      const frag = document.createDocumentFragment();
+      Object.entries(obj || {}).forEach(([k,v]) => {
+        const kEl = document.createElement('div'); kEl.textContent = k;
+        const vEl = document.createElement('div'); vEl.textContent = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        frag.appendChild(kEl); frag.appendChild(vEl);
+      });
+      return frag;
+    }
+    function asPills(arrOrObj) {
+      const frag = document.createDocumentFragment();
+      if (Array.isArray(arrOrObj)) {
+        arrOrObj.forEach(v => {
+          const pill = document.createElement('span'); pill.className='pill';
+          pill.textContent = typeof v === 'object' ? JSON.stringify(v) : String(v);
+          frag.appendChild(pill);
+        });
+      } else if (arrOrObj && typeof arrOrObj==='object') {
+        Object.entries(arrOrObj).forEach(([k,v]) => {
+          const pill = document.createElement('span'); pill.className='pill';
+          pill.textContent = `${k}: ${typeof v==='object' ? JSON.stringify(v) : String(v)}`;
+          frag.appendChild(pill);
+        });
+      } else {
+        const em = document.createElement('em'); em.style.color='#9ca3af'; em.textContent='—';
+        frag.appendChild(em);
+      }
+      return frag;
+    }
+
+    function populateDetails(node, preview=false) {
+      if (!node) return;
+      const data = node.data() || {};
+      const title = data.label || node.id();
+      const props = data.properties || data.props || {};
+      const attrs = data.attributes || data.attrs || [];
+      const desc  = data.description || data.desc || '';
+      detailsPanel.querySelector('.title').textContent = title + (preview ? ' (preview)' : '');
+      const propList = document.getElementById('propList');
+      const attrList = document.getElementById('attrList');
+      const descText = document.getElementById('descText');
+      propList.innerHTML = ''; propList.appendChild(asKeyVals(props));
+      attrList.innerHTML = ''; attrList.appendChild(asPills(attrs));
+      descText.textContent = desc || '—';
+    }
+
+    // Initial empty render
+    loadGraph('system');
+    backBtn.onclick = goBack;
+    clearBtn.onclick = clearDetails;
+
+    // ----- WebSocket: receive & render -----
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const rws = new ResilientWebSocket(wsUrl, {
+      baseDelay: 1000,
+      maxDelay: 10000,
+      queueWhileConnecting: false,
+      debug: true
+    });
+    rws.on('open',   () => setStatus('Connected', true));
+    rws.on('close',  ev => setStatus(`Disconnected (${ev.code})`, false));
+    rws.on('error',  () => setStatus('Error (see console)', false));
+
+    rws.on('message', (ev) => {
+      // Expecting either:
+      // { "system": [elements...], "subview": [elements...] }  OR
+      // { "system": { "elements": [...] }, ... }              OR
+      // { "elements": [...] }  (treated as "system")
+      try {
+        const payload = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+        const next = {};
+
+        if (Array.isArray(payload)) {
+          next.system = { elements: payload };
+        } else if (payload && payload.elements) {
+          next.system = { elements: payload.elements };
+        } else if (payload && typeof payload === 'object') {
+          for (const [view, val] of Object.entries(payload)) {
+            if (Array.isArray(val))       next[view] = { elements: val };
+            else if (val && val.elements) next[view] = { elements: val.elements };
+          }
+        }
+
+        if (!next.system || !Array.isArray(next.system.elements)) {
+          console.warn('WS payload not recognized; expecting elements[] or view->elements map.', payload);
+          setStatus('Received unsupported payload', false);
+          return;
+        }
+
+        // Replace graphStates and render 'system'
+        for (const k of Object.keys(graphStates)) delete graphStates[k];
+        Object.assign(graphStates, next);
+        viewStack.length = 0;
+        expanded.clear();
+        loadGraph('system');
+        setStatus('Graph updated from WS', true);
+      } catch (e) {
+        console.error('Failed to parse WS message as JSON', e, ev.data);
+        setStatus('Invalid JSON payload', false);
+      }
+    });
+
+    rws.connect();
+</script>
+</body>
+</html>

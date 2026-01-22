@@ -1,0 +1,298 @@
+{
+  "system": [
+    {
+      "data": {
+        "id": "frontend-layer",
+        "label": "Frontend Layer"
+      }
+    },
+    {
+      "data": {
+        "id": "gateway-layer",
+        "label": "Gateway Layer"
+      }
+    },
+    {
+      "data": {
+        "id": "service-layer",
+        "label": "Service Layer"
+      }
+    },
+    {
+      "data": {
+        "id": "db-layer",
+        "label": "Database Layer"
+      }
+    },
+    {
+      "data": {
+        "id": "external-layer",
+        "label": "External Integrations"
+      }
+    },
+    {
+      "data": {
+        "id": "web",
+        "label": "Public Website",
+        "type": "frontend",
+        "parent": "frontend-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "gateway",
+        "label": "API Gateway",
+        "type": "gateway",
+        "parent": "gateway-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "auth",
+        "label": "Auth Service",
+        "type": "service",
+        "parent": "service-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "user",
+        "label": "User Service",
+        "type": "service",
+        "parent": "service-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "product",
+        "label": "Product Service",
+        "type": "service",
+        "parent": "service-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "order",
+        "label": "Order Service",
+        "type": "service",
+        "parent": "service-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "payment",
+        "label": "Payment Service",
+        "type": "service",
+        "parent": "service-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "user-db",
+        "label": "User DB",
+        "type": "database",
+        "parent": "db-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "product-db",
+        "label": "Product DB",
+        "type": "database",
+        "parent": "db-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "order-db",
+        "label": "Order DB",
+        "type": "database",
+        "parent": "db-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "payment-api",
+        "label": "External Payment API",
+        "type": "external",
+        "parent": "external-layer"
+      }
+    },
+    {
+      "data": {
+        "id": "web-gateway",
+        "source": "web",
+        "target": "gateway",
+        "label": "HTTPS"
+      }
+    },
+    {
+      "data": {
+        "id": "gw-auth",
+        "source": "gateway",
+        "target": "auth",
+        "label": "REST /login"
+      }
+    },
+    {
+      "data": {
+        "id": "gw-user",
+        "source": "gateway",
+        "target": "user",
+        "label": "REST /user"
+      }
+    },
+    {
+      "data": {
+        "id": "gw-product",
+        "source": "gateway",
+        "target": "product",
+        "label": "REST /products"
+      }
+    },
+    {
+      "data": {
+        "id": "gw-order",
+        "source": "gateway",
+        "target": "order",
+        "label": "REST /orders"
+      }
+    },
+    {
+      "data": {
+        "id": "gw-payment",
+        "source": "gateway",
+        "target": "payment",
+        "label": "REST /pay"
+      }
+    },
+    {
+      "data": {
+        "id": "user-db-link",
+        "source": "user",
+        "target": "user-db",
+        "label": "JPA / Queries"
+      }
+    },
+    {
+      "data": {
+        "id": "product-db-link",
+        "source": "product",
+        "target": "product-db",
+        "label": "Fetch Items"
+      }
+    },
+    {
+      "data": {
+        "id": "order-db-link",
+        "source": "order",
+        "target": "order-db",
+        "label": "Persist Order"
+      }
+    },
+    {
+      "data": {
+        "id": "pay-ext-api",
+        "source": "payment",
+        "target": "payment-api",
+        "label": "Charge API"
+      }
+    },
+    {
+      "data": {
+        "id": "order-user",
+        "source": "order",
+        "target": "user",
+        "label": "Get Profile"
+      }
+    },
+    {
+      "data": {
+        "id": "order-product",
+        "source": "order",
+        "target": "product",
+        "label": "Check Stock"
+      }
+    }
+  ],
+  "order": [
+    {
+      "data": {
+        "id": "order-controller",
+        "label": "OrderController"
+      }
+    },
+    {
+      "data": {
+        "id": "order-service",
+        "label": "OrderServiceImpl"
+      }
+    },
+    {
+      "data": {
+        "id": "order-repo",
+        "label": "OrderRepository"
+      }
+    },
+    {
+      "data": {
+        "id": "order-dto",
+        "label": "OrderDTO"
+      }
+    },
+    {
+      "data": {
+        "id": "ctrl-svc",
+        "source": "order-controller",
+        "target": "order-service",
+        "label": "delegates"
+      }
+    },
+    {
+      "data": {
+        "id": "svc-repo",
+        "source": "order-service",
+        "target": "order-repo",
+        "label": "queries"
+      }
+    },
+    {
+      "data": {
+        "id": "svc-dto",
+        "source": "order-service",
+        "target": "order-dto",
+        "label": "maps"
+      }
+    }
+  ],
+  "order-repo": [
+    {
+      "data": {
+        "id": "template",
+        "label": "MongoTemplate"
+      }
+    },
+    {
+      "data": {
+        "id": "dto",
+        "label": "OrderDTO"
+      }
+    },
+    {
+      "data": {
+        "id": "repo-template",
+        "source": "order-repo",
+        "target": "template",
+        "label": "uses"
+      }
+    },
+    {
+      "data": {
+        "id": "repo-dto",
+        "source": "order-repo",
+        "target": "dto",
+        "label": "maps to"
+      }
+    }
+  ]
+}

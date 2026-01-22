@@ -1,0 +1,14 @@
+# Your app's Client ID from https://developer.spotify.com/dashboard
+SPOTIFY_CLIENT_ID=spotify_client_id
+
+# Delegated redirect profile mapping (no implicit fallback).
+# SPOTIFY_REDIRECT_URI_APP should be an app-owned callback URI (for Android flow).
+# SPOTIFY_REDIRECT_URI_CONSOLE should be a console/callback-helper URI.
+SPOTIFY_REDIRECT_URI_APP=http://127.0.0.1:34895/spotify/callback
+SPOTIFY_REDIRECT_URI_CONSOLE=http://127.0.0.1:34895/spotify/callback
+
+# Strict allowlist for redirect-profile=explicit (comma-separated absolute URIs).
+SPOTIFY_REDIRECT_URI_ALLOWLIST=http://127.0.0.1:34895/spotify/callback
+
+# Optional device to target; otherwise the currently active device is used
+# SPOTIFY_DEVICE_ID=your_device_id
