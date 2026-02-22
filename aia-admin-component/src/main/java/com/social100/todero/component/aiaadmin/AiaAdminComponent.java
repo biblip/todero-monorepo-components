@@ -16,10 +16,12 @@ import com.social100.todero.util.ArgumentParser;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @AIAController(name = "com.shellaia.verbatim.component.aia.admin",
     type = ServerType.AIA,
@@ -218,17 +220,17 @@ public class AiaAdminComponent {
 
   @Action(group = MAIN_GROUP,
       command = "reload",
-      description = "Reload the running Todero server through internal admin control service. Usage: reload [--graceSeconds <N>]")
+      description = "Reload the running Todero server through internal admin control service. Usage: reload [--grace-seconds <N>]")
   public Boolean reload(CommandContext context) {
     ParsedArgs args = parseBody(context);
-    if (!validateAllowedFlags(context, args, "Usage: reload [--graceSeconds <N>]", List.of("graceSeconds"))) return false;
-    if (!args.positional.isEmpty()) return invalidArgs(context, "Usage: reload [--graceSeconds <N>]", args.positional);
+    if (!validateAllowedFlags(context, args, "Usage: reload [--grace-seconds <N>]", List.of("grace-seconds"))) return false;
+    if (!args.positional.isEmpty()) return invalidArgs(context, "Usage: reload [--grace-seconds <N>]", args.positional);
     return reloadInternal(context, args);
   }
 
   private Boolean reloadInternal(CommandContext context, ParsedArgs args) {
     Map<String, String> options = new LinkedHashMap<>();
-    putIfNotBlank(options, "graceSeconds", args.single("graceSeconds"));
+    putIfNotBlank(options, "grace-seconds", args.single("grace-seconds"));
     AdminRuntimeRequest request = new AdminRuntimeRequest(AdminRuntimeAction.RELOAD_RUNTIME, options);
     PrivilegedOperationResult result = executeAdmin(context, "reload", request);
     return result != null && result.success();
@@ -301,6 +303,7 @@ public class AiaAdminComponent {
     return sb.toString();
   }
 
+
   private void putIfNotBlank(Map<String, String> out, String key, String value) {
     if (!isBlank(value)) {
       out.put(key, value.trim());
@@ -336,9 +339,15 @@ public class AiaAdminComponent {
   }
 
   private boolean validateAllowedFlags(CommandContext context, ParsedArgs args, String usage, List<String> allowed) {
+    Set<String> allowedLower = new HashSet<>();
+    for (String flag : allowed) {
+      if (flag != null) {
+        allowedLower.add(flag.toLowerCase(Locale.ROOT));
+      }
+    }
     List<String> unknown = new ArrayList<>();
     for (String key : args.values.keySet()) {
-      if (!allowed.contains(key)) {
+      if (!allowedLower.contains(key.toLowerCase(Locale.ROOT))) {
         unknown.add("--" + key);
       }
     }

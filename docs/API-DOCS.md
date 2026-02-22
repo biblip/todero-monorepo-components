@@ -31,11 +31,80 @@ Annotation for command methods.
 Notes:
 - All fields are required by the processor (no defaults assumed).
 - Action methods must return `Boolean` for generated registries.
+- Action methods must take **only** `CommandContext` as a parameter. Additional
+  parameters are not supported by the processor and will fail compilation.
 
 ### EventDefinition
 Event declaration contract for @AIAController events.
 Notes:
 - The processor expects an enum so it can call `values()`.
+
+## Component Build Requirements (Processor)
+
+To compile `@AIAController` / `@Action` annotations into runtime registries,
+each component module must include the processor dependency and annotation
+processing configuration:
+
+### Maven dependencies
+```xml
+<dependency>
+  <groupId>com.social100.todero</groupId>
+  <artifactId>todero-component-api</artifactId>
+  <version>${todero.version}</version>
+  <scope>provided</scope>
+</dependency>
+<dependency>
+  <groupId>com.social100.todero</groupId>
+  <artifactId>processor</artifactId>
+  <version>${todero.version}</version>
+  <scope>provided</scope>
+</dependency>
+```
+
+### Maven compiler plugin
+```xml
+<plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-compiler-plugin</artifactId>
+  <version>3.11.0</version>
+  <configuration>
+    <annotationProcessorPaths>
+      <path>
+        <groupId>com.social100.todero</groupId>
+        <artifactId>processor</artifactId>
+        <version>${todero.version}</version>
+      </path>
+    </annotationProcessorPaths>
+  </configuration>
+</plugin>
+```
+
+### Required constructor
+The generated component wrapper injects `Storage` into the component. Your
+component must expose a matching constructor:
+```java
+public ComponentName(Storage storage) { }
+```
+
+### Command arguments
+Since `@Action` methods accept only `CommandContext`, parse arguments from the
+request body (for example JSON):
+```java
+String body = AiatpIO.bodyToString(context.getHttpRequest().body(), UTF_8).trim();
+// parse JSON to map or domain object
+```
+
+### Response contract (mandatory)
+Every response must include top-level `channels` metadata:
+```json
+{
+  "channels": {
+    "chat": { "message": "..." },
+    "status": { "message": "..." },
+    "webview": { "html": null, "mode": "none", "replace": false }
+  }
+}
+```
 
 ## com.social100.processor.beans (Minimal DI)
 
