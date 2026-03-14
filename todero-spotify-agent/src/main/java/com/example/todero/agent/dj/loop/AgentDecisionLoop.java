@@ -91,11 +91,11 @@ public final class AgentDecisionLoop {
       workingPrompt = followup.build(request.prompt(), lastPlan, call, lastTool, step);
     }
 
-    Channels channels = buildChannels(lastPlan, lastTool);
+    Channels channels = buildChannels(stopReason, lastPlan, lastTool);
     return new LoopResult(stopReason, lastPlan, lastTool, steps, channels);
   }
 
-  private static Channels buildChannels(PlannerResult plan, ToolCallResult tool) {
+  private static Channels buildChannels(StopReason stopReason, PlannerResult plan, ToolCallResult tool) {
     String chat = plan == null ? "" : safe(plan.user());
     String status = "";
     String html = plan == null ? "" : safe(plan.html());
@@ -123,10 +123,29 @@ public final class AgentDecisionLoop {
         status = tool.message();
       }
     }
+    if (isFailureStop(stopReason)) {
+      String failureMessage = safe(stopReason == null ? "" : stopReason.message);
+      if (status.isBlank()) {
+        status = failureMessage.isBlank() ? "Agent execution failed." : failureMessage;
+      }
+      if (chat.isBlank()) {
+        chat = failureMessage.isBlank() ? "Agent execution failed." : failureMessage;
+      }
+    }
     if (status.isBlank()) {
       status = chat.isBlank() ? "completed" : chat;
     }
     return new Channels(chat, status, html, webviewMode, webviewReplace, authJson);
+  }
+
+  private static boolean isFailureStop(StopReason stopReason) {
+    if (stopReason == null) {
+      return false;
+    }
+    return switch (safe(stopReason.code)) {
+      case "planner_exception", "invalid_action", "tool_failed", "max_steps_reached" -> true;
+      default -> false;
+    };
   }
 
   public interface Planner {

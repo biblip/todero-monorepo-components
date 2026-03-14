@@ -254,10 +254,26 @@ public class AgentDJV2Component {
     context.bindAgentLlmRegistry(agentContext);
     LLMClient llm = agentContext.systemLlm()
         .map(instance -> instance.client())
-        .orElseThrow(() -> new IllegalStateException("No system-wide LLM available for DJV2."));
-    String raw = llm.chat(loadSystemPrompt("prompts/default-system-prompt.md"), prompt, "{}");
+        .orElseThrow(() -> new IllegalStateException(
+            "No active system LLM available for DJV2 planning. Check llm-providers configuration and API key."));
+    String raw;
+    try {
+      raw = llm.chat(loadSystemPrompt("prompts/default-system-prompt.md"), prompt, "{}");
+    } catch (Exception e) {
+      throw new IllegalStateException("Planner LLM invocation failed: " + safeTrim(e.getMessage()), e);
+    }
     System.out.println("[DJV2] LLM response: " + raw);
-    CommandAgentResponse response = parsePlannerResponse(raw);
+    CommandAgentResponse response;
+    try {
+      response = parsePlannerResponse(raw);
+    } catch (Exception e) {
+      throw new IllegalStateException("Planner returned malformed output: " + safeTrim(e.getMessage()), e);
+    }
+    if (safeTrim(response.getAction()).isEmpty()
+        && safeTrim(response.getUser()).isEmpty()
+        && safeTrim(response.getHtml()).isEmpty()) {
+      throw new IllegalStateException("Planner returned empty output.");
+    }
     return new AgentDecisionLoop.PlannerResult(response.getAction(), response.getUser(), response.getHtml());
   }
 
@@ -288,10 +304,17 @@ public class AgentDJV2Component {
       return;
     }
     AgentDecisionLoop.Channels channels = result.channels();
-    if (!safeTrim(channels.status()).isEmpty()) {
+    String stopCode = safeTrim(result.stopReason() == null ? null : result.stopReason().code);
+    String stopMessage = safeTrim(result.stopReason() == null ? null : result.stopReason().message);
+    boolean failed = isFailureStop(stopCode);
+    if (failed) {
+      String failure = stopMessage.isEmpty() ? "Agent execution failed." : stopMessage;
+      context.emitStatus(failure, "final");
+      context.emitChat(failure, "final");
+    } else if (!safeTrim(channels.status()).isEmpty()) {
       context.emitStatus(channels.status(), "final");
     }
-    if (!safeTrim(channels.chat()).isEmpty()) {
+    if (!failed && !safeTrim(channels.chat()).isEmpty()) {
       context.emitChat(channels.chat(), "final");
     }
     if (!safeTrim(channels.html()).isEmpty()) {
@@ -304,6 +327,13 @@ public class AgentDJV2Component {
     }
     context.emitThought("source=" + source + " correlationId=" + correlationId
         + " stopReason=" + result.stopReason().code, "final");
+  }
+
+  private static boolean isFailureStop(String stopCode) {
+    return "planner_exception".equals(stopCode)
+        || "invalid_action".equals(stopCode)
+        || "tool_failed".equals(stopCode)
+        || "max_steps_reached".equals(stopCode);
   }
 
   private void emitStatusAndChat(CommandContext context, String message) {
