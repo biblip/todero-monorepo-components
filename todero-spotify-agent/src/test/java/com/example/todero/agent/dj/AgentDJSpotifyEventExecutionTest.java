@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
@@ -19,6 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.Test;
 
 class AgentDJSpotifyEventExecutionTest {
+
+  private static final ObjectMapper JSON = new ObjectMapper();
 
   @Test
   void executeSpotifyInternalConsumesFinalStatusEvent() throws Exception {
@@ -54,6 +58,68 @@ class AgentDJSpotifyEventExecutionTest {
 
     assertFalse((Boolean) accessor(result, "executed"));
     assertEquals("auth_required", accessor(result, "errorCode"));
+  }
+
+  @Test
+  void executeSpotifyInternalConsumesFinalHtmlEventWithStatus() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          ctx.emitStatus("Suggestions ready.", "progress");
+          ctx.emitHtml("<html>suggestions</html>", "final", "html", true);
+        }))
+        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
+            .body(AiatpIO.Body.ofString("suggest enya 5", StandardCharsets.UTF_8))
+            .build())
+        .build();
+
+    Object result = invokeExecuteSpotifyInternal(component, parent, "suggest", "enya 5");
+
+    assertTrue((Boolean) accessor(result, "executed"));
+    assertEquals("Suggestions ready.", accessor(result, "output"));
+    JsonNode root = JSON.readTree((String) accessor(result, "rawOutput"));
+    assertEquals("<html>suggestions</html>", root.path("channels").path("webview").path("html").asText());
+  }
+
+  @Test
+  void executeSpotifyInternalConsumesAuthEventAsSuccess() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          ctx.emitStatus("Open the Spotify link.", "progress");
+          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"}}", "final");
+        }))
+        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
+            .body(AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8))
+            .build())
+        .build();
+
+    Object result = invokeExecuteSpotifyInternal(component, parent, "auth-begin", "");
+
+    assertTrue((Boolean) accessor(result, "executed"));
+    assertEquals("Open the Spotify link.", accessor(result, "output"));
+    JsonNode root = JSON.readTree((String) accessor(result, "rawOutput"));
+    assertEquals("sess-1", root.path("auth").path("session").path("sessionId").asText());
+  }
+
+  @Test
+  void executeSpotifyInternalConsumesErrorEventAsFailure() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.emitError("No devices available.")))
+        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
+            .body(AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8))
+            .build())
+        .build();
+
+    Object result = invokeExecuteSpotifyInternal(component, parent, "play", "enya");
+
+    assertFalse((Boolean) accessor(result, "executed"));
+    assertEquals("tool-execution-failed", accessor(result, "errorCode"));
+    assertEquals("No devices available.", accessor(result, "output"));
   }
 
   private static Object invokeExecuteSpotifyInternal(AgentDJComponent component,
