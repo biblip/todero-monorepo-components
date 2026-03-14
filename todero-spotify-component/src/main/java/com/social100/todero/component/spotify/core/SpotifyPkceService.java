@@ -5,7 +5,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.annotations.SerializedName;
-import com.social100.todero.common.runtime.auth.AuthorizationChannelsContract;
 import com.social100.todero.common.runtime.auth.AuthorizationEnvelopeIntegrityVerifier;
 import com.social100.todero.common.runtime.auth.AuthorizationErrorCode;
 import com.social100.todero.common.runtime.auth.AuthorizationRelayPolicy;
@@ -159,20 +158,9 @@ public class SpotifyPkceService {
     String authorizeUrl = buildAuthorizeUrl(selectedRedirectUri, verifier, state);
     AuthorizationRelayPolicy relayPolicy = new AuthorizationRelayPolicy(true, false, (int) ENVELOPE_TTL_SEC);
 
-    Map<String, Object> channels = AuthorizationChannelsContract.authRequiredPayload(
-        PROVIDER,
-        sessionId,
-        authorizeUrl,
-        expiresAtMs,
-        envelope,
-        relayPolicy,
-        "Spotify authorization required.",
-        "Open the authorization URL, then complete with auth-complete.",
-        "com.shellaia.verbatim.component.spotify auth-complete ..."
-    );
-    applyAuthCta(channels, authorizeUrl, expiresAtMs);
+    String ctaHtml = buildAuthCtaHtml(authorizeUrl, expiresAtMs);
 
-    return new AuthBeginResult(true, null, "Authorization session created.", session, authorizeUrl, channels, relayPolicy, envelope);
+    return new AuthBeginResult(true, null, "Authorization session created.", session, authorizeUrl, ctaHtml, relayPolicy, envelope);
   }
 
   public AuthCompleteResult authComplete(AuthCompleteRequest request) {
@@ -502,29 +490,6 @@ public class SpotifyPkceService {
         .collect(Collectors.toCollection(LinkedHashSet::new));
   }
 
-  private static void applyAuthCta(Map<String, Object> payload, String authorizeUrl, long expiresAtMs) {
-    if (payload == null) {
-      return;
-    }
-    Object channelsObj = payload.get("channels");
-    if (channelsObj instanceof Map<?, ?> channelsAny) {
-      @SuppressWarnings("unchecked")
-      Map<String, Object> channels = (Map<String, Object>) channelsAny;
-      Map<String, Object> webview = new LinkedHashMap<>();
-      webview.put("html", buildAuthCtaHtml(authorizeUrl, expiresAtMs));
-      webview.put("mode", "html");
-      webview.put("replace", true);
-      channels.put("webview", webview);
-    }
-    Object authObj = payload.get("auth");
-    if (authObj instanceof Map<?, ?> authAny) {
-      @SuppressWarnings("unchecked")
-      Map<String, Object> auth = (Map<String, Object>) authAny;
-      auth.put("openExternally", true);
-      auth.put("ctaLabel", "Authorize Spotify");
-    }
-  }
-
   private static String buildAuthCtaHtml(String authorizeUrl, long expiresAtMs) {
     String safeUrl = htmlEscape(authorizeUrl == null ? "" : authorizeUrl);
     String expiry = expiresAtMs > 0 ? Long.toString(expiresAtMs) : "";
@@ -805,7 +770,7 @@ public class SpotifyPkceService {
                                 String message,
                                 AuthorizationSession session,
                                 String authorizeUrl,
-                                Map<String, Object> channelsPayload,
+                                String ctaHtml,
                                 AuthorizationRelayPolicy relayPolicy,
                                 AuthorizationSecureEnvelope secureEnvelope) {
   }

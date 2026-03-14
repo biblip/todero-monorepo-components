@@ -66,7 +66,7 @@ public class AgentContactsComponent {
   public Boolean process(CommandContext context) {
     String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
     if (prompt.isBlank()) {
-      context.response(buildErrorResponse("Prompt is required. Usage: process <goal>", "invalid_request"));
+      context.emitProtocolError("Prompt is required. Usage: process <goal>");
       return true;
     }
 
@@ -81,7 +81,8 @@ public class AgentContactsComponent {
       CommandAgentResponse planned = plan(llm, prompt, agentContext);
       String action = safeTrim(planned.getAction());
       if (action.isBlank() || "none".equalsIgnoreCase(action)) {
-        context.response(buildResponsePayload(planned, defaultChannels(planned.getUser(), "none", null, false), null, "none", ""));
+        String message = safeTrim(planned.getUser()).isBlank() ? "No action required." : planned.getUser();
+        context.emitChat(message, "final");
         return true;
       }
 
@@ -89,7 +90,7 @@ public class AgentContactsComponent {
       String command = safeTrim(parsed.first).toLowerCase(Locale.ROOT);
       String args = safeTrim(parsed.second + (parsed.remaining == null ? "" : " " + parsed.remaining));
       if (!ALLOWED_COMMANDS.contains(command)) {
-        context.response(buildErrorResponse("Unsupported Contacts action: " + command, "agent_capability_mismatch"));
+        context.emitProtocolError("Unsupported Contacts action: " + command);
         return true;
       }
 
@@ -104,26 +105,24 @@ public class AgentContactsComponent {
 
       AiatpIO.HttpResponse toolResponse = outFuture.get(25, TimeUnit.SECONDS);
       String toolBody = AiatpIO.bodyToString(toolResponse.body(), StandardCharsets.UTF_8);
-      String toolStatus = toolResponse.status() >= 400 ? "error" : "ok";
 
       JsonNode root = parseJsonOrNull(toolBody);
-      JsonNode channels = root == null ? null : root.path("channels");
-      JsonNode data = root == null ? null : root.path("data");
-      ObjectNode finalChannels = channels != null && channels.isObject()
-          ? (ObjectNode) channels
-          : defaultChannels(
-          safeTrim(planned.getUser()).isBlank() ? "Contacts response ready." : planned.getUser(),
-          "none",
-          null,
-          false
-      );
-      context.response(buildResponsePayload(planned, finalChannels, data, toolStatus, toolBody));
+      if (root != null && root.path("channels").isObject()) {
+        emitChannels(context, root.path("channels"), root.path("auth"));
+      } else if (toolResponse.status() >= 400) {
+        context.emitProtocolError(
+            safeTrim(toolBody).isBlank() ? "Contacts tool returned an error." : toolBody.trim()
+        );
+      } else {
+        String message = safeTrim(planned.getUser()).isBlank() ? "Contacts response ready." : planned.getUser();
+        context.emitChat(message, "final");
+      }
       return true;
     } catch (TimeoutException e) {
-      context.response(buildErrorResponse("Contacts tool call timed out.", "timeout"));
+      context.emitProtocolError("Contacts tool call timed out.");
       return true;
     } catch (Exception e) {
-      context.response(buildErrorResponse("Contacts agent failed: " + safeTrim(e.getMessage()), "agent_failed"));
+      context.emitProtocolError("Contacts agent failed: " + safeTrim(e.getMessage()));
       return true;
     }
   }
@@ -133,7 +132,7 @@ public class AgentContactsComponent {
       description = "Return runtime capability manifest for discovery")
   public Boolean capabilities(CommandContext context) {
     AgentCapabilityManifest manifest = new ContactsAgentCapabilities().manifest();
-    context.response(renderCapabilitiesEnvelope(manifest));
+    context.emitStatus(renderCapabilitiesEnvelope(manifest), "final");
     return true;
   }
 
@@ -151,74 +150,37 @@ public class AgentContactsComponent {
     return new CommandAgentResponse(request, action, user, html);
   }
 
-  private String buildResponsePayload(CommandAgentResponse planned,
-                                      ObjectNode channels,
-                                      JsonNode data,
-                                      String toolStatus,
-                                      String toolResponse) {
-    try {
-      ObjectNode payload = mapper.createObjectNode();
-      payload.put("request", safeTrim(planned.getRequest()));
-      payload.put("action", safeTrim(planned.getAction()));
-      payload.put("user", safeTrim(planned.getUser()));
-      payload.put("html", safeTrim(planned.getHtml()));
-      payload.set("channels", channels);
-      if (data != null && data.isObject()) {
-        payload.set("data", data);
-      }
-      payload.putNull("auth");
-      payload.putNull("meta");
-      payload.put("toolStatus", toolStatus);
-      payload.put("toolResponse", toolResponse);
-      payload.put("timestamp", Instant.now().toString());
-      return mapper.writeValueAsString(payload);
-    } catch (Exception e) {
-      throw new RuntimeException("Failed to build Contacts agent response payload", e);
-    }
-  }
+  private void emitChannels(CommandContext context, JsonNode channels, JsonNode auth) {
+    String chatMessage = readPath(channels.path("chat"), "message");
+    String statusMessage = readPath(channels.path("status"), "message");
+    JsonNode htmlNode = channels.has("html") ? channels.path("html") : channels.path("webview");
+    String html = readPath(htmlNode, "html");
+    String htmlMode = readPath(htmlNode, "mode");
+    boolean replace = !htmlNode.isMissingNode() && htmlNode.path("replace").asBoolean(true);
+    String authJson = auth != null && auth.isObject() ? auth.toString() : null;
 
-  private String buildErrorResponse(String message, String errorCode) {
-    try {
-      ObjectNode payload = mapper.createObjectNode();
-      payload.put("request", "");
-      payload.put("action", "none");
-      payload.put("user", safeTrim(message));
-      payload.put("html", "");
-      payload.set("channels", defaultChannels(message, "none", null, false));
-      payload.putNull("auth");
-      ObjectNode meta = mapper.createObjectNode();
-      meta.put("outcome", "error");
-      meta.put("errorCode", safeTrim(errorCode));
-      payload.set("meta", meta);
-      payload.put("toolStatus", "error");
-      payload.put("toolResponse", safeTrim(message));
-      return mapper.writeValueAsString(payload);
-    } catch (Exception e) {
-      return "{\"request\":\"\",\"action\":\"none\",\"user\":\"Contacts agent failed.\",\"html\":\"\","
-          + "\"channels\":{\"chat\":{\"message\":\"Contacts agent failed.\"},"
-          + "\"status\":{\"message\":\"Contacts agent failed.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
-    }
-  }
+    String finalChannel = authJson != null ? "auth"
+        : (!html.isBlank() || "suggestions_from_toolsteps".equalsIgnoreCase(htmlMode)) ? "html"
+        : !chatMessage.isBlank() ? "chat"
+        : !statusMessage.isBlank() ? "status"
+        : "";
 
-  private ObjectNode defaultChannels(String chatMessage, String webviewMode, String html, boolean replace) {
-    ObjectNode channels = mapper.createObjectNode();
-    ObjectNode chat = mapper.createObjectNode();
-    chat.put("message", safeTrim(chatMessage));
-    channels.set("chat", chat);
-    ObjectNode status = mapper.createObjectNode();
-    status.put("message", safeTrim(chatMessage));
-    channels.set("status", status);
-    ObjectNode webview = mapper.createObjectNode();
-    if (html == null || html.isBlank()) {
-      webview.putNull("html");
-    } else {
-      webview.put("html", html);
+    if (!statusMessage.isBlank()) {
+      context.emitStatus(statusMessage, "status".equals(finalChannel) ? "final" : "progress");
     }
-    webview.put("mode", safeTrim(webviewMode).isBlank() ? "none" : webviewMode);
-    webview.put("replace", replace);
-    channels.set("webview", webview);
-    return channels;
+    if (!chatMessage.isBlank()) {
+      context.emitChat(chatMessage, "chat".equals(finalChannel) ? "final" : "progress");
+    }
+    if (!html.isBlank() || "suggestions_from_toolsteps".equalsIgnoreCase(htmlMode)) {
+      context.emitWebviewHtml(html, "html".equals(finalChannel) ? "final" : "progress",
+          htmlMode.isBlank() ? "html" : htmlMode, replace);
+    }
+    if (authJson != null) {
+      context.emitAuthJson(authJson, "final");
+    }
+    if (finalChannel.isBlank()) {
+      context.emitProtocolError("Contacts response is missing supported channel content.");
+    }
   }
 
   private String renderCapabilitiesEnvelope(AgentCapabilityManifest manifest) {

@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 class RouterAgentPreDispatchRequiredArgsTest {
 
@@ -25,7 +24,7 @@ class RouterAgentPreDispatchRequiredArgsTest {
   void doesNotBlockPositionalRequiredArgsInNaturalLanguagePrompt() {
     StubManager manager = new StubManager();
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<String> out = new AtomicReference<>();
+    AtomicReference<AiatpIO.HttpResponse> out = new AtomicReference<>();
 
     String prompt = "play music";
     CommandContext context = CommandContext.builder()
@@ -34,23 +33,14 @@ class RouterAgentPreDispatchRequiredArgsTest {
         .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.router/process")
             .body(AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8))
             .build())
-        .consumer(r -> out.set(AiatpIO.bodyToString(r.body(), StandardCharsets.UTF_8)))
+        .consumer(out::set)
         .build();
 
     router.process(context);
 
-    String body = out.get();
-    com.fasterxml.jackson.databind.JsonNode root = parse(body);
-    assertNull(root.path("error").isNull() ? null : root.path("error").asText(null));
+    assertEquals("chat", out.get().headers().getFirst("X-AIATP-Event-Channel"));
+    assertEquals("ok", AiatpIO.bodyToString(out.get().body(), StandardCharsets.UTF_8));
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
-  }
-
-  private static com.fasterxml.jackson.databind.JsonNode parse(String json) {
-    try {
-      return new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
-    } catch (Exception e) {
-      throw new AssertionError("Invalid JSON: " + json, e);
-    }
   }
 
   private static final class StubManager implements ComponentManagerInterface {
@@ -151,4 +141,3 @@ class RouterAgentPreDispatchRequiredArgsTest {
     }
   }
 }
-

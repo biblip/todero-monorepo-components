@@ -314,18 +314,20 @@ public class SpotifyComponent {
         context.response(text);
         return true;
       }
-
-      Map<String, Object> payload = new LinkedHashMap<>();
-      payload.put("ok", result.ok());
-      payload.put("provider", "spotify");
-      payload.put("session", sessionMap(result.session()));
-      payload.put("authorizeUrl", result.authorizeUrl());
-      payload.put("requiredScopes", spotifyPkceService.requiredScopes());
-      payload.putAll(result.channelsPayload());
-      payload.put("secureEnvelope", envelopeMap(result.secureEnvelope()));
-      payload.put("relayPolicy", relayPolicyMap(result.relayPolicy()));
-      payload.put("meta", metaMap("auth-begin", input.args));
-      context.responseJson(200, GSON.toJson(payload));
+      context.emitStatus(result.message(), "progress");
+      if (result.ctaHtml() != null && !result.ctaHtml().isBlank()) {
+        context.emitWebviewHtml(result.ctaHtml(), "progress", "html", true);
+      }
+      Map<String, Object> authPayload = new LinkedHashMap<>();
+      authPayload.put("provider", "spotify");
+      authPayload.put("session", sessionMap(result.session()));
+      authPayload.put("authorizeUrl", result.authorizeUrl());
+      authPayload.put("requiredScopes", spotifyPkceService.requiredScopes());
+      authPayload.put("secureEnvelope", envelopeMap(result.secureEnvelope()));
+      authPayload.put("relayPolicy", relayPolicyMap(result.relayPolicy()));
+      authPayload.put("openExternally", true);
+      authPayload.put("ctaLabel", "Authorize Spotify");
+      context.emitAuthJson(GSON.toJson(authPayload), "final");
       return true;
     } catch (Exception e) {
       return respond(context, input, "auth-begin", input.args, "auth-begin failed [error_code=" + inferAuthErrorCode(e) + "]: " + redact(e.getMessage()), false, inferAuthErrorCode(e));
@@ -344,16 +346,11 @@ public class SpotifyComponent {
         context.response(result.message());
         return true;
       }
-      Map<String, Object> payload = new LinkedHashMap<>();
-      payload.put("ok", result.ok());
-      payload.put("provider", "spotify");
-      payload.put("errorCode", result.errorCode());
-      payload.put("message", result.message());
-      payload.put("session", result.session() == null ? null : sessionMap(result.session()));
-      payload.put("tokenStatus", result.tokenStatus());
-      payload.put("channels", defaultChannels(result.message()));
-      payload.put("meta", metaMap("auth-complete", input.args));
-      context.responseJson(result.ok() ? 200 : 400, GSON.toJson(payload));
+      if (result.ok()) {
+        context.emitStatus(result.message(), "final");
+      } else {
+        context.emitProtocolError(result.message());
+      }
       return true;
     } catch (Exception e) {
       return respond(context, input, "auth-complete", input.args, "auth-complete failed [error_code=" + inferAuthErrorCode(e) + "]: " + redact(e.getMessage()), false, inferAuthErrorCode(e));
@@ -372,15 +369,11 @@ public class SpotifyComponent {
       context.response(result.message() + (result.session() == null ? "" : ("\nstatus: " + result.session().status().name())));
       return true;
     }
-    Map<String, Object> payload = new LinkedHashMap<>();
-    payload.put("provider", "spotify");
-    payload.put("ok", result.ok());
-    payload.put("errorCode", result.errorCode());
-    payload.put("message", result.message());
-    payload.put("session", result.session() == null ? null : sessionMap(result.session()));
-    payload.put("channels", defaultChannels(result.message()));
-    payload.put("meta", metaMap("auth-session", input.args));
-    context.responseJson(result.ok() ? 200 : 404, GSON.toJson(payload));
+    if (result.ok()) {
+      context.emitStatus(result.message(), "final");
+    } else {
+      context.emitProtocolError(result.message());
+    }
     return true;
   }
 
@@ -396,15 +389,11 @@ public class SpotifyComponent {
       context.response(result.message());
       return true;
     }
-    Map<String, Object> payload = new LinkedHashMap<>();
-    payload.put("provider", "spotify");
-    payload.put("ok", result.ok());
-    payload.put("errorCode", result.errorCode());
-    payload.put("message", result.message());
-    payload.put("session", result.session() == null ? null : sessionMap(result.session()));
-    payload.put("channels", defaultChannels(result.message()));
-    payload.put("meta", metaMap("auth-cancel", input.args));
-    context.responseJson(result.ok() ? 200 : 404, GSON.toJson(payload));
+    if (result.ok()) {
+      context.emitStatus(result.message(), "final");
+    } else {
+      context.emitProtocolError(result.message());
+    }
     return true;
   }
 
@@ -1217,31 +1206,6 @@ public class SpotifyComponent {
     return out;
   }
 
-  private static Map<String, Object> metaMap(String command, String args) {
-    Map<String, Object> meta = new LinkedHashMap<>();
-    meta.put("command", command);
-    meta.put("args", args == null ? "" : args);
-    meta.put("format", "json");
-    meta.put("timestamp", Instant.now().toString());
-    return meta;
-  }
-
-  private static Map<String, Object> defaultChannels(String statusMessage) {
-    Map<String, Object> channels = new LinkedHashMap<>();
-    Map<String, Object> chat = new LinkedHashMap<>();
-    chat.put("message", "");
-    channels.put("chat", chat);
-    Map<String, Object> status = new LinkedHashMap<>();
-    status.put("message", statusMessage == null ? "" : statusMessage);
-    channels.put("status", status);
-    Map<String, Object> webview = new LinkedHashMap<>();
-    webview.put("html", null);
-    webview.put("mode", "none");
-    webview.put("replace", false);
-    channels.put("webview", webview);
-    return channels;
-  }
-
   private static String inferAuthErrorCode(Exception e) {
     String msg = e == null ? null : e.getMessage();
     if (msg == null || msg.isBlank()) {
@@ -1306,55 +1270,17 @@ public class SpotifyComponent {
       context.response(safeMessage);
       return true;
     }
-
-    String metaJson = buildMetaJson(command, args, safeMessage, ok, errorCode);
-    String json = "{"
-        + "\"ok\":" + ok + ","
-        + "\"errorCode\":" + quoteJson(errorCode) + ","
-        + "\"message\":" + quoteJson(safeMessage) + ","
-        + "\"data\":{\"text\":" + quoteJson(safeMessage) + "},"
-        + "\"channels\":" + buildChannelsJson(command, args, safeMessage)
-        + ","
-        + "\"meta\":" + metaJson
-        + "}";
-    context.responseJson(ok ? 200 : 400, json);
-    return true;
-  }
-
-  private static String buildChannelsJson(String command, String args, String message) {
-    String normalized = command == null ? "" : command.trim().toLowerCase();
-    String status = message == null ? "" : message.trim();
-    boolean suggest = "suggest".equals(normalized);
-    String webviewHtml = suggest ? buildSuggestHtml(status) : null;
-    String webviewMode = suggest ? "html" : "none";
-    boolean replace = suggest && webviewHtml != null;
-    return "{"
-        + "\"chat\":{\"message\":null},"
-        + "\"status\":{\"message\":" + quoteJson(status) + "},"
-        + "\"webview\":{"
-        + "\"html\":" + quoteJson(webviewHtml) + ","
-        + "\"mode\":" + quoteJson(webviewMode) + ","
-        + "\"replace\":" + replace
-        + "}"
-        + "}";
-  }
-
-  private static String buildMetaJson(String command, String args, String message, boolean ok, String errorCode) {
-    StringBuilder meta = new StringBuilder(256);
-    meta.append('{');
-    meta.append("\"command\":").append(quoteJson(command));
-    meta.append(',');
-    meta.append("\"args\":").append(quoteJson(args == null ? "" : args));
-    meta.append(',');
-    meta.append("\"format\":\"json\",");
-    meta.append("\"timestamp\":").append(quoteJson(Instant.now().toString()));
-    if (!ok && shouldEmitFailureMeta(message)) {
-      meta.append(',');
-      meta.append("\"outcome\":\"unhandled_intent\",");
-      meta.append("\"errorCode\":").append(quoteJson(failureErrorCode(errorCode)));
+    if (!ok) {
+      context.emitProtocolError(safeMessage);
+      return true;
     }
-    meta.append('}');
-    return meta.toString();
+    if ("suggest".equalsIgnoreCase(command == null ? "" : command.trim())) {
+      context.emitStatus(safeMessage, "progress");
+      context.emitWebviewHtml(buildSuggestHtml(safeMessage), "final", "html", true);
+      return true;
+    }
+    context.emitStatus(safeMessage, "final");
+    return true;
   }
 
   private static boolean shouldEmitFailureMeta(String message) {
@@ -1540,6 +1466,10 @@ public class SpotifyComponent {
   }
 
   public enum SpotifyEvent implements EventDefinition {
+    status("Built-in status channel event"),
+    html("Built-in html channel event"),
+    auth("Built-in auth channel event"),
+    error("Built-in error channel event"),
     PLAYBACK_STATUS("Periodic Spotify playback status event (legacy text mode)"),
     PLAYBACK_EVENT_V2("Typed Spotify playback event stream with state and delta payload");
 

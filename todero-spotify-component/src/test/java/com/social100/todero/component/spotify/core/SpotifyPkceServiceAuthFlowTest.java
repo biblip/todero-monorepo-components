@@ -226,13 +226,7 @@ class SpotifyPkceServiceAuthFlowTest {
     SpotifyPkceService.AuthBeginResult consoleBegin = service.authBegin("console", null, "owner-a");
     assertTrue(consoleBegin.authorizeUrl().contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A34895%2Fspotify%2Fcallback"));
 
-    @SuppressWarnings("unchecked")
-    Map<String, Object> channels = (Map<String, Object>) appBegin.channelsPayload().get("channels");
-    @SuppressWarnings("unchecked")
-    Map<String, Object> webview = (Map<String, Object>) channels.get("webview");
-    assertEquals("html", webview.get("mode"));
-    assertEquals(Boolean.TRUE, webview.get("replace"));
-    String html = String.valueOf(webview.get("html"));
+    String html = appBegin.ctaHtml();
     assertTrue(html.contains("Authorize Spotify"));
     assertTrue(html.contains("href="));
   }

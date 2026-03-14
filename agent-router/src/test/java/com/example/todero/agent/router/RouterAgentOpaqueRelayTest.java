@@ -52,7 +52,7 @@ class RouterAgentOpaqueRelayTest {
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<String> responseRef = new AtomicReference<>();
+    AtomicReference<AiatpIO.HttpResponse> responseRef = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-opaque")
@@ -60,13 +60,14 @@ class RouterAgentOpaqueRelayTest {
         .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.router/process")
             .body(AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8))
             .build())
-        .consumer(r -> responseRef.set(AiatpIO.bodyToString(r.body(), StandardCharsets.UTF_8)))
+        .consumer(responseRef::set)
         .build();
 
     router.process(context);
 
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
-    assertEquals(delegatedBody, responseRef.get());
+    assertEquals("auth", responseRef.get().headers().getFirst("X-AIATP-Event-Channel"));
+    assertEquals("{\"required\":false}", AiatpIO.bodyToString(responseRef.get().body(), StandardCharsets.UTF_8));
   }
 
   @Test
@@ -77,7 +78,7 @@ class RouterAgentOpaqueRelayTest {
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<String> responseRef = new AtomicReference<>();
+    AtomicReference<AiatpIO.HttpResponse> responseRef = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-opaque-malformed")
@@ -85,13 +86,14 @@ class RouterAgentOpaqueRelayTest {
         .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.router/process")
             .body(AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8))
             .build())
-        .consumer(r -> responseRef.set(AiatpIO.bodyToString(r.body(), StandardCharsets.UTF_8)))
+        .consumer(responseRef::set)
         .build();
 
     router.process(context);
 
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
-    assertEquals(delegatedBody, responseRef.get());
+    assertEquals("chat", responseRef.get().headers().getFirst("X-AIATP-Event-Channel"));
+    assertEquals("done", AiatpIO.bodyToString(responseRef.get().body(), StandardCharsets.UTF_8));
   }
 
   private static final class StubManager implements ComponentManagerInterface {

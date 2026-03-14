@@ -126,9 +126,23 @@ public class AIAArgumentParser {
     }
     if (rawHostForLog == null && sniOverride != null) rawHostForLog = sniOverride;
 
-        return new RemoteCliConfig(scheme, urlHost, rawHostForLog, vhost, port, tlsEnabled,
-            trustAnchorsPath, pinnedSpkiSha256, clientPkcs12Path, clientPassword, clientKeyAlias,
-            java.util.Collections.emptyMap(), java.util.Collections.emptyList(), null, null);
+    return new RemoteCliConfig(
+        scheme,
+        urlHost,
+        rawHostForLog,
+        vhost,
+        port,
+        tlsEnabled,
+        trustAnchorsPath,
+        pinnedSpkiSha256,
+        clientPkcs12Path,
+        clientPassword,
+        clientKeyAlias,
+        java.util.Collections.<String, String>emptyMap(),
+        java.util.Collections.<String>emptyList(),
+        null,
+        null,
+        "v3");
   }
 
   public String getArgument(String name) {

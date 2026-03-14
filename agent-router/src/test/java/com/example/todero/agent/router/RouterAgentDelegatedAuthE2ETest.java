@@ -30,23 +30,24 @@ class RouterAgentDelegatedAuthE2ETest {
     StubManager manager = new StubManager();
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
 
-    AtomicReference<String> firstResponse = new AtomicReference<>();
+    AtomicReference<AiatpIO.HttpResponse> firstResponse = new AtomicReference<>();
     CommandContext firstContext = baseContext(manager, "android-sess-1", "play caribbean blue by enya", firstResponse);
     router.process(firstContext);
 
-    JsonNode firstJson = MAPPER.readTree(firstResponse.get());
-    assertTrue(firstJson.path("auth").path("required").asBoolean(false));
-    assertEquals("spotify", firstJson.path("auth").path("provider").asText());
-    assertTrue(firstJson.path("channels").path("status").path("message").asText().length() > 0);
+    assertEquals("auth", firstResponse.get().headers().getFirst("X-AIATP-Event-Channel"));
+    JsonNode firstJson = MAPPER.readTree(AiatpIO.bodyToString(firstResponse.get().body(), StandardCharsets.UTF_8));
+    assertTrue(firstJson.path("required").asBoolean(false));
+    assertEquals("spotify", firstJson.path("provider").asText());
 
     String callbackPrompt = "auth-complete session-id=sess-1 state=st1 code=code1 "
         + "secureEnvelope={\"opaquePayload\":\"xyz\",\"integrity\":\"sig\"}";
 
-    AtomicReference<String> secondResponse = new AtomicReference<>();
+    AtomicReference<AiatpIO.HttpResponse> secondResponse = new AtomicReference<>();
     CommandContext secondContext = baseContext(manager, "android-sess-1", callbackPrompt, secondResponse);
     router.process(secondContext);
 
-    assertEquals(manager.authCompleteDelegatedBody, secondResponse.get());
+    assertEquals("chat", secondResponse.get().headers().getFirst("X-AIATP-Event-Channel"));
+    assertEquals("Authorization completed.", AiatpIO.bodyToString(secondResponse.get().body(), StandardCharsets.UTF_8));
     assertEquals(callbackPrompt, manager.lastDelegatedPrompt.get());
   }
 
@@ -58,25 +59,26 @@ class RouterAgentDelegatedAuthE2ETest {
     String callbackPrompt = "auth-complete session-id=sess-1 state=st1 code=code1 "
         + "secureEnvelope={\"opaquePayload\":\"xyz\",\"integrity\":\"sig\"}";
 
-    AtomicReference<String> response = new AtomicReference<>();
+    AtomicReference<AiatpIO.HttpResponse> response = new AtomicReference<>();
     CommandContext context = baseContext(manager, "console-sess-1", callbackPrompt, response);
     router.process(context);
 
-    assertEquals(manager.authCompleteDelegatedBody, response.get());
+    assertEquals("chat", response.get().headers().getFirst("X-AIATP-Event-Channel"));
+    assertEquals("Authorization completed.", AiatpIO.bodyToString(response.get().body(), StandardCharsets.UTF_8));
     assertEquals(callbackPrompt, manager.lastDelegatedPrompt.get());
   }
 
   private static CommandContext baseContext(StubManager manager,
                                             String sourceId,
                                             String prompt,
-                                            AtomicReference<String> out) {
+                                            AtomicReference<AiatpIO.HttpResponse> out) {
     return CommandContext.builder()
         .sourceId(sourceId)
         .componentManager(manager)
         .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.router/process")
             .body(AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8))
             .build())
-        .consumer(r -> out.set(AiatpIO.bodyToString(r.body(), StandardCharsets.UTF_8)))
+        .consumer(out::set)
         .build();
   }
 

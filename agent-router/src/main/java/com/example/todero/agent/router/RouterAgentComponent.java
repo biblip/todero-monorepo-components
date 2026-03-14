@@ -14,6 +14,7 @@ import com.social100.todero.common.routing.AgentCapabilityManifest;
 import com.social100.todero.common.routing.AgentCommandSchema;
 import com.social100.todero.common.storage.Storage;
 import com.social100.todero.console.base.OutputType;
+import com.social100.todero.processor.EventDefinition;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -41,6 +42,7 @@ import static com.social100.todero.common.config.Util.parseDotenv;
     type = ServerType.AI,
     visible = true,
     description = "Dynamic router agent that selects and delegates to available internal agents",
+    events = RouterAgentComponent.RouterEvent.class,
     capabilityProvider = RouterAgentCapabilities.class)
 public class RouterAgentComponent {
   private static final String MAIN_GROUP = "Main";
@@ -80,8 +82,7 @@ public class RouterAgentComponent {
   public Boolean process(CommandContext context) {
     String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
     if (prompt.isEmpty()) {
-      context.response(renderEnvelope(prompt, null, null, false, "invalid_request",
-          "Prompt is required. Usage: process <text>", "none", null, null, false, null, null));
+      context.emitProtocolError("Prompt is required. Usage: process <text>");
       return true;
     }
 
@@ -91,9 +92,7 @@ public class RouterAgentComponent {
     if (stickyResetDirective.resetRequested()) {
       stickyBySession.remove(sessionId);
       if (stickyResetDirective.remainingPrompt().isBlank()) {
-        context.response(renderEnvelope(prompt, null, "sticky_reset", false, null,
-            "Sticky session cleared. Routing will restart on the next prompt.",
-            "none", null, null, false, null, null));
+        context.emitStatus("Sticky session cleared. Routing will restart on the next prompt.", "final");
         return true;
       }
       prompt = stickyResetDirective.remainingPrompt();
@@ -102,14 +101,12 @@ public class RouterAgentComponent {
     boolean opaqueAuthRelay = isOpaqueAuthRelayPrompt(prompt);
     System.out.println("[ROUTER-AGENT] process start session=" + sessionId + " prompt=" + prompt);
 
-    String finalResponse = null;
     boolean rerouteAttempted = false;
-    while (finalResponse == null) {
+    while (true) {
       List<AgentCapability> agents = discoverAgents(context);
       if (agents.isEmpty()) {
-        finalResponse = renderEnvelope(prompt, null, null, false, "no_agents_available",
-            "No routable agent found in runtime.", "none", null, null, false, null, null);
-        break;
+        context.emitProtocolError("No routable agent found in runtime.");
+        return true;
       }
 
       StickyRoute sticky = stickyBySession.get(sessionId);
@@ -117,10 +114,12 @@ public class RouterAgentComponent {
           ? decideOpaqueRelayRoute(prompt, sticky, agents)
           : decideRoute(prompt, sticky, agents);
       System.out.println("[ROUTER-AGENT] decision route=" + decision.route + " reason=" + decision.reason + " switched=" + decision.switched);
+      context.emitThought("route=" + safe(decision.route)
+          + " reason=" + safe(decision.reason)
+          + " switched=" + decision.switched, "progress");
       if (decision.route == null || decision.route.isBlank()) {
-        finalResponse = renderEnvelope(prompt, null, null, false, "route_failed",
-            "Could not determine target agent.", "none", null, null, false, null, null);
-        break;
+        context.emitProtocolError("Could not determine target agent.");
+        return true;
       }
 
       AgentCapability selectedAgent = findAgent(agents, decision.route);
@@ -129,9 +128,8 @@ public class RouterAgentComponent {
           ? PreDispatchResult.allow(prompt, "opaque-auth-relay")
           : preDispatch(prompt, selectedAgent, sticky);
       if (!preDispatch.allowed) {
-        finalResponse = renderEnvelope(prompt, decision.route, preDispatch.reason, decision.switched, "missing_required_args",
-            preDispatch.message, "none", null, null, false, null, null);
-        break;
+        context.emitProtocolError(preDispatch.message);
+        return true;
       }
 
       String delegatedPrompt = preDispatch.delegatedPrompt;
@@ -139,9 +137,8 @@ public class RouterAgentComponent {
       AiatpIO.HttpResponse delegated = delegateToAgent(context, decision.route, "process", delegatedPrompt);
       if (delegated == null) {
         System.out.println("[ROUTER-AGENT] no response from agent=" + decision.route);
-        finalResponse = renderEnvelope(prompt, decision.route, decision.reason, decision.switched, "route_failed",
-            "Agent did not return a response.", "none", null, null, false, null, null);
-        break;
+        context.emitProtocolError("Agent did not return a response.");
+        return true;
       }
 
       String delegatedBody = AiatpIO.bodyToString(delegated.body(), StandardCharsets.UTF_8);
@@ -150,85 +147,83 @@ public class RouterAgentComponent {
       if (opaqueAuthRelay) {
         System.out.println("[ROUTER-AGENT] opaque auth relay route=" + decision.route);
         stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
-        finalResponse = delegatedBody;
-        break;
+        if (!emitDelegatedPayload(context, delegatedJson, delegatedBody)) {
+          context.emitProtocolError("Delegated agent response is missing required channels metadata.");
+        }
+        return true;
       }
 
       if (!rerouteAttempted && indicatesFailureSignal(delegatedJson)) {
         rerouteAttempted = true;
         stickyBySession.remove(sessionId);
+        context.emitStatus("Rerouting to another agent.", "progress");
+        context.emitThought("reroute=true reason=failure_signal agent=" + safe(decision.route), "progress");
         System.out.println("[ROUTER-AGENT] fallback triggered by "
             + readPath(delegatedJson.path("meta"), "errorCode")
             + "; rerouting prompt: " + prompt);
         continue;
       }
 
-      String delegatedChannels = extractChannelsJson(delegatedJson);
-      String delegatedAuth = extractAuthJson(delegatedJson);
-      if (delegatedChannels == null) {
+      if (delegatedJson == null || !delegatedJson.has("channels") || !delegatedJson.path("channels").isObject()) {
         System.out.println("[ROUTER-AGENT] delegated response missing channels");
-        finalResponse = renderEnvelope(prompt, decision.route, decision.reason, decision.switched, "delegated_protocol_error",
-            "Delegated agent response is missing required channels metadata.", "none", null, null, false, null, null);
-        break;
+        context.emitProtocolError("Delegated agent response is missing required channels metadata.");
+        return true;
       }
       stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
-      finalResponse = renderEnvelope(prompt, decision.route,
-          rerouteAttempted ? "agent-fallback" : decision.reason,
-          decision.switched, null, null, null, delegatedChannels, delegatedAuth, true,
-          delegated.status(), delegatedBody);
       System.out.println("[ROUTER-AGENT] final response reason=" + (rerouteAttempted ? "agent-fallback" : decision.reason));
+      emitDelegatedPayload(context, delegatedJson, delegatedBody);
+      return true;
     }
+  }
 
-    context.response(finalResponse);
+  private boolean emitDelegatedPayload(CommandContext context, JsonNode delegatedJson, String delegatedBody) {
+    if (delegatedJson == null) {
+      return false;
+    }
+    JsonNode channels = delegatedJson.path("channels");
+    if (!channels.isObject()) {
+      return false;
+    }
+    String chatMessage = readPath(channels.path("chat"), "message");
+    String statusMessage = readPath(channels.path("status"), "message");
+    String thoughtMessage = readPath(channels.path("thought"), "message");
+    JsonNode htmlNode = channels.has("html") ? channels.path("html") : channels.path("webview");
+    String html = readPath(htmlNode, "html");
+    String htmlMode = readPath(htmlNode, "mode");
+    boolean htmlReplace = !htmlNode.isMissingNode() && htmlNode.path("replace").asBoolean(true);
+    JsonNode auth = delegatedJson.path("auth");
+    String authJson = auth.isObject() ? auth.toString() : null;
+
+    String finalChannel = authJson != null ? "auth"
+        : (!html.isBlank() || "suggestions_from_toolsteps".equalsIgnoreCase(htmlMode)) ? "html"
+        : !thoughtMessage.isBlank() ? "thought"
+        : !chatMessage.isBlank() ? "chat"
+        : !statusMessage.isBlank() ? "status"
+        : "";
+
+    if (!statusMessage.isBlank()) {
+      context.emitStatus(statusMessage, "status".equals(finalChannel) ? "final" : "progress");
+    }
+    if (!thoughtMessage.isBlank()) {
+      context.emitThought(thoughtMessage, "thought".equals(finalChannel) ? "final" : "progress");
+    }
+    if (!chatMessage.isBlank()) {
+      context.emitChat(chatMessage, "chat".equals(finalChannel) ? "final" : "progress");
+    }
+    if (!html.isBlank() || "suggestions_from_toolsteps".equalsIgnoreCase(htmlMode)) {
+      context.emitWebviewHtml(html, "html".equals(finalChannel) ? "final" : "progress",
+          htmlMode.isBlank() ? "html" : htmlMode, htmlReplace);
+    }
+    if (authJson != null) {
+      context.emitAuthJson(authJson, "final");
+    }
+    if (finalChannel.isBlank()) {
+      String fallback = delegatedBody == null ? "" : delegatedBody.trim();
+      context.emitProtocolError(fallback.isBlank()
+          ? "Delegated agent response is missing supported channel content."
+          : fallback);
+    }
     return true;
-  }
-
-  private String extractChannelsJson(JsonNode delegatedJson) {
-    if (delegatedJson != null && delegatedJson.has("channels") && delegatedJson.path("channels").isObject()) {
-      return delegatedJson.path("channels").toString();
-    }
-    return null;
-  }
-
-  private String extractAuthJson(JsonNode delegatedJson) {
-    if (delegatedJson != null && delegatedJson.has("auth") && delegatedJson.path("auth").isObject()) {
-      return delegatedJson.path("auth").toString();
-    }
-    return null;
-  }
-
-  private String renderEnvelope(String request,
-                                String selectedAgent,
-                                String reason,
-                                boolean switched,
-                                String errorCode,
-                                String message,
-                                String webviewMode,
-                                String delegatedChannelsJson,
-                                String delegatedAuthJson,
-                                boolean preserveDelegatedChannels,
-                                Integer agentStatus,
-                                String agentResponse) {
-    String channels = preserveDelegatedChannels && delegatedChannelsJson != null
-        ? delegatedChannelsJson
-        : "{"
-        + "\"chat\":{\"message\":" + quote(message) + "},"
-        + "\"status\":{\"message\":" + quote(message) + "},"
-        + "\"webview\":{\"html\":null,\"mode\":" + quote(webviewMode == null ? "none" : webviewMode) + ",\"replace\":false}"
-        + "}";
-    return "{"
-        + "\"request\":" + quote(request) + ","
-        + "\"selectedAgent\":" + quote(selectedAgent) + ","
-        + "\"switched\":" + switched + ","
-        + "\"reason\":" + quote(reason) + ","
-        + "\"routingUser\":null,"
-        + "\"error\":" + quote(errorCode) + ","
-        + "\"message\":" + quote(message) + ","
-        + "\"auth\":" + (delegatedAuthJson == null ? "null" : delegatedAuthJson) + ","
-        + "\"channels\":" + channels + ","
-        + "\"agentStatus\":" + (agentStatus == null ? "null" : agentStatus) + ","
-        + "\"agentResponse\":" + quote(agentResponse)
-        + "}";
   }
 
   private RouteDecision decideRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents) {
@@ -1054,6 +1049,26 @@ public class RouterAgentComponent {
 
   private static String safe(String value) {
     return value == null ? "" : value.trim();
+  }
+
+  public enum RouterEvent implements EventDefinition {
+    chat("Chat message channel"),
+    status("Status message channel"),
+    html("HTML payload channel"),
+    auth("Delegated auth payload channel"),
+    error("Protocol error channel"),
+    thought("Reasoning/thought channel");
+
+    private final String description;
+
+    RouterEvent(String description) {
+      this.description = description;
+    }
+
+    @Override
+    public String getDescription() {
+      return description;
+    }
   }
 
   private record AgentCapability(String name,

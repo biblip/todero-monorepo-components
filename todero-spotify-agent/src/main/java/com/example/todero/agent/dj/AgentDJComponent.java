@@ -11,6 +11,7 @@ import com.social100.todero.common.ai.agent.AgentDefinition;
 import com.social100.todero.common.ai.agent.AgentPrompt;
 import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.common.agent.work.AppendActionRequest;
 import com.social100.todero.common.agent.work.CompletionRequest;
 import com.social100.todero.common.agent.work.FailureRequest;
@@ -46,7 +47,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -153,7 +153,7 @@ public class AgentDJComponent {
     try {
       LoopResult result = future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       context.response(renderLoopResultAsJson(result));
-      context.event(SimpleEvent.AGENT_DECISION.name(), renderDecisionEventAsJson(result));
+      context.emitThought(renderDecisionEventAsJson(result), "final");
     } catch (TimeoutException e) {
       String timeoutMessage = "Agent processing exceeded " + REQUEST_TIMEOUT_SECONDS + " seconds";
       context.response(renderContractEnvelope(
@@ -443,38 +443,57 @@ public class AgentDJComponent {
 
   private ToolExecution executeSpotifyInternal(CommandContext parentContext, String command, String args) {
     String argsWithFormat = safeTrim(args).isBlank() ? "--format json" : safeTrim(args) + " --format json";
-    CompletableFuture<String> outFuture = new CompletableFuture<>();
-    AtomicInteger statusRef = new AtomicInteger(200);
+    String internalRequestId = "dj-tool-" + newCorrelationId();
+    CompletableFuture<SpotifyExecutionResult> outFuture = new CompletableFuture<>();
 
     CommandContext internalContext = parentContext.cloneBuilder()
         .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + SPOTIFY_COMPONENT + "/" + command)
+            .setHeader("X-Request-Id", internalRequestId)
             .body(AiatpIO.Body.ofString(argsWithFormat, StandardCharsets.UTF_8))
             .build())
+        .eventConsumer(wrapper -> completeFromSpotifyEvent(outFuture, wrapper, internalRequestId))
         .consumer(response -> {
-          statusRef.set(response.status());
-          outFuture.complete(AiatpIO.bodyToString(response.body(), StandardCharsets.UTF_8));
+          String body = AiatpIO.bodyToString(response.body(), StandardCharsets.UTF_8);
+          if (!safeTrim(body).isEmpty()) {
+            outFuture.complete(new SpotifyExecutionResult(
+                "response",
+                "",
+                "",
+                body,
+                "",
+                response.status()
+            ));
+          }
         })
         .build();
 
     try {
       System.out.println("[DJ-AGENT] dispatching context.execute component=" + SPOTIFY_COMPONENT + " command=" + command + " args=" + argsWithFormat);
       parentContext.execute(SPOTIFY_COMPONENT, command, internalContext);
-      String output = outFuture.get(12, TimeUnit.SECONDS);
-      String safeOutput = output == null ? "" : output;
+      SpotifyExecutionResult executionResult = outFuture.get(12, TimeUnit.SECONDS);
+      String safeOutput = safeTrim(executionResult.body);
       System.out.println("Tool response [" + command + "]: " + redactedForLogs(safeOutput));
-      SpotifyEnvelope envelope = parseSpotifyEnvelope(safeOutput);
-      String effectiveOutput = envelope.recognized ? envelope.message : safeOutput;
-      boolean failed = statusRef.get() >= 400
-          || (envelope.recognized && !envelope.ok)
-          || (!envelope.recognized && isExecutionFailure(statusRef.get(), safeOutput));
+      boolean fromEvent = "event".equals(executionResult.source);
+      SpotifyEnvelope envelope = fromEvent ? new SpotifyEnvelope(false, true, executionResult.errorCode, safeOutput) : parseSpotifyEnvelope(safeOutput);
+      String effectiveOutput = fromEvent
+          ? safeOutput
+          : (envelope.recognized ? envelope.message : safeOutput);
+      String eventErrorCode = safeTrim(executionResult.errorCode);
+      boolean failed = executionResult.status >= 400
+          || (!eventErrorCode.isEmpty())
+          || ("error".equals(executionResult.channel))
+          || (!fromEvent && envelope.recognized && !envelope.ok)
+          || (!fromEvent && !envelope.recognized && isExecutionFailure(executionResult.status, safeOutput));
       if (failed) {
-        System.out.println("[DJ-AGENT] tool execution classified failure command=" + command + " status=" + statusRef.get() + " body=" + redactedForLogs(safeOutput));
-        String errorCode = envelope.recognized && safeTrim(envelope.errorCode).length() > 0
+        System.out.println("[DJ-AGENT] tool execution classified failure command=" + command + " status=" + executionResult.status + " body=" + redactedForLogs(safeOutput));
+        String errorCode = !eventErrorCode.isEmpty()
+            ? eventErrorCode
+            : (envelope.recognized && safeTrim(envelope.errorCode).length() > 0
             ? envelope.errorCode
-            : "tool-execution-failed";
+            : "tool-execution-failed");
         return ToolExecution.error(errorCode, command, args, effectiveOutput, safeOutput);
       }
-      System.out.println("[DJ-AGENT] tool execution success command=" + command + " status=" + statusRef.get());
+      System.out.println("[DJ-AGENT] tool execution success command=" + command + " status=" + executionResult.status);
       return new ToolExecution(true, command, args, effectiveOutput, "", safeOutput);
     } catch (TimeoutException e) {
       System.out.println("[DJ-AGENT] tool execution timeout command=" + command + " after 12s");
@@ -482,6 +501,45 @@ public class AgentDJComponent {
     } catch (Exception e) {
       System.out.println("Tool execution failure [" + command + "]: " + e.getMessage());
       return ToolExecution.error("tool-execution-failed", command, args, "Tool execution failed: " + e.getMessage(), "");
+    }
+  }
+
+  private void completeFromSpotifyEvent(CompletableFuture<SpotifyExecutionResult> outFuture,
+                                        AiatpIORequestWrapper wrapper,
+                                        String expectedRequestId) {
+    if (outFuture.isDone() || wrapper == null || wrapper.getXEvent() == null) {
+      return;
+    }
+    AiatpIO.XProto.Event event = wrapper.getXEvent();
+    if (event.scope != AiatpIO.XProto.EventScope.REQ || !expectedRequestId.equals(safeTrim(event.reference))) {
+      return;
+    }
+    String channel = safeTrim(event.channel).toLowerCase();
+    String phase = safeTrim(event.headers().getFirst("Event-Phase")).toLowerCase();
+    String body = safeTrim(AiatpIO.bodyToString(event.body(), StandardCharsets.UTF_8));
+    String errorCode = "auth".equals(channel) ? extractAuthErrorCode(body) : "";
+    if ("error".equals(channel) && errorCode.isEmpty()) {
+      errorCode = "tool-execution-failed";
+    }
+    boolean terminal = "error".equals(channel)
+        || ("auth".equals(channel) && (!errorCode.isEmpty() || "final".equals(phase)))
+        || ("status".equals(channel) && "final".equals(phase));
+    if (!terminal) {
+      return;
+    }
+    outFuture.complete(new SpotifyExecutionResult("event", channel, phase, body, errorCode, 200));
+  }
+
+  private String extractAuthErrorCode(String authJson) {
+    String text = safeTrim(authJson);
+    if (text.isEmpty()) {
+      return "";
+    }
+    try {
+      JsonNode root = mapper.readTree(text);
+      return safeTrim(readPath(root, "errorCode"));
+    } catch (Exception ignored) {
+      return "";
     }
   }
 
@@ -1492,6 +1550,7 @@ public class AgentDJComponent {
         + "\"channels\":{"
         + "\"chat\":{\"message\":" + quoteJson(message) + "},"
         + "\"status\":{\"message\":" + quoteJson(statusMessage) + "},"
+        + "\"thought\":{\"message\":" + quoteJson("source=" + safeTrim(source) + " correlationId=" + safeTrim(correlationId)) + "},"
         + "\"webview\":{"
         + "\"html\":" + quoteJson(html) + ","
         + "\"mode\":" + quoteJson(normalizedMode) + ","
@@ -1540,15 +1599,32 @@ public class AgentDJComponent {
       replace = false;
     }
 
+    String thought = buildThoughtSummary(result, lastToolStep);
     return "{"
         + "\"chat\":{\"message\":" + quoteJson(safeTrim(user)) + "},"
         + "\"status\":{\"message\":" + quoteJson(status) + "},"
+        + "\"thought\":{\"message\":" + quoteJson(thought) + "},"
         + "\"webview\":{"
         + "\"html\":" + quoteJson(hasHtml ? selectedHtml : null) + ","
         + "\"mode\":" + quoteJson(mode) + ","
         + "\"replace\":" + replace
         + "}"
         + "}";
+  }
+
+  private static String buildThoughtSummary(LoopResult result, ToolStep lastToolStep) {
+    if (result == null) {
+      return "agent=dj";
+    }
+    String command = lastToolStep == null ? "none" : safeTrim(lastToolStep.toolCommand);
+    if (command.isEmpty()) {
+      command = "none";
+    }
+    int steps = result.toolSteps == null ? 0 : result.toolSteps.size();
+    return "agent=dj stopReason=" + safeTrim(result.stopReason.code)
+        + " steps=" + steps
+        + " command=" + command
+        + " durationMs=" + result.totalDurationMs;
   }
 
   private static String renderMetaJson(LoopResult result) {
@@ -2071,6 +2147,7 @@ public class AgentDJComponent {
   }
 
   public enum SimpleEvent implements EventDefinition {
+    thought("Reasoning/thought channel"),
     AGENT_DECISION("Agent produced a structured decision event with trace metadata"),
     AGENT_REACTION("Agent reacted to a runtime event");
 
@@ -2090,6 +2167,14 @@ public class AgentDJComponent {
     static ToolExecution error(String errorCode, String command, String args, String output, String rawOutput) {
       return new ToolExecution(false, command, args, output, errorCode, rawOutput);
     }
+  }
+
+  private record SpotifyExecutionResult(String source,
+                                        String channel,
+                                        String phase,
+                                        String body,
+                                        String errorCode,
+                                        int status) {
   }
 
   private record SpotifyEnvelope(boolean recognized, boolean ok, String errorCode, String message) {
