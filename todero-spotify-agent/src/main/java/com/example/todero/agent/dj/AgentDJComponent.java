@@ -52,11 +52,12 @@ import java.util.regex.Pattern;
 
 @AIAController(name = "com.shellaia.verbatim.agent.dj",
     type = ServerType.AI,
-    visible = false,
+    visible = true,
     description = "DJ Agent with iterative planning and event-driven reactions",
     events = AgentDJComponent.SimpleEvent.class,
     capabilityProvider = DjAgentCapabilities.class)
 public class AgentDJComponent {
+  private static final String DJ_BUILD_MARKER = "dj-event-path-v3-2026-03-14T01:48Z";
   private static final String MAIN_GROUP = "Main";
   private static final String SPOTIFY_COMPONENT = "com.shellaia.verbatim.component.spotify";
   private static final int MAX_STEPS = 4;
@@ -77,6 +78,10 @@ public class AgentDJComponent {
       "playlist-create", "playlist-reorder", "playlist-remove-pos"
   );
   private static final Set<String> AUTH_REQUIRED_CODES = Set.of("auth_required", "auth_scope_missing");
+  private static final Set<String> TERMINAL_INTERACTIVE_COMMANDS = Set.of(
+      "play", "pause", "stop", "volume", "volume-up", "volume-down", "mute",
+      "move", "skip", "previous", "playlist-next", "playlist-remove", "playlist-remove-pos"
+  );
 
   //private final AgentDefinition agentDefinition;
   private final ExecutorService cognitionExecutor;
@@ -87,6 +92,7 @@ public class AgentDJComponent {
   private final Map<String, PendingAuthRetry> pendingAuthRetries = new ConcurrentHashMap<>();
 
   public AgentDJComponent(Storage storage) {
+    System.out.println("[DJ-AGENT][BUILD] marker=" + DJ_BUILD_MARKER);
     this.cognitionExecutor = Executors.newSingleThreadExecutor(r -> {
       Thread t = new Thread(r, "dj-agent-cognition");
       t.setDaemon(true);
@@ -113,6 +119,7 @@ public class AgentDJComponent {
     final String correlationId = newCorrelationId();
     final String source = "process";
     String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    System.out.println("[DJ-AGENT][BUILD] marker=" + DJ_BUILD_MARKER + " process correlationId=" + correlationId);
     System.out.println("[DJ-AGENT] process received correlationId=" + correlationId + " prompt=" + prompt);
     if (prompt.isEmpty()) {
       context.response(renderContractEnvelope(
@@ -403,6 +410,14 @@ public class AgentDJComponent {
         break;
       }
 
+      if (interactiveRequest && shouldCompleteAfterSuccessfulTool(tool.command, response)) {
+        stopReason = StopReason.ACTION_NONE;
+        appendLedgerAction(rootWorkId, WorkActionType.DECISION,
+            "step=" + step + " completion=tool_success command=" + tool.command,
+            tool.command, tool.args, redactedForLogs(tool.rawOutput()), toolDurationMs, null);
+        break;
+      }
+
       if (!interactiveRequest && step >= 2) {
         // For background reactions, keep loops short and non-blocking.
         stopReason = StopReason.BACKGROUND_STEP_LIMIT;
@@ -442,14 +457,14 @@ public class AgentDJComponent {
   }
 
   private ToolExecution executeSpotifyInternal(CommandContext parentContext, String command, String args) {
-    String argsWithFormat = safeTrim(args).isBlank() ? "--format json" : safeTrim(args) + " --format json";
+    String spotifyArgs = safeTrim(args);
     String internalRequestId = "dj-tool-" + newCorrelationId();
     CompletableFuture<SpotifyExecutionResult> outFuture = new CompletableFuture<>();
 
     CommandContext internalContext = parentContext.cloneBuilder()
         .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + SPOTIFY_COMPONENT + "/" + command)
             .setHeader("X-Request-Id", internalRequestId)
-            .body(AiatpIO.Body.ofString(argsWithFormat, StandardCharsets.UTF_8))
+            .body(AiatpIO.Body.ofString(spotifyArgs, StandardCharsets.UTF_8))
             .build())
         .eventConsumer(wrapper -> completeFromSpotifyEvent(outFuture, wrapper, internalRequestId))
         .consumer(response -> {
@@ -468,7 +483,8 @@ public class AgentDJComponent {
         .build();
 
     try {
-      System.out.println("[DJ-AGENT] dispatching context.execute component=" + SPOTIFY_COMPONENT + " command=" + command + " args=" + argsWithFormat);
+      System.out.println("[DJ-AGENT][BUILD] marker=" + DJ_BUILD_MARKER + " executeSpotifyInternal command=" + command);
+      System.out.println("[DJ-AGENT] dispatching context.execute component=" + SPOTIFY_COMPONENT + " command=" + command + " args=" + spotifyArgs);
       parentContext.execute(SPOTIFY_COMPONENT, command, internalContext);
       SpotifyExecutionResult executionResult = outFuture.get(12, TimeUnit.SECONDS);
       String safeOutput = safeTrim(executionResult.body);
@@ -511,9 +527,8 @@ public class AgentDJComponent {
       return;
     }
     AiatpIO.XProto.Event event = wrapper.getXEvent();
-    if (event.scope != AiatpIO.XProto.EventScope.REQ || !expectedRequestId.equals(safeTrim(event.reference))) {
-      return;
-    }
+    String eventRef = safeTrim(event.reference);
+    boolean reqMatch = event.scope == AiatpIO.XProto.EventScope.REQ && expectedRequestId.equals(eventRef);
     String channel = safeTrim(event.channel).toLowerCase();
     String phase = safeTrim(event.headers().getFirst("Event-Phase")).toLowerCase();
     String body = safeTrim(AiatpIO.bodyToString(event.body(), StandardCharsets.UTF_8));
@@ -523,9 +538,35 @@ public class AgentDJComponent {
     }
     boolean terminal = "error".equals(channel)
         || ("auth".equals(channel) && (!errorCode.isEmpty() || "final".equals(phase)))
-        || ("status".equals(channel) && "final".equals(phase));
+        || ("status".equals(channel) && ("final".equals(phase) || phase.isEmpty()));
+    if (reqMatch) {
+      System.out.println("[DJ-AGENT][EVENT] marker=" + DJ_BUILD_MARKER
+          + " correlated=true"
+          + " scope=" + event.scope
+          + " channel=" + channel
+          + " phase=" + (phase.isEmpty() ? "<none>" : phase)
+          + " ref=" + (eventRef.isEmpty() ? "<none>" : eventRef)
+          + " expectedRef=" + expectedRequestId
+          + " terminal=" + terminal);
+    }
+    if (!reqMatch) {
+      System.out.println("[DJ-AGENT][EVENT] marker=" + DJ_BUILD_MARKER
+          + " scope=" + event.scope
+          + " channel=" + channel
+          + " phase=" + (phase.isEmpty() ? "<none>" : phase)
+          + " ref=" + (eventRef.isEmpty() ? "<none>" : eventRef)
+          + " expectedRef=" + expectedRequestId
+          + " terminal=" + terminal);
+    }
+    if (!reqMatch && !(event.scope == AiatpIO.XProto.EventScope.TRIGGER && terminal)) {
+      return;
+    }
     if (!terminal) {
       return;
+    }
+    if (!reqMatch) {
+      System.out.println("[DJ-AGENT][EVENT] marker=" + DJ_BUILD_MARKER
+          + " fallback_accept=true reason=trigger_terminal_event channel=" + channel);
     }
     outFuture.complete(new SpotifyExecutionResult("event", channel, phase, body, errorCode, 200));
   }
@@ -617,6 +658,15 @@ public class AgentDJComponent {
         || v.startsWith("CommandDescriptor '")
         || v.startsWith("Failed to execute command")
         || v.matches("(?i)^[a-z0-9-]+ failed(?:\\s+\\[error_code=[a-z0-9_\\-]+])?:.*");
+  }
+
+  private static boolean shouldCompleteAfterSuccessfulTool(String command, CommandAgentResponse response) {
+    String normalized = safeTrim(command).toLowerCase();
+    if (!TERMINAL_INTERACTIVE_COMMANDS.contains(normalized)) {
+      return false;
+    }
+    String action = safeTrim(response == null ? null : response.getAction()).toLowerCase();
+    return action.isEmpty() || "none".equals(action) || action.startsWith(normalized);
   }
 
   private SpotifyEnvelope parseSpotifyEnvelope(String output) {

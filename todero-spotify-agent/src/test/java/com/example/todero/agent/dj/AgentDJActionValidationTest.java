@@ -191,6 +191,36 @@ class AgentDJActionValidationTest {
     assertEquals("Aventurera", fallback);
   }
 
+  @Test
+  void marksTerminalInteractiveCommandsAsCompletionCandidates() throws Exception {
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "shouldCompleteAfterSuccessfulTool",
+        String.class,
+        com.social100.todero.common.ai.action.CommandAgentResponse.class
+    );
+    method.setAccessible(true);
+
+    com.social100.todero.common.ai.action.CommandAgentResponse playResponse =
+        new com.social100.todero.common.ai.action.CommandAgentResponse(
+            "play enya",
+            "play ${Enya Caribbean Blue}",
+            "Playing now.",
+            ""
+        );
+    boolean playCompletes = (boolean) method.invoke(null, "play", playResponse);
+    assertTrue(playCompletes);
+
+    com.social100.todero.common.ai.action.CommandAgentResponse suggestResponse =
+        new com.social100.todero.common.ai.action.CommandAgentResponse(
+            "party songs",
+            "suggest party songs",
+            "Here are some songs.",
+            ""
+        );
+    boolean suggestCompletes = (boolean) method.invoke(null, "suggest", suggestResponse);
+    assertFalse(suggestCompletes);
+  }
+
   private static Constructor<?> findToolStepConstructor() throws Exception {
     Class<?> toolStepClass = Class.forName("com.example.todero.agent.dj.AgentDJComponent$ToolStep");
     Constructor<?> ctor = toolStepClass.getDeclaredConstructor(

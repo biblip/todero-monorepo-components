@@ -82,7 +82,7 @@ public class RouterAgentComponent {
   public Boolean process(CommandContext context) {
     String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
     if (prompt.isEmpty()) {
-      context.emitProtocolError("Prompt is required. Usage: process <text>");
+      context.emitError("Prompt is required. Usage: process <text>");
       return true;
     }
 
@@ -105,7 +105,7 @@ public class RouterAgentComponent {
     while (true) {
       List<AgentCapability> agents = discoverAgents(context);
       if (agents.isEmpty()) {
-        context.emitProtocolError("No routable agent found in runtime.");
+        context.emitError("No routable agent found in runtime.");
         return true;
       }
 
@@ -118,7 +118,7 @@ public class RouterAgentComponent {
           + " reason=" + safe(decision.reason)
           + " switched=" + decision.switched, "progress");
       if (decision.route == null || decision.route.isBlank()) {
-        context.emitProtocolError("Could not determine target agent.");
+        context.emitError("Could not determine target agent.");
         return true;
       }
 
@@ -128,7 +128,7 @@ public class RouterAgentComponent {
           ? PreDispatchResult.allow(prompt, "opaque-auth-relay")
           : preDispatch(prompt, selectedAgent, sticky);
       if (!preDispatch.allowed) {
-        context.emitProtocolError(preDispatch.message);
+        context.emitError(preDispatch.message);
         return true;
       }
 
@@ -137,7 +137,7 @@ public class RouterAgentComponent {
       AiatpIO.HttpResponse delegated = delegateToAgent(context, decision.route, "process", delegatedPrompt);
       if (delegated == null) {
         System.out.println("[ROUTER-AGENT] no response from agent=" + decision.route);
-        context.emitProtocolError("Agent did not return a response.");
+        context.emitError("Agent did not return a response.");
         return true;
       }
 
@@ -148,7 +148,7 @@ public class RouterAgentComponent {
         System.out.println("[ROUTER-AGENT] opaque auth relay route=" + decision.route);
         stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
         if (!emitDelegatedPayload(context, delegatedJson, delegatedBody)) {
-          context.emitProtocolError("Delegated agent response is missing required channels metadata.");
+          context.emitError("Delegated agent response is missing required channels metadata.");
         }
         return true;
       }
@@ -166,7 +166,7 @@ public class RouterAgentComponent {
 
       if (delegatedJson == null || !delegatedJson.has("channels") || !delegatedJson.path("channels").isObject()) {
         System.out.println("[ROUTER-AGENT] delegated response missing channels");
-        context.emitProtocolError("Delegated agent response is missing required channels metadata.");
+        context.emitError("Delegated agent response is missing required channels metadata.");
         return true;
       }
       stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
@@ -211,7 +211,7 @@ public class RouterAgentComponent {
       context.emitChat(chatMessage, "chat".equals(finalChannel) ? "final" : "progress");
     }
     if (!html.isBlank() || "suggestions_from_toolsteps".equalsIgnoreCase(htmlMode)) {
-      context.emitWebviewHtml(html, "html".equals(finalChannel) ? "final" : "progress",
+      context.emitHtml(html, "html".equals(finalChannel) ? "final" : "progress",
           htmlMode.isBlank() ? "html" : htmlMode, htmlReplace);
     }
     if (authJson != null) {
@@ -219,7 +219,7 @@ public class RouterAgentComponent {
     }
     if (finalChannel.isBlank()) {
       String fallback = delegatedBody == null ? "" : delegatedBody.trim();
-      context.emitProtocolError(fallback.isBlank()
+      context.emitError(fallback.isBlank()
           ? "Delegated agent response is missing supported channel content."
           : fallback);
     }

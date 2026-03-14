@@ -42,8 +42,6 @@ public class SpotifyComponent {
   private static final Gson GSON = new Gson();
   private static final String DJ_AGENT = "com.shellaia.verbatim.agent.dj";
   private static final long DEFAULT_NOTIFY_MIN_MS = 2500L;
-  private static final Pattern FORMAT_EQUALS = Pattern.compile("(^|\\s)--format=(json|text)(?=\\s|$)", Pattern.CASE_INSENSITIVE);
-  private static final Pattern FORMAT_SPACED = Pattern.compile("(^|\\s)--format\\s+(json|text)(?=\\s|$)", Pattern.CASE_INSENSITIVE);
 
   final SpotifyPkceService spotifyPkceService;
   final SpotifyCommandService spotifyCommandService;
@@ -77,19 +75,18 @@ public class SpotifyComponent {
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "events",
-      description = "Start/Stop Spotify playback event stream and optionally inform DJ agent. Usage: events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]")
+      description = "Start/Stop Spotify playback event stream and optionally inform DJ agent. Usage: events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]")
   public Boolean eventsCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String args = input.args;
+    String args = readArgs(context);
     System.out.println("[SPOTIFY] events command args=" + args);
     if (args.isEmpty()) {
-      return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+      return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
     }
 
     String[] parts = args.split("\\s+");
     String mode = parts[0];
     if (!"ON".equalsIgnoreCase(mode) && !"OFF".equalsIgnoreCase(mode)) {
-      return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+      return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
     }
     long intervalMs = 1500;
     boolean notifyAgent = false;
@@ -102,7 +99,7 @@ public class SpotifyComponent {
         try {
           intervalMs = Long.parseLong(parts[1]);
         } catch (NumberFormatException ignored) {
-          return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+          return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
         }
       }
     }
@@ -110,14 +107,14 @@ public class SpotifyComponent {
       String p = parts[i];
       if (p.matches("^\\d+$")) {
         if (i != 1) {
-          return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+          return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
         }
         continue;
       }
       if (p.toLowerCase().startsWith("notify-agent=")) {
         String v = p.substring("notify-agent=".length());
         if (!"true".equalsIgnoreCase(v) && !"false".equalsIgnoreCase(v)) {
-          return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+          return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
         }
         notifyAgent = "true".equalsIgnoreCase(v);
         continue;
@@ -126,7 +123,7 @@ public class SpotifyComponent {
         try {
           notifyMinMs = Long.parseLong(p.substring("notify-min-ms=".length()));
         } catch (NumberFormatException ignored) {
-          return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+          return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
         }
         continue;
       }
@@ -137,7 +134,7 @@ public class SpotifyComponent {
         } else if ("legacy".equals(v)) {
           outputMode = SpotifyCommandService.EventOutputMode.LEGACY_TEXT;
         } else {
-          return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+          return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
         }
         continue;
       }
@@ -146,11 +143,11 @@ public class SpotifyComponent {
         try {
           eventFilter = SpotifyCommandService.EventFilter.valueOf(v);
         } catch (IllegalArgumentException ignored) {
-          return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+          return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
         }
         continue;
       }
-      return usage(context, input, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context] [--format json|text]");
+      return usage(context, args, "events", "events ON|OFF [intervalMs] [notify-agent=true|false] [notify-min-ms=<ms>] [output=typed|legacy] [filter=all|track|playback|device|context]");
     }
     notifyMinMs = Math.max(0L, Math.min(120000L, notifyMinMs));
     final boolean notifyAgentFinal = notifyAgent;
@@ -258,7 +255,7 @@ public class SpotifyComponent {
     });
 
     System.out.println("[SPOTIFY] events command result=" + result);
-    return respond(context, input, "events", args, result);
+    return respond(context, "events", args, result);
   }
 
   private static final class EventStreamOwner {
@@ -288,35 +285,27 @@ public class SpotifyComponent {
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-status",
-      description = "Show Spotify auth diagnostics (required/granted scopes, token expiry, and device state). Usage: auth-status [--format json|text]")
+      description = "Show Spotify auth diagnostics (required/granted scopes, token expiry, and device state). Usage: auth-status")
   public Boolean authStatusCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "auth-status", input.args, this.spotifyPkceService.authStatus());
+    String args = readArgs(context);
+    return respond(context, "auth-status", args, this.spotifyPkceService.authStatus());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-begin",
-      description = "Start delegated Spotify auth session. Usage: auth-begin [redirect-profile=app|console|explicit] [redirect-uri=<uri>] [owner=<binding>] [--format json|text]")
+      description = "Start delegated Spotify auth session. Usage: auth-begin [redirect-profile=app|console|explicit] [redirect-uri=<uri>] [owner=<binding>]")
   public Boolean authBeginCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
+    String args = readArgs(context);
     try {
-      Map<String, String> args = parseArgMap(input.args);
-      String profile = value(args, "redirect-profile", "redirectProfile");
-      String redirectUri = value(args, "redirect-uri", "redirectUri");
-      String owner = value(args, "owner", "ownerBinding");
+      Map<String, String> argMap = parseArgMap(args);
+      String profile = value(argMap, "redirect-profile", "redirectProfile");
+      String redirectUri = value(argMap, "redirect-uri", "redirectUri");
+      String owner = value(argMap, "owner", "ownerBinding");
 
       SpotifyPkceService.AuthBeginResult result = spotifyPkceService.authBegin(profile, redirectUri, owner);
-      if (input.format == ResponseFormat.TEXT) {
-        String text = result.message()
-            + "\nsessionId: " + result.session().sessionId()
-            + "\nexpiresAtMs: " + result.session().expiresAtMs()
-            + "\nauthorizeUrl: " + result.authorizeUrl();
-        context.response(text);
-        return true;
-      }
       context.emitStatus(result.message(), "progress");
       if (result.ctaHtml() != null && !result.ctaHtml().isBlank()) {
-        context.emitWebviewHtml(result.ctaHtml(), "progress", "html", true);
+        context.emitHtml(result.ctaHtml(), "progress", "html", true);
       }
       Map<String, Object> authPayload = new LinkedHashMap<>();
       authPayload.put("provider", "spotify");
@@ -330,69 +319,57 @@ public class SpotifyComponent {
       context.emitAuthJson(GSON.toJson(authPayload), "final");
       return true;
     } catch (Exception e) {
-      return respond(context, input, "auth-begin", input.args, "auth-begin failed [error_code=" + inferAuthErrorCode(e) + "]: " + redact(e.getMessage()), false, inferAuthErrorCode(e));
+      return respond(context, "auth-begin", args, "auth-begin failed [error_code=" + inferAuthErrorCode(e) + "]: " + redact(e.getMessage()), false, inferAuthErrorCode(e));
     }
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-complete",
-      description = "Complete delegated Spotify auth session. Usage: auth-complete session-id=<id> state=<state> code=<code> [secure envelope fields] [--format json|text]")
+      description = "Complete delegated Spotify auth session. Usage: auth-complete session-id=<id> state=<state> code=<code> [secure envelope fields]")
   public Boolean authCompleteCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
+    String args = readArgs(context);
     try {
-      SpotifyPkceService.AuthCompleteRequest request = parseAuthCompleteRequest(input.args);
+      SpotifyPkceService.AuthCompleteRequest request = parseAuthCompleteRequest(args);
       SpotifyPkceService.AuthCompleteResult result = spotifyPkceService.authComplete(request);
-      if (input.format == ResponseFormat.TEXT) {
-        context.response(result.message());
-        return true;
-      }
       if (result.ok()) {
         context.emitStatus(result.message(), "final");
       } else {
-        context.emitProtocolError(result.message());
+        context.emitError(result.message());
       }
       return true;
     } catch (Exception e) {
-      return respond(context, input, "auth-complete", input.args, "auth-complete failed [error_code=" + inferAuthErrorCode(e) + "]: " + redact(e.getMessage()), false, inferAuthErrorCode(e));
+      return respond(context, "auth-complete", args, "auth-complete failed [error_code=" + inferAuthErrorCode(e) + "]: " + redact(e.getMessage()), false, inferAuthErrorCode(e));
     }
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-session",
-      description = "Query delegated auth session status. Usage: auth-session [session-id=<id>] [--format json|text]")
+      description = "Query delegated auth session status. Usage: auth-session [session-id=<id>]")
   public Boolean authSessionCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    Map<String, String> args = parseArgMap(input.args);
-    String sessionId = value(args, "session-id", "sessionId");
+    String args = readArgs(context);
+    Map<String, String> argMap = parseArgMap(args);
+    String sessionId = value(argMap, "session-id", "sessionId");
     SpotifyPkceService.AuthSessionResult result = spotifyPkceService.authSession(sessionId);
-    if (input.format == ResponseFormat.TEXT) {
-      context.response(result.message() + (result.session() == null ? "" : ("\nstatus: " + result.session().status().name())));
-      return true;
-    }
     if (result.ok()) {
       context.emitStatus(result.message(), "final");
     } else {
-      context.emitProtocolError(result.message());
+      context.emitError(result.message());
     }
     return true;
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-cancel",
-      description = "Cancel delegated auth session. Usage: auth-cancel [session-id=<id>] [--format json|text]")
+      description = "Cancel delegated auth session. Usage: auth-cancel [session-id=<id>]")
   public Boolean authCancelCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    Map<String, String> args = parseArgMap(input.args);
-    String sessionId = value(args, "session-id", "sessionId");
+    String args = readArgs(context);
+    Map<String, String> argMap = parseArgMap(args);
+    String sessionId = value(argMap, "session-id", "sessionId");
     SpotifyPkceService.AuthSessionResult result = spotifyPkceService.authCancel(sessionId);
-    if (input.format == ResponseFormat.TEXT) {
-      context.response(result.message());
-      return true;
-    }
     if (result.ok()) {
       context.emitStatus(result.message(), "final");
     } else {
-      context.emitProtocolError(result.message());
+      context.emitError(result.message());
     }
     return true;
   }
@@ -477,207 +454,207 @@ public class SpotifyComponent {
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "move",
-      description = "Moves the playback to the specified time. Usage: move <HH:MM:SS|MM:SS|SS> [--format json|text]")
+      description = "Moves the playback to the specified time. Usage: move <HH:MM:SS|MM:SS|SS>")
   public Boolean moveCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    final String moveTo = input.args;
+    String args = readArgs(context);
+    final String moveTo = args;
     if (moveTo == null || moveTo.isEmpty()) {
-      return usage(context, input, "move", "move <HH:MM:SS|MM:SS|SS> [--format json|text]");
+      return usage(context, args, "move", "move <HH:MM:SS|MM:SS|SS>");
     }
-    return respond(context, input, "move", moveTo, this.spotifyCommandService.move(moveTo));
+    return respond(context, "move", moveTo, this.spotifyCommandService.move(moveTo));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "mute",
-      description = "Toggles the mute state of the playback if valid media is loaded. Usage: mute [--format json|text]")
+      description = "Toggles the mute state of the playback if valid media is loaded. Usage: mute")
   public Boolean muteCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "mute", input.args, this.spotifyCommandService.muteToggle());
+    String args = readArgs(context);
+    return respond(context, "mute", args, this.spotifyCommandService.muteToggle());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "pause",
-      description = "Pauses the playback if it is currently playing. Usage: pause [--format json|text]")
+      description = "Pauses the playback if it is currently playing. Usage: pause")
   public Boolean pauseCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "pause", input.args, this.spotifyCommandService.pause());
+    String args = readArgs(context);
+    return respond(context, "pause", args, this.spotifyCommandService.pause());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "play",
-      description = "Plays the specified media file. If no file is specified, resumes the current one. Usage: play [media] [--format json|text]")
+      description = "Plays the specified media file. If no file is specified, resumes the current one. Usage: play [media]")
   public Boolean playCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    final String mediaPathToPlay = input.args;
+    String args = readArgs(context);
+    final String mediaPathToPlay = args;
     System.out.println("[SPOTIFY] play command received media=" + mediaPathToPlay);
     String result = this.spotifyCommandService.play(mediaPathToPlay);
     System.out.println("[SPOTIFY] play command result=" + result);
-    return respond(context, input, "play", mediaPathToPlay, result);
+    return respond(context, "play", mediaPathToPlay, result);
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "skip",
-      description = "Skips the playback forward or backward by the specified number of seconds. Usage: skip <+/-seconds> [--format json|text]")
+      description = "Skips the playback forward or backward by the specified number of seconds. Usage: skip <+/-seconds>")
   public Boolean skipCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    final String skipTimeString = input.args;
+    String args = readArgs(context);
+    final String skipTimeString = args;
     if (skipTimeString == null || skipTimeString.isEmpty()) {
-      return usage(context, input, "skip", "skip <+/-seconds> [--format json|text]");
+      return usage(context, args, "skip", "skip <+/-seconds>");
     }
     try {
       int skipTime = Integer.parseInt(skipTimeString);
-      return respond(context, input, "skip", skipTimeString, this.spotifyCommandService.skipSeconds(skipTime));
+      return respond(context, "skip", skipTimeString, this.spotifyCommandService.skipSeconds(skipTime));
     } catch (NumberFormatException e) {
-      return usage(context, input, "skip", "skip <+/-seconds> [--format json|text]");
+      return usage(context, args, "skip", "skip <+/-seconds>");
     }
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "status",
-      description = "Displays the current status of Spotify's player. Use 'status all' for all media info available. Usage: status [all] [--format json|text]")
+      description = "Displays the current status of Spotify's player. Use 'status all' for all media info available. Usage: status [all]")
   public Boolean statusCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    final String parameter = input.args;
+    String args = readArgs(context);
+    final String parameter = args;
     boolean all = ("all".equalsIgnoreCase(parameter));
-    return respond(context, input, "status", parameter, this.spotifyCommandService.status(all));
+    return respond(context, "status", parameter, this.spotifyCommandService.status(all));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "stop",
-      description = "Stops the playback if it is currently active. Usage: stop [--format json|text]")
+      description = "Stops the playback if it is currently active. Usage: stop")
   public Boolean stopCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "stop", input.args, this.spotifyCommandService.stop());
+    String args = readArgs(context);
+    return respond(context, "stop", args, this.spotifyCommandService.stop());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "volume",
-      description = "Sets the volume to a specified level between 0 and 150. Usage: volume <level> [--format json|text]")
+      description = "Sets the volume to a specified level between 0 and 150. Usage: volume <level>")
   public Boolean volumeCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    final String volumeString = input.args;
+    String args = readArgs(context);
+    final String volumeString = args;
     if (volumeString == null || volumeString.isEmpty()) {
-      return usage(context, input, "volume", "volume <level> [--format json|text]");
+      return usage(context, args, "volume", "volume <level>");
     }
     try {
       int volume = Integer.parseInt(volumeString);
-      return respond(context, input, "volume", volumeString, this.spotifyCommandService.volume(volume));
+      return respond(context, "volume", volumeString, this.spotifyCommandService.volume(volume));
     } catch (NumberFormatException e) {
-      return usage(context, input, "volume", "volume <level> [--format json|text]");
+      return usage(context, args, "volume", "volume <level>");
     }
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "volume-down",
-      description = "Decreases the volume by 5 units. Usage: volume-down [--format json|text]")
+      description = "Decreases the volume by 5 units. Usage: volume-down")
   public Boolean volumeDownCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "volume-down", input.args, this.spotifyCommandService.volumeDown());
+    String args = readArgs(context);
+    return respond(context, "volume-down", args, this.spotifyCommandService.volumeDown());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "volume-up",
-      description = "Increases the volume by 5 units. Usage: volume-up [--format json|text]")
+      description = "Increases the volume by 5 units. Usage: volume-up")
   public Boolean volumeUpCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "volume-up", input.args, this.spotifyCommandService.volumeUp());
+    String args = readArgs(context);
+    return respond(context, "volume-up", args, this.spotifyCommandService.volumeUp());
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-remove",
-      description = "Remove current paying media from the playlist Usage: playlist-remove [--format json|text], if there is no current media playing then does nothing")
+      description = "Remove current paying media from the playlist Usage: playlist-remove, if there is no current media playing then does nothing")
   public Boolean playlistRemove(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "playlist-remove", input.args, this.spotifyCommandService.playlistRemoveCurrentIfFromPlaylist());
+    String args = readArgs(context);
+    return respond(context, "playlist-remove", args, this.spotifyCommandService.playlistRemoveCurrentIfFromPlaylist());
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-next",
-      description = "Play the next media in the playlist. Usage: playlist-next [--format json|text]")
+      description = "Play the next media in the playlist. Usage: playlist-next")
   public Boolean playlistNext(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "playlist-next", input.args, this.spotifyCommandService.playlistNext());
+    String args = readArgs(context);
+    return respond(context, "playlist-next", args, this.spotifyCommandService.playlistNext());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "devices",
-      description = "List available Spotify devices. Usage: devices [--format json|text]")
+      description = "List available Spotify devices. Usage: devices")
   public Boolean devicesCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "devices", input.args, this.spotifyCommandService.devices());
+    String args = readArgs(context);
+    return respond(context, "devices", args, this.spotifyCommandService.devices());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "metrics",
-      description = "Show Spotify command counters and latency metrics. Usage: metrics [--format json|text]")
+      description = "Show Spotify command counters and latency metrics. Usage: metrics")
   public Boolean metricsCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "metrics", input.args, this.spotifyCommandService.metricsReport());
+    String args = readArgs(context);
+    return respond(context, "metrics", args, this.spotifyCommandService.metricsReport());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "select-device",
-      description = "Transfer playback to a specific device. Usage: select-device <deviceId> [--format json|text]")
+      description = "Transfer playback to a specific device. Usage: select-device <deviceId>")
   public Boolean selectDeviceCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "select-device", "select-device <deviceId> [--format json|text]");
+      return usage(context, args, "select-device", "select-device <deviceId>");
     }
-    return respond(context, input, "select-device", body, this.spotifyCommandService.selectDevice(body));
+    return respond(context, "select-device", body, this.spotifyCommandService.selectDevice(body));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "queue-add",
-      description = "Add track or episode URI to playback queue. Usage: queue-add <spotify:track|episode:uri> [--format json|text]")
+      description = "Add track or episode URI to playback queue. Usage: queue-add <spotify:track|episode:uri>")
   public Boolean queueAddCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "queue-add", "queue-add <spotify:track|episode:uri> [--format json|text]");
+      return usage(context, args, "queue-add", "queue-add <spotify:track|episode:uri>");
     }
-    return respond(context, input, "queue-add", body, this.spotifyCommandService.queueAdd(body));
+    return respond(context, "queue-add", body, this.spotifyCommandService.queueAdd(body));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "queue",
-      description = "List currently playing item and queued items. Usage: queue [--format json|text]")
+      description = "List currently playing item and queued items. Usage: queue")
   public Boolean queueCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "queue", input.args, this.spotifyCommandService.queueList());
+    String args = readArgs(context);
+    return respond(context, "queue", args, this.spotifyCommandService.queueList());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "previous",
-      description = "Skip to previous track in playback context. Usage: previous [--format json|text]")
+      description = "Skip to previous track in playback context. Usage: previous")
   public Boolean previousCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "previous", input.args, this.spotifyCommandService.previous());
+    String args = readArgs(context);
+    return respond(context, "previous", args, this.spotifyCommandService.previous());
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "recently-played",
-      description = "List recently played tracks. Usage: recently-played [limit<=50] [--format json|text]")
+      description = "List recently played tracks. Usage: recently-played [limit<=50]")
   public Boolean recentlyPlayedCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     int limit = 10;
     if (!body.isEmpty()) {
       try {
         limit = Integer.parseInt(body);
       } catch (NumberFormatException e) {
-        return usage(context, input, "recently-played", "recently-played [limit<=50] [--format json|text]");
+        return usage(context, args, "recently-played", "recently-played [limit<=50]");
       }
     }
-    return respond(context, input, "recently-played", body, this.spotifyCommandService.recentlyPlayed(limit));
+    return respond(context, "recently-played", body, this.spotifyCommandService.recentlyPlayed(limit));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "top-tracks",
-      description = "List user's top tracks. Usage: top-tracks [limit<=50] [short_term|medium_term|long_term] [--format json|text]")
+      description = "List user's top tracks. Usage: top-tracks [limit<=50] [short_term|medium_term|long_term]")
   public Boolean topTracksCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     int limit = 10;
     String timeRange = "medium_term";
     if (!body.isEmpty()) {
@@ -690,15 +667,15 @@ public class SpotifyComponent {
         }
       }
     }
-    return respond(context, input, "top-tracks", body, this.spotifyCommandService.topTracks(limit, timeRange));
+    return respond(context, "top-tracks", body, this.spotifyCommandService.topTracks(limit, timeRange));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "top-artists",
-      description = "List user's top artists. Usage: top-artists [limit<=50] [short_term|medium_term|long_term] [--format json|text]")
+      description = "List user's top artists. Usage: top-artists [limit<=50] [short_term|medium_term|long_term]")
   public Boolean topArtistsCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     int limit = 10;
     String timeRange = "medium_term";
     if (!body.isEmpty()) {
@@ -711,17 +688,17 @@ public class SpotifyComponent {
         }
       }
     }
-    return respond(context, input, "top-artists", body, this.spotifyCommandService.topArtists(limit, timeRange));
+    return respond(context, "top-artists", body, this.spotifyCommandService.topArtists(limit, timeRange));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "recommend",
-      description = "Get recommendations using a seed track query/URI/id. Usage: recommend <seedTrackQueryOrUriOrId> [limit<=20] [--format json|text]")
+      description = "Get recommendations using a seed track query/URI/id. Usage: recommend <seedTrackQueryOrUriOrId> [limit<=20]")
   public Boolean recommendCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "recommend", "recommend <seedTrackQueryOrUriOrId> [limit<=20] [--format json|text]");
+      return usage(context, args, "recommend", "recommend <seedTrackQueryOrUriOrId> [limit<=20]");
     }
     String[] parts = body.split("\\s+");
     int limit = 8;
@@ -736,19 +713,19 @@ public class SpotifyComponent {
       seed.append(parts[i]);
     }
     if (seed.toString().isBlank()) {
-      return usage(context, input, "recommend", "recommend <seedTrackQueryOrUriOrId> [limit<=20] [--format json|text]");
+      return usage(context, args, "recommend", "recommend <seedTrackQueryOrUriOrId> [limit<=20]");
     }
-    return respond(context, input, "recommend", body, this.spotifyCommandService.recommendByTrackSeed(seed.toString(), limit));
+    return respond(context, "recommend", body, this.spotifyCommandService.recommendByTrackSeed(seed.toString(), limit));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "suggest",
-      description = "Suggest songs for a mood/theme using resilient Spotify search. Usage: suggest <themeOrQuery> [limit<=12] [--format json|text]")
+      description = "Suggest songs for a mood/theme using resilient Spotify search. Usage: suggest <themeOrQuery> [limit<=12]")
   public Boolean suggestCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "suggest", "suggest <themeOrQuery> [limit<=12] [--format json|text]");
+      return usage(context, args, "suggest", "suggest <themeOrQuery> [limit<=12]");
     }
 
     String[] parts = body.split("\\s+");
@@ -764,57 +741,57 @@ public class SpotifyComponent {
       theme.append(parts[i]);
     }
     if (theme.toString().isBlank()) {
-      return usage(context, input, "suggest", "suggest <themeOrQuery> [limit<=12] [--format json|text]");
+      return usage(context, args, "suggest", "suggest <themeOrQuery> [limit<=12]");
     }
-    return respond(context, input, "suggest", body, this.spotifyCommandService.suggestByTheme(theme.toString(), limit));
+    return respond(context, "suggest", body, this.spotifyCommandService.suggestByTheme(theme.toString(), limit));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "shuffle",
-      description = "Enable or disable shuffle mode. Usage: shuffle on|off [--format json|text]")
+      description = "Enable or disable shuffle mode. Usage: shuffle on|off")
   public Boolean shuffleCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "shuffle", "shuffle on|off [--format json|text]");
+      return usage(context, args, "shuffle", "shuffle on|off");
     }
     String normalized = body.toLowerCase();
     if (!"on".equals(normalized) && !"off".equals(normalized)) {
-      return usage(context, input, "shuffle", "shuffle on|off [--format json|text]");
+      return usage(context, args, "shuffle", "shuffle on|off");
     }
-    return respond(context, input, "shuffle", body, this.spotifyCommandService.shuffle("on".equals(normalized)));
+    return respond(context, "shuffle", body, this.spotifyCommandService.shuffle("on".equals(normalized)));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "repeat",
-      description = "Set repeat mode. Usage: repeat off|track|context [--format json|text]")
+      description = "Set repeat mode. Usage: repeat off|track|context")
   public Boolean repeatCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "repeat", "repeat off|track|context [--format json|text]");
+      return usage(context, args, "repeat", "repeat off|track|context");
     }
     String normalized = body.toLowerCase();
     if (!"off".equals(normalized) && !"track".equals(normalized) && !"context".equals(normalized)) {
-      return usage(context, input, "repeat", "repeat off|track|context [--format json|text]");
+      return usage(context, args, "repeat", "repeat off|track|context");
     }
-    return respond(context, input, "repeat", body, this.spotifyCommandService.repeat(normalized));
+    return respond(context, "repeat", body, this.spotifyCommandService.repeat(normalized));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "like",
-      description = "Save the currently playing track to your library. Usage: like [--format json|text]")
+      description = "Save the currently playing track to your library. Usage: like")
   public Boolean likeCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    return respond(context, input, "like", input.args, this.spotifyCommandService.likeCurrentTrack());
+    String args = readArgs(context);
+    return respond(context, "like", args, this.spotifyCommandService.likeCurrentTrack());
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlists",
-      description = "List current user's playlists. Usage: playlists [limit<=50] [offset>=0] [--format json|text]")
+      description = "List current user's playlists. Usage: playlists [limit<=50] [offset>=0]")
   public Boolean playlistsCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     int limit = 20;
     int offset = 0;
     if (!body.isEmpty()) {
@@ -827,23 +804,23 @@ public class SpotifyComponent {
           offset = Integer.parseInt(parts[1]);
         }
         if (parts.length > 2) {
-          return usage(context, input, "playlists", "playlists [limit<=50] [offset>=0] [--format json|text]");
+          return usage(context, args, "playlists", "playlists [limit<=50] [offset>=0]");
         }
       } catch (NumberFormatException e) {
-        return usage(context, input, "playlists", "playlists [limit<=50] [offset>=0] [--format json|text]");
+        return usage(context, args, "playlists", "playlists [limit<=50] [offset>=0]");
       }
     }
-    return respond(context, input, "playlists", body, this.spotifyCommandService.playlists(limit, offset));
+    return respond(context, "playlists", body, this.spotifyCommandService.playlists(limit, offset));
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-list",
-      description = "List tracks in playlist. Usage: playlist-list <playlistId> [limit] [--format json|text]")
+      description = "List tracks in playlist. Usage: playlist-list <playlistId> [limit]")
   public Boolean playlistListCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "playlist-list", "playlist-list <playlistId> [limit] [--format json|text]");
+      return usage(context, args, "playlist-list", "playlist-list <playlistId> [limit]");
     }
 
     String[] parts = body.split("\\s+");
@@ -853,26 +830,26 @@ public class SpotifyComponent {
       try {
         limit = Integer.parseInt(parts[1]);
       } catch (NumberFormatException e) {
-        return usage(context, input, "playlist-list", "playlist-list <playlistId> [limit] [--format json|text]");
+        return usage(context, args, "playlist-list", "playlist-list <playlistId> [limit]");
       }
     }
 
-    return respond(context, input, "playlist-list", body, this.spotifyCommandService.playlistList(playlistId, limit));
+    return respond(context, "playlist-list", body, this.spotifyCommandService.playlistList(playlistId, limit));
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-add",
-      description = "Add one or more track URIs to playlist. Usage: playlist-add <playlistId> <trackUri> [trackUri ...] [--format json|text]")
+      description = "Add one or more track URIs to playlist. Usage: playlist-add <playlistId> <trackUri> [trackUri ...]")
   public Boolean playlistAddCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "playlist-add", "playlist-add <playlistId> <trackUri> [trackUri ...] [--format json|text]");
+      return usage(context, args, "playlist-add", "playlist-add <playlistId> <trackUri> [trackUri ...]");
     }
 
     String[] parts = body.split("\\s+");
     if (parts.length < 2) {
-      return usage(context, input, "playlist-add", "playlist-add <playlistId> <trackUri> [trackUri ...] [--format json|text]");
+      return usage(context, args, "playlist-add", "playlist-add <playlistId> <trackUri> [trackUri ...]");
     }
 
     String playlistId = parts[0];
@@ -883,32 +860,32 @@ public class SpotifyComponent {
       }
     }
     if (uris.isEmpty()) {
-      return usage(context, input, "playlist-add", "playlist-add <playlistId> <trackUri> [trackUri ...] [--format json|text]");
+      return usage(context, args, "playlist-add", "playlist-add <playlistId> <trackUri> [trackUri ...]");
     }
 
-    return respond(context, input, "playlist-add", body, this.spotifyCommandService.playlistAdd(playlistId, uris));
+    return respond(context, "playlist-add", body, this.spotifyCommandService.playlistAdd(playlistId, uris));
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-add-current",
-      description = "Search a song title and add the exact title match to the current playlist context. Usage: playlist-add-current <songTitle> [--format json|text]")
+      description = "Search a song title and add the exact title match to the current playlist context. Usage: playlist-add-current <songTitle>")
   public Boolean playlistAddCurrentCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isBlank()) {
-      return usage(context, input, "playlist-add-current", "playlist-add-current <songTitle> [--format json|text]");
+      return usage(context, args, "playlist-add-current", "playlist-add-current <songTitle>");
     }
-    return respond(context, input, "playlist-add-current", body, this.spotifyCommandService.playlistAddCurrentBySongTitle(body));
+    return respond(context, "playlist-add-current", body, this.spotifyCommandService.playlistAddCurrentBySongTitle(body));
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-create",
-      description = "Create a playlist for current user. Usage: playlist-create <name> [public=true|false] [description=<text>] [--format json|text]")
+      description = "Create a playlist for current user. Usage: playlist-create <name> [public=true|false] [description=<text>]")
   public Boolean playlistCreateCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "playlist-create", "playlist-create <name> [public=true|false] [description=<text>] [--format json|text]");
+      return usage(context, args, "playlist-create", "playlist-create <name> [public=true|false] [description=<text>]");
     }
     boolean isPublic = false;
     String description = "";
@@ -917,7 +894,7 @@ public class SpotifyComponent {
       if (token.startsWith("public=")) {
         String raw = token.substring("public=".length()).toLowerCase();
         if (!"true".equals(raw) && !"false".equals(raw)) {
-          return usage(context, input, "playlist-create", "playlist-create <name> [public=true|false] [description=<text>] [--format json|text]");
+          return usage(context, args, "playlist-create", "playlist-create <name> [public=true|false] [description=<text>]");
         }
         isPublic = "true".equals(raw);
       } else if (token.startsWith("description=")) {
@@ -928,58 +905,58 @@ public class SpotifyComponent {
       }
     }
     if (name.toString().isBlank()) {
-      return usage(context, input, "playlist-create", "playlist-create <name> [public=true|false] [description=<text>] [--format json|text]");
+      return usage(context, args, "playlist-create", "playlist-create <name> [public=true|false] [description=<text>]");
     }
-    return respond(context, input, "playlist-create", body, this.spotifyCommandService.playlistCreate(name.toString(), isPublic, description));
+    return respond(context, "playlist-create", body, this.spotifyCommandService.playlistCreate(name.toString(), isPublic, description));
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-reorder",
-      description = "Reorder playlist items by range start and insert index. Usage: playlist-reorder <playlistId> <rangeStart> <insertBefore> [rangeLength<=100] [--format json|text]")
+      description = "Reorder playlist items by range start and insert index. Usage: playlist-reorder <playlistId> <rangeStart> <insertBefore> [rangeLength<=100]")
   public Boolean playlistReorderCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     String[] parts = body.split("\\s+");
     if (parts.length < 3) {
-      return usage(context, input, "playlist-reorder", "playlist-reorder <playlistId> <rangeStart> <insertBefore> [rangeLength<=100] [--format json|text]");
+      return usage(context, args, "playlist-reorder", "playlist-reorder <playlistId> <rangeStart> <insertBefore> [rangeLength<=100]");
     }
     try {
       String playlistId = parts[0];
       int rangeStart = Integer.parseInt(parts[1]);
       int insertBefore = Integer.parseInt(parts[2]);
       int rangeLength = parts.length >= 4 ? Integer.parseInt(parts[3]) : 1;
-      return respond(context, input, "playlist-reorder", body, this.spotifyCommandService.playlistReorder(playlistId, rangeStart, insertBefore, rangeLength));
+      return respond(context, "playlist-reorder", body, this.spotifyCommandService.playlistReorder(playlistId, rangeStart, insertBefore, rangeLength));
     } catch (NumberFormatException e) {
-      return usage(context, input, "playlist-reorder", "playlist-reorder <playlistId> <rangeStart> <insertBefore> [rangeLength<=100] [--format json|text]");
+      return usage(context, args, "playlist-reorder", "playlist-reorder <playlistId> <rangeStart> <insertBefore> [rangeLength<=100]");
     }
   }
 
   @Action(group = SpotifyCommandService.PLAYLIST_GROUP,
       command = "playlist-remove-pos",
-      description = "Remove playlist item at position index. Usage: playlist-remove-pos <playlistId> <position> [--format json|text]")
+      description = "Remove playlist item at position index. Usage: playlist-remove-pos <playlistId> <position>")
   public Boolean playlistRemovePosCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     String[] parts = body.split("\\s+");
     if (parts.length != 2) {
-      return usage(context, input, "playlist-remove-pos", "playlist-remove-pos <playlistId> <position> [--format json|text]");
+      return usage(context, args, "playlist-remove-pos", "playlist-remove-pos <playlistId> <position>");
     }
     try {
-      return respond(context, input, "playlist-remove-pos", body,
+      return respond(context, "playlist-remove-pos", body,
           this.spotifyCommandService.playlistRemovePosition(parts[0], Integer.parseInt(parts[1])));
     } catch (NumberFormatException e) {
-      return usage(context, input, "playlist-remove-pos", "playlist-remove-pos <playlistId> <position> [--format json|text]");
+      return usage(context, args, "playlist-remove-pos", "playlist-remove-pos <playlistId> <position>");
     }
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "playlist-play",
-      description = "Play a playlist by id or URI. Usage: playlist-play <playlistId|spotify:playlist:uri> [offset] [--format json|text]")
+      description = "Play a playlist by id or URI. Usage: playlist-play <playlistId|spotify:playlist:uri> [offset]")
   public Boolean playlistPlayCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "playlist-play", "playlist-play <playlistId|spotify:playlist:uri> [offset] [--format json|text]");
+      return usage(context, args, "playlist-play", "playlist-play <playlistId|spotify:playlist:uri> [offset]");
     }
     String[] parts = body.split("\\s+");
     String playlistIdOrUri = parts[0];
@@ -988,23 +965,23 @@ public class SpotifyComponent {
       try {
         offset = Integer.parseInt(parts[1]);
       } catch (NumberFormatException e) {
-        return usage(context, input, "playlist-play", "playlist-play <playlistId|spotify:playlist:uri> [offset] [--format json|text]");
+        return usage(context, args, "playlist-play", "playlist-play <playlistId|spotify:playlist:uri> [offset]");
       }
     }
     if (parts.length > 2) {
-      return usage(context, input, "playlist-play", "playlist-play <playlistId|spotify:playlist:uri> [offset] [--format json|text]");
+      return usage(context, args, "playlist-play", "playlist-play <playlistId|spotify:playlist:uri> [offset]");
     }
-    return respond(context, input, "playlist-play", body, this.spotifyCommandService.playlistPlay(playlistIdOrUri, offset));
+    return respond(context, "playlist-play", body, this.spotifyCommandService.playlistPlay(playlistIdOrUri, offset));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "play-context",
-      description = "Play context URI at optional offset. Usage: play-context <spotify:album|artist|playlist:uri> [offset] [--format json|text]")
+      description = "Play context URI at optional offset. Usage: play-context <spotify:album|artist|playlist:uri> [offset]")
   public Boolean playContextCommand(CommandContext context) {
-    ParsedInput input = parseInput(context);
-    String body = input.args;
+    String args = readArgs(context);
+    String body = args;
     if (body.isEmpty()) {
-      return usage(context, input, "play-context", "play-context <spotify:album|artist|playlist:uri> [offset] [--format json|text]");
+      return usage(context, args, "play-context", "play-context <spotify:album|artist|playlist:uri> [offset]");
     }
 
     String[] parts = body.split("\\s+");
@@ -1014,11 +991,11 @@ public class SpotifyComponent {
       try {
         offset = Integer.parseInt(parts[1]);
       } catch (NumberFormatException e) {
-        return usage(context, input, "play-context", "play-context <spotify:album|artist|playlist:uri> [offset] [--format json|text]");
+        return usage(context, args, "play-context", "play-context <spotify:album|artist|playlist:uri> [offset]");
       }
     }
 
-    return respond(context, input, "play-context", body, this.spotifyCommandService.playContextWithOffset(contextUri, offset));
+    return respond(context, "play-context", body, this.spotifyCommandService.playContextWithOffset(contextUri, offset));
   }
 
   private static SpotifyPkceService.AuthCompleteRequest parseAuthCompleteRequest(String raw) {
@@ -1227,59 +1204,38 @@ public class SpotifyComponent {
         .replaceAll("(?i)access_token[^\\s]*", "access_token=<redacted>");
   }
 
-  private ParsedInput parseInput(CommandContext context) {
+  private String readArgs(CommandContext context) {
     String body = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8);
-    String args = body == null ? "" : body.trim();
-    ResponseFormat format = ResponseFormat.TEXT;
-
-    Matcher mEq = FORMAT_EQUALS.matcher(args);
-    if (mEq.find()) {
-      format = "json".equalsIgnoreCase(mEq.group(2)) ? ResponseFormat.JSON : ResponseFormat.TEXT;
-      args = (args.substring(0, mEq.start()) + " " + args.substring(mEq.end())).trim();
-    }
-
-    Matcher mSp = FORMAT_SPACED.matcher(args);
-    if (mSp.find()) {
-      format = "json".equalsIgnoreCase(mSp.group(2)) ? ResponseFormat.JSON : ResponseFormat.TEXT;
-      args = (args.substring(0, mSp.start()) + " " + args.substring(mSp.end())).trim();
-    }
-
-    args = args.replaceAll("\\s+", " ").trim();
-    return new ParsedInput(args, format);
+    return body == null ? "" : body.trim().replaceAll("\\s+", " ");
   }
 
-  private Boolean usage(CommandContext context, ParsedInput input, String command, String usageText) {
-    return respond(context, input, command, input.args, "Usage: " + usageText, false, "invalid_arguments");
+  private Boolean usage(CommandContext context, String args, String command, String usageText) {
+    return respond(context, command, args, "Usage: " + usageText, false, "invalid_arguments");
   }
 
-  private Boolean respond(CommandContext context, ParsedInput input, String command, String args, String message) {
+  private Boolean respond(CommandContext context, String command, String args, String message) {
     boolean ok = inferSuccess(message);
     String errorCode = ok ? null : inferErrorCode(message);
-    return respond(context, input, command, args, message, ok, errorCode);
+    return respond(context, command, args, message, ok, errorCode);
   }
 
   private Boolean respond(CommandContext context,
-                          ParsedInput input,
                           String command,
                           String args,
                           String message,
                           boolean ok,
                           String errorCode) {
     String safeMessage = message == null ? "" : message;
-    if (input.format == ResponseFormat.TEXT) {
-      context.response(safeMessage);
-      return true;
-    }
     if (!ok) {
-      context.emitProtocolError(safeMessage);
+      context.emitError(safeMessage);
       return true;
     }
     if ("suggest".equalsIgnoreCase(command == null ? "" : command.trim())) {
       context.emitStatus(safeMessage, "progress");
-      context.emitWebviewHtml(buildSuggestHtml(safeMessage), "final", "html", true);
+      context.emitHtml(buildSuggestHtml(safeMessage), "final", "html", true);
       return true;
     }
-    context.emitStatus(safeMessage, "final");
+    context.emitChat(safeMessage, "final");
     return true;
   }
 
@@ -1457,16 +1413,9 @@ public class SpotifyComponent {
     return out.toString();
   }
 
-  private enum ResponseFormat {
-    JSON,
-    TEXT
-  }
-
-  private record ParsedInput(String args, ResponseFormat format) {
-  }
-
   public enum SpotifyEvent implements EventDefinition {
     status("Built-in status channel event"),
+    chat("Build-in chat channel event"),
     html("Built-in html channel event"),
     auth("Built-in auth channel event"),
     error("Built-in error channel event"),

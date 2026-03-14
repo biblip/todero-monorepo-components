@@ -66,7 +66,7 @@ public class AgentContactsComponent {
   public Boolean process(CommandContext context) {
     String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
     if (prompt.isBlank()) {
-      context.emitProtocolError("Prompt is required. Usage: process <goal>");
+      context.emitError("Prompt is required. Usage: process <goal>");
       return true;
     }
 
@@ -90,7 +90,7 @@ public class AgentContactsComponent {
       String command = safeTrim(parsed.first).toLowerCase(Locale.ROOT);
       String args = safeTrim(parsed.second + (parsed.remaining == null ? "" : " " + parsed.remaining));
       if (!ALLOWED_COMMANDS.contains(command)) {
-        context.emitProtocolError("Unsupported Contacts action: " + command);
+        context.emitError("Unsupported Contacts action: " + command);
         return true;
       }
 
@@ -110,7 +110,7 @@ public class AgentContactsComponent {
       if (root != null && root.path("channels").isObject()) {
         emitChannels(context, root.path("channels"), root.path("auth"));
       } else if (toolResponse.status() >= 400) {
-        context.emitProtocolError(
+        context.emitError(
             safeTrim(toolBody).isBlank() ? "Contacts tool returned an error." : toolBody.trim()
         );
       } else {
@@ -119,10 +119,10 @@ public class AgentContactsComponent {
       }
       return true;
     } catch (TimeoutException e) {
-      context.emitProtocolError("Contacts tool call timed out.");
+      context.emitError("Contacts tool call timed out.");
       return true;
     } catch (Exception e) {
-      context.emitProtocolError("Contacts agent failed: " + safeTrim(e.getMessage()));
+      context.emitError("Contacts agent failed: " + safeTrim(e.getMessage()));
       return true;
     }
   }
@@ -172,14 +172,14 @@ public class AgentContactsComponent {
       context.emitChat(chatMessage, "chat".equals(finalChannel) ? "final" : "progress");
     }
     if (!html.isBlank() || "suggestions_from_toolsteps".equalsIgnoreCase(htmlMode)) {
-      context.emitWebviewHtml(html, "html".equals(finalChannel) ? "final" : "progress",
+      context.emitHtml(html, "html".equals(finalChannel) ? "final" : "progress",
           htmlMode.isBlank() ? "html" : htmlMode, replace);
     }
     if (authJson != null) {
       context.emitAuthJson(authJson, "final");
     }
     if (finalChannel.isBlank()) {
-      context.emitProtocolError("Contacts response is missing supported channel content.");
+      context.emitError("Contacts response is missing supported channel content.");
     }
   }
 

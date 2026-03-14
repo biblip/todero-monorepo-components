@@ -13,6 +13,7 @@ class SpotifyComponentEventRegistrationContractTest {
   @Test
   void spotifyEventsMatchStrictEmittedChannels() {
     Set<String> expected = Set.of(
+        "chat",
         "status",
         "html",
         "auth",
