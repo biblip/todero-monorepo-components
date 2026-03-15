@@ -6,6 +6,8 @@ import com.google.gson.JsonObject;
 import com.social100.processor.AIAController;
 import com.social100.processor.Action;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpRequest;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.runtime.auth.AuthorizationErrorCode;
@@ -191,22 +193,30 @@ public class SpotifyComponent {
       }
       boolean hasManager = context.getComponentManager() != null;
       boolean hasSourceId = context.getId() != null && !context.getId().trim().isEmpty();
-      boolean hasHttpRequest = context.getHttpRequest() != null;
-      boolean detachedLike = !hasManager || !hasHttpRequest;
+      boolean hasRequest = context.getAiatpRequest() != null;
+      boolean detachedLike = !hasManager || !hasRequest;
       if (detachedLike && !owner.localOnlyMode) {
         owner.localOnlyMode = true;
         System.out.println("[SPOTIFY] event-stream owner-detached ownerContextId=" + owner.ownerContextId
             + " action=degrade_to_local hasManager=" + hasManager
             + " hasSourceId=" + hasSourceId
-            + " hasHttpRequest=" + hasHttpRequest);
+            + " hasRequest=" + hasRequest);
       }
       String eventJson = renderPlaybackEventAsJson(event);
       System.out.println("[SPOTIFY] events callback payload=" + eventJson);
       if (!owner.localOnlyMode) {
         if (outputModeFinal == SpotifyCommandService.EventOutputMode.LEGACY_TEXT) {
-          context.event(SpotifyEvent.PLAYBACK_STATUS.name(), event.legacyStatus());
+          context.emitCustom(SpotifyEvent.PLAYBACK_STATUS.name(),
+              SpotifyEvent.PLAYBACK_STATUS.name(),
+              "text/plain; charset=utf-8",
+              event.legacyStatus().getBytes(StandardCharsets.UTF_8),
+              "progress");
         } else {
-          context.event(SpotifyEvent.PLAYBACK_EVENT_V2.name(), eventJson);
+          context.emitCustom(SpotifyEvent.PLAYBACK_EVENT_V2.name(),
+              SpotifyEvent.PLAYBACK_EVENT_V2.name(),
+              "application/json; charset=utf-8",
+              eventJson.getBytes(StandardCharsets.UTF_8),
+              "progress");
         }
       }
       if (!notifyAgentFinal) {
@@ -231,19 +241,21 @@ public class SpotifyComponent {
       System.out.println("[SPOTIFY] notify-agent dispatch payload=" + payload);
       System.out.println("[SPOTIFY] notify-agent context-health hasManager=" + hasManager
           + " hasSourceId=" + hasSourceId
-          + " hasHttpRequest=" + hasHttpRequest);
+          + " hasRequest=" + hasRequest);
       if (!hasManager) {
         System.out.println("[SPOTIFY] notify-agent skipped: command context has no componentManager (tool call must propagate parent context).");
         return;
       }
       agentNotifyExecutor.submit(() -> {
         try {
+          AiatpRequest internalRequest = AiatpRuntimeAdapter.request(
+              "ACTION",
+              "/" + DJ_AGENT + "/react",
+              AiatpIO.Body.ofString(payload, StandardCharsets.UTF_8)
+          );
           CommandContext internal = CommandContext.builder()
-              .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + DJ_AGENT + "/react")
-                  .body(AiatpIO.Body.ofString(payload, StandardCharsets.UTF_8))
-                  .build())
-              .consumer(ignored -> {
-              })
+              .aiatpRequest(internalRequest)
+              .terminalConsumer(ignored -> {})
               .build();
           context.execute(DJ_AGENT, "react", internal);
           System.out.println("[SPOTIFY] notify-agent execute sent to DJ agent");
@@ -1205,7 +1217,10 @@ public class SpotifyComponent {
   }
 
   private String readArgs(CommandContext context) {
-    String body = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8);
+    AiatpRequest request = context.getAiatpRequest();
+    String body = request == null || request.getBody() == null
+        ? ""
+        : AiatpIO.bodyToString(request.getBody(), StandardCharsets.UTF_8);
     return body == null ? "" : body.trim().replaceAll("\\s+", " ");
   }
 

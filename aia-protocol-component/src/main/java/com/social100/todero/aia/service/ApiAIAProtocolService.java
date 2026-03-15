@@ -2,10 +2,12 @@ package com.social100.todero.aia.service;
 
 import com.social100.todero.common.channels.EventChannel;
 import com.social100.todero.common.lineparser.LineParserUtil;
+import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.remote.RemoteApiCommandLineInterface;
 import com.social100.todero.remote.RemoteCliConfig;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 
 import java.util.Map;
 import java.util.Optional;
@@ -50,29 +52,31 @@ public class ApiAIAProtocolService {
     AiatpIORequestWrapper httpIORequestWrapper = null;
     LineParserUtil.ParsedLine parsedLine = LineParserUtil.parse(line);
     if (parsedLine.isDottedFormat) {
-      AiatpIO.HttpRequest.Builder httpRequestBuilder = AiatpIO.HttpRequest.newBuilder("ACTION", "/" + parsedLine.first + (parsedLine.secondValid ? "/" + parsedLine.second : ""));
-      applySessionHeaders(httpRequestBuilder);
+      AiatpRequest request = AiatpRuntimeAdapter.request("ACTION", "/" + parsedLine.first + (parsedLine.secondValid ? "/" + parsedLine.second : ""), AiatpIO.Body.none());
       if (parsedLine.remaining != null) {
-        httpRequestBuilder.body(AiatpIO.Body.ofString(parsedLine.remaining, AiatpIO.UTF_8));
+        request = request.toBuilder().body(AiatpIO.Body.ofString(parsedLine.remaining, AiatpIO.UTF_8)).build();
       }
+      request = applySessionHeaders(request);
       httpIORequestWrapper = AiatpIORequestWrapper.builder()
-          .httpRequest(httpRequestBuilder.build())
+          .aiatpRequest(request)
           .build();
     } else {
-      AiatpIO.HttpRequest.Builder httpRequestBuilder = AiatpIO.HttpRequest.newBuilder("ACTION", "/" + parsedLine.first + "/" + (parsedLine.secondValid ? parsedLine.second + "?" + (parsedLine.remaining != null ? parsedLine.remaining : "") : ""));
-      applySessionHeaders(httpRequestBuilder);
+      AiatpRequest request = AiatpRuntimeAdapter.request("ACTION", "/" + parsedLine.first + "/" + (parsedLine.secondValid ? parsedLine.second + "?" + (parsedLine.remaining != null ? parsedLine.remaining : "") : ""), AiatpIO.Body.none());
+      request = applySessionHeaders(request);
       httpIORequestWrapper = AiatpIORequestWrapper.builder()
-          .httpRequest(httpRequestBuilder.build())
+          .aiatpRequest(request)
           .build();
     }
     Optional.ofNullable(httpIORequestWrapper)
         .ifPresent(h -> apiCommandLineInterface.process(h));
   }
 
-  private void applySessionHeaders(AiatpIO.HttpRequest.Builder builder) {
+  private AiatpRequest applySessionHeaders(AiatpRequest request) {
+    AiatpRequest out = request;
     for (Map.Entry<String, String> entry : sessionHeaders.entrySet()) {
-      builder.setHeader(entry.getKey(), entry.getValue());
+      out = AiatpRuntimeAdapter.withHeader(out, entry.getKey(), entry.getValue());
     }
+    return out;
   }
 
   public void unregister() {

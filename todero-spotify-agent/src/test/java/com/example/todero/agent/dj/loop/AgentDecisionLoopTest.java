@@ -1,6 +1,7 @@
 package com.example.todero.agent.dj.loop;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.command.CommandContext;
 import org.junit.jupiter.api.Test;
 
@@ -90,7 +91,7 @@ class AgentDecisionLoopTest {
   void eventForwarderTracksTerminalDeliveryByChannel() {
     CommandContext context = CommandContext.builder()
         .sourceId("src-1")
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/agent/process").build())
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/agent/process", AiatpIO.Body.none()))
         .build();
     AgentDecisionLoop.EventForwarder forwarder = new AgentDecisionLoop.EventForwarder(context);
 

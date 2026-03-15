@@ -1,6 +1,8 @@
 package com.example.todero.agent.router;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
@@ -24,22 +26,21 @@ class RouterAgentPreDispatchRequiredArgsTest {
   void doesNotBlockPositionalRequiredArgsInNaturalLanguagePrompt() {
     StubManager manager = new StubManager();
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<AiatpIO.HttpResponse> out = new AtomicReference<>();
+    AtomicReference<AiatpIORequestWrapper> out = new AtomicReference<>();
 
     String prompt = "play music";
     CommandContext context = CommandContext.builder()
         .sourceId("sess-positional")
         .componentManager(manager)
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.router/process")
-            .body(AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8))
-            .build())
-        .consumer(out::set)
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.router/process",
+            AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8)))
+        .eventConsumer(out::set)
         .build();
 
     router.process(context);
 
-    assertEquals("chat", out.get().headers().getFirst("X-AIATP-Event-Channel"));
-    assertEquals("ok", AiatpIO.bodyToString(out.get().body(), StandardCharsets.UTF_8));
+    assertEquals("chat", out.get().getAiatpEvent().getChannel());
+    assertEquals("ok", AiatpIO.bodyToString(out.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
   }
 
@@ -83,28 +84,17 @@ class RouterAgentPreDispatchRequiredArgsTest {
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
       if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "process".equals(command)) {
-        lastDelegatedPrompt.set(AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8));
-        context.response(AiatpIO.HttpResponse.newBuilder(200)
-            .setHeader("Content-Type", "application/json; charset=utf-8")
-            .body(AiatpIO.Body.ofString(
-                "{\"channels\":{\"chat\":{\"message\":\"ok\"},\"status\":{\"message\":\"ok\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
-                StandardCharsets.UTF_8))
-            .build());
+        lastDelegatedPrompt.set(AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8));
+        context.completeJson(200,
+            "{\"channels\":{\"chat\":{\"message\":\"ok\"},\"status\":{\"message\":\"ok\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
       if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "capabilities".equals(command)) {
-        context.response(AiatpIO.HttpResponse.newBuilder(200)
-            .setHeader("Content-Type", "application/json; charset=utf-8")
-            .body(AiatpIO.Body.ofString(
-                "{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj.v2\",\"commands\":[{\"name\":\"play\",\"requiredArgs\":[\"<query|uri>\"]},{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}",
-                StandardCharsets.UTF_8))
-            .build());
+        context.completeJson(200,
+            "{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj.v2\",\"commands\":[{\"name\":\"play\",\"requiredArgs\":[\"<query|uri>\"]},{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}");
         return;
       }
-      context.response(AiatpIO.HttpResponse.newBuilder(404)
-          .setHeader("Content-Type", "application/json; charset=utf-8")
-          .body(AiatpIO.Body.ofString("{\"error\":\"not_found\"}", StandardCharsets.UTF_8))
-          .build());
+      context.completeJson(404, "{\"error\":\"not_found\"}");
     }
   }
 

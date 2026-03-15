@@ -1,6 +1,8 @@
 package com.example.todero.agent.router;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
@@ -52,22 +54,21 @@ class RouterAgentOpaqueRelayTest {
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<AiatpIO.HttpResponse> responseRef = new AtomicReference<>();
+    AtomicReference<AiatpIORequestWrapper> responseRef = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-opaque")
         .componentManager(manager)
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.router/process")
-            .body(AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8))
-            .build())
-        .consumer(responseRef::set)
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.router/process",
+            AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8)))
+        .eventConsumer(responseRef::set)
         .build();
 
     router.process(context);
 
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
-    assertEquals("auth", responseRef.get().headers().getFirst("X-AIATP-Event-Channel"));
-    assertEquals("{\"required\":false}", AiatpIO.bodyToString(responseRef.get().body(), StandardCharsets.UTF_8));
+    assertEquals("auth", responseRef.get().getAiatpEvent().getChannel());
+    assertEquals("{\"required\":false}", AiatpIO.bodyToString(responseRef.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
   }
 
   @Test
@@ -78,22 +79,21 @@ class RouterAgentOpaqueRelayTest {
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<AiatpIO.HttpResponse> responseRef = new AtomicReference<>();
+    AtomicReference<AiatpIORequestWrapper> responseRef = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-opaque-malformed")
         .componentManager(manager)
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.router/process")
-            .body(AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8))
-            .build())
-        .consumer(responseRef::set)
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.router/process",
+            AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8)))
+        .eventConsumer(responseRef::set)
         .build();
 
     router.process(context);
 
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
-    assertEquals("chat", responseRef.get().headers().getFirst("X-AIATP-Event-Channel"));
-    assertEquals("done", AiatpIO.bodyToString(responseRef.get().body(), StandardCharsets.UTF_8));
+    assertEquals("chat", responseRef.get().getAiatpEvent().getChannel());
+    assertEquals("done", AiatpIO.bodyToString(responseRef.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
   }
 
   private static final class StubManager implements ComponentManagerInterface {
@@ -140,24 +140,15 @@ class RouterAgentOpaqueRelayTest {
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
       if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "process".equals(command)) {
-        lastDelegatedPrompt.set(AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8));
-        context.response(AiatpIO.HttpResponse.newBuilder(200)
-            .setHeader("Content-Type", "application/json; charset=utf-8")
-            .body(AiatpIO.Body.ofString(delegatedBody, StandardCharsets.UTF_8))
-            .build());
+        lastDelegatedPrompt.set(AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8));
+        context.completeJson(200, delegatedBody);
         return;
       }
       if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "capabilities".equals(command)) {
-        context.response(AiatpIO.HttpResponse.newBuilder(200)
-            .setHeader("Content-Type", "application/json; charset=utf-8")
-            .body(AiatpIO.Body.ofString("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj.v2\",\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", StandardCharsets.UTF_8))
-            .build());
+        context.completeJson(200, "{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj.v2\",\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}");
         return;
       }
-      context.response(AiatpIO.HttpResponse.newBuilder(404)
-          .setHeader("Content-Type", "application/json; charset=utf-8")
-          .body(AiatpIO.Body.ofString("{\"error\":\"not_found\"}", StandardCharsets.UTF_8))
-          .build());
+      context.completeJson(404, "{\"error\":\"not_found\"}");
     }
   }
 

@@ -194,9 +194,9 @@ public class TaskManagerAgentComponent {
       description = "Process a user goal synchronously")
   public Boolean process(CommandContext context) {
     String correlationId = newCorrelationId();
-    String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    String prompt = requestBody(context);
     if (prompt.isEmpty()) {
-      context.response(renderEnvelope(
+      context.completeJson(200, renderEnvelope(
           "process",
           correlationId,
           "error",
@@ -212,7 +212,7 @@ public class TaskManagerAgentComponent {
 
     if (prompt.startsWith("react ")) {
       String payload = prompt.substring("react ".length()).trim();
-      context.response(handleReactPayload(correlationId, payload, "process-react"));
+      context.completeJson(200, handleReactPayload(correlationId, payload, "process-react"));
       return true;
     }
 
@@ -223,7 +223,7 @@ public class TaskManagerAgentComponent {
           cognitionExecutor
       );
       LoopResult result = future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      context.response(renderEnvelope(
+      context.completeJson(200, renderEnvelope(
           "process",
           correlationId,
           result.status,
@@ -235,7 +235,7 @@ public class TaskManagerAgentComponent {
           result.errorCode
       ));
     } catch (TimeoutException e) {
-      context.response(renderEnvelope(
+      context.completeJson(200, renderEnvelope(
           "process",
           correlationId,
           "error",
@@ -247,7 +247,7 @@ public class TaskManagerAgentComponent {
           "timeout"
       ));
     } catch (Exception e) {
-      context.response(renderEnvelope(
+      context.completeJson(200, renderEnvelope(
           "process",
           correlationId,
           "error",
@@ -267,7 +267,7 @@ public class TaskManagerAgentComponent {
       description = "Return runtime capability manifest for discovery")
   public Boolean capabilities(CommandContext context) {
     AgentCapabilityManifest manifest = new TaskManagerAgentCapabilities().manifest();
-    context.response(renderCapabilitiesEnvelope(manifest));
+    context.completeJson(200, renderCapabilitiesEnvelope(manifest));
     return true;
   }
 
@@ -276,8 +276,8 @@ public class TaskManagerAgentComponent {
       description = "Accept event payload and queue asynchronous reaction")
   public Boolean react(CommandContext context) {
     String correlationId = newCorrelationId();
-    String payload = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
-    context.response(handleReactPayload(correlationId, payload, "react"));
+    String payload = requestBody(context);
+    context.completeJson(200, handleReactPayload(correlationId, payload, "react"));
     return true;
   }
 
@@ -397,7 +397,7 @@ public class TaskManagerAgentComponent {
         + ", hasApiKey=" + (!safe(openApiKey).isBlank())
         + ", executor=single-thread"
         + ", lastMemory=" + summary;
-    context.response(renderEnvelope(
+    context.completeJson(200, renderEnvelope(
         "health",
         correlationId,
         "ok",
@@ -416,7 +416,7 @@ public class TaskManagerAgentComponent {
       description = "Inspect recent in-memory traces")
   public Boolean memory(CommandContext context) {
     String correlationId = newCorrelationId();
-    context.response(renderEnvelope(
+    context.completeJson(200, renderEnvelope(
         "memory",
         correlationId,
         "ok",
@@ -465,21 +465,28 @@ public class TaskManagerAgentComponent {
         + "}";
   }
 
+
+  private static String requestBody(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body.trim();
+  }
   private ToolCallResult executeTaskManager(CommandContext context, String command, String args) {
     String normalizedArgs = ensureJsonFormat(args);
-    CompletableFuture<AiatpIO.HttpResponse> outFuture = new CompletableFuture<>();
+    CompletableFuture<com.social100.todero.common.aiatpio.AiatpTerminalResult> outFuture = new CompletableFuture<>();
     CommandContext internalContext = CommandContext.builder()
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + TASK_MANAGER_COMPONENT + "/" + command)
-            .body(AiatpIO.Body.ofString(normalizedArgs, StandardCharsets.UTF_8))
-            .build())
-        .consumer(outFuture::complete)
+        .aiatpRequest(com.social100.todero.common.aiatpio.AiatpRuntimeAdapter.request("ACTION", "/" + TASK_MANAGER_COMPONENT + "/" + command, AiatpIO.Body.ofString(normalizedArgs, StandardCharsets.UTF_8)))
+        .terminalConsumer(outFuture::complete)
         .build();
 
     try {
       context.execute(TASK_MANAGER_COMPONENT, command, internalContext);
-      AiatpIO.HttpResponse response = outFuture.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      String body = AiatpIO.bodyToString(response.body(), StandardCharsets.UTF_8);
-      return parseToolEnvelope(command, normalizedArgs, response.status(), body);
+      com.social100.todero.common.aiatpio.AiatpTerminalResult response = outFuture.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      String body = response == null || response.getBody() == null ? "" : AiatpIO.bodyToString(response.getBody(), StandardCharsets.UTF_8);
+      int status = response != null && "failure".equalsIgnoreCase(safe(response.getOutcome())) ? 500 : 200;
+      return parseToolEnvelope(command, normalizedArgs, status, body);
     } catch (TimeoutException e) {
       return ToolCallResult.failure(command, normalizedArgs, "timeout", "Tool execution timed out.", "", "");
     } catch (Exception e) {

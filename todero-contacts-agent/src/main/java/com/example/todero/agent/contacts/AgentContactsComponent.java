@@ -10,6 +10,8 @@ import com.social100.todero.common.ai.agent.AgentContext;
 import com.social100.todero.common.ai.agent.AgentDefinition;
 import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
+import com.social100.todero.common.aiatpio.AiatpTerminalResult;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.lineparser.LineParserUtil;
@@ -64,7 +66,7 @@ public class AgentContactsComponent {
       command = "process",
       description = "Process a prompt and execute contacts component command")
   public Boolean process(CommandContext context) {
-    String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    String prompt = requestBody(context);
     if (prompt.isBlank()) {
       context.emitError("Prompt is required. Usage: process <goal>");
       return true;
@@ -94,22 +96,21 @@ public class AgentContactsComponent {
         return true;
       }
 
-      CompletableFuture<AiatpIO.HttpResponse> outFuture = new CompletableFuture<>();
+      CompletableFuture<AiatpTerminalResult> outFuture = new CompletableFuture<>();
       CommandContext internalContext = CommandContext.builder()
-          .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + CONTACTS_COMPONENT + "/" + command)
-              .body(AiatpIO.Body.ofString(args, StandardCharsets.UTF_8))
-              .build())
-          .consumer(outFuture::complete)
+          .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/" + CONTACTS_COMPONENT + "/" + command,
+              AiatpIO.Body.ofString(args, StandardCharsets.UTF_8)))
+          .terminalConsumer(outFuture::complete)
           .build();
       context.execute(CONTACTS_COMPONENT, command, internalContext);
 
-      AiatpIO.HttpResponse toolResponse = outFuture.get(25, TimeUnit.SECONDS);
-      String toolBody = AiatpIO.bodyToString(toolResponse.body(), StandardCharsets.UTF_8);
+      AiatpTerminalResult toolResponse = outFuture.get(25, TimeUnit.SECONDS);
+      String toolBody = terminalBody(toolResponse);
 
       JsonNode root = parseJsonOrNull(toolBody);
       if (root != null && root.path("channels").isObject()) {
         emitChannels(context, root.path("channels"), root.path("auth"));
-      } else if (toolResponse.status() >= 400) {
+      } else if ("failure".equalsIgnoreCase(safeTrim(toolResponse.getOutcome()))) {
         context.emitError(
             safeTrim(toolBody).isBlank() ? "Contacts tool returned an error." : toolBody.trim()
         );
@@ -181,6 +182,22 @@ public class AgentContactsComponent {
     if (finalChannel.isBlank()) {
       context.emitError("Contacts response is missing supported channel content.");
     }
+  }
+
+  private static String requestBody(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body.trim();
+  }
+
+  private static String terminalBody(AiatpTerminalResult result) {
+    if (result == null || result.getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(result.getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
   }
 
   private String renderCapabilitiesEnvelope(AgentCapabilityManifest manifest) {

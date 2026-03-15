@@ -32,10 +32,9 @@ public class SimpleComponent {
       description = "Does the ping")
   public Boolean pingCommand(CommandContext context) {
 
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
-    context.event(SimpleEvent.SIMPLE_EVENT.name(), "No va a salir");
-    context.response("Ping Ok" + (!commandArgs.isEmpty() ? " : " + commandArgs : ""));
+    final String commandArgs = requestBody(context);
+    context.emitCustom(SimpleEvent.SIMPLE_EVENT.name(), SimpleEvent.SIMPLE_EVENT.name(), "text/plain; charset=utf-8", "No va a salir".getBytes(StandardCharsets.UTF_8), "final");
+    context.completeText(200, "Ping Ok" + (!commandArgs.isEmpty() ? " : " + commandArgs : ""));
     return true;
   }
 
@@ -43,15 +42,14 @@ public class SimpleComponent {
       command = "hello",
       description = "Does a friendly hello")
   public Boolean instanceMethod(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     Map<String, Object> mm = Map.of(
         "message", "Hello from instanceMethod",
         "args", commandArgs,
         "metadata", Map.of("key1", "value1", "key2", "value2")
     );
-    context.event(SimpleEvent.OTHER_EVENT.name(), "Aja, aqui va!");
-    context.response(mm.toString());
+    context.emitCustom(SimpleEvent.OTHER_EVENT.name(), SimpleEvent.OTHER_EVENT.name(), "text/plain; charset=utf-8", "Aja, aqui va!".getBytes(StandardCharsets.UTF_8), "final");
+    context.completeText(200, mm.toString());
     return true;
   }
 
@@ -65,15 +63,14 @@ public class SimpleComponent {
     //storage.putSecret("apiKey", "12345");
     //System.out.println("secret apiKey=" + storage.getSecret("apiKey"));
 
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     Map<String, Object> mm = Map.of(
         "message", "Hello from instanceMethod",
         "args", commandArgs,
         "metadata", Map.of("key1", "value1", "key2", "value2")
     );
-    context.event(SimpleEvent.OTHER_EVENT.name(), "Aja, aqui va!");
-    context.response(mm.toString());
+    context.emitCustom(SimpleEvent.OTHER_EVENT.name(), SimpleEvent.OTHER_EVENT.name(), "text/plain; charset=utf-8", "Aja, aqui va!".getBytes(StandardCharsets.UTF_8), "final");
+    context.completeText(200, mm.toString());
     return true;
   }
 
@@ -81,10 +78,9 @@ public class SimpleComponent {
       command = "events",
       description = "Start / Stop Sending events. Usage: events ON|OFF")
   public Boolean eventsCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response(context.getInstance().getAvailableEvents().toString());
+      context.completeText(200, context.getInstance().getAvailableEvents().toString());
     } else {
       boolean eventsOn = "on".equalsIgnoreCase(commandArgs);
       if (eventsOn) {
@@ -92,20 +88,20 @@ public class SimpleComponent {
         if (backgroundTaskRunner == null) {
           backgroundTaskRunner = new BackgroundTaskRunner(Duration.ofSeconds(10), Duration.ofSeconds(5), true);
           backgroundTaskRunner.start(() -> {
-            context.event(SimpleEvent.SIMPLE_EVENT.name(), "yeyeyey");
+            context.emitCustom(SimpleEvent.SIMPLE_EVENT.name(), SimpleEvent.SIMPLE_EVENT.name(), "text/plain; charset=utf-8", "yeyeyey".getBytes(StandardCharsets.UTF_8), "progress");
           });
-          context.response("events are now ON");
+          context.completeText(200, "events are now ON");
         } else {
-          context.response("events are already ON");
+          context.completeText(200, "events are already ON");
         }
       } else {
         if (backgroundTaskRunner != null) {
           backgroundTaskRunner.stop();
           backgroundTaskRunner = null;
-          context.response("events are now OFF");
+          context.completeText(200, "events are now OFF");
           this.globalContext = null;
         } else {
-          context.response("events are already OFF");
+          context.completeText(200, "events are already OFF");
         }
       }
     }
@@ -126,5 +122,14 @@ public class SimpleComponent {
     public String getDescription() {
       return description;
     }
+  }
+
+
+  private static String requestBody(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
   }
 }

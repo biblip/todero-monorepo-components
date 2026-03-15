@@ -47,7 +47,7 @@ public class ContactsComponent {
     Map<String, String> args = parseKeyValue(body);
     String email = args.get("email");
     if (email == null || email.isBlank()) {
-      context.response(render(false, "missing_email",
+      context.completeJson(200, render(false, "missing_email",
           "Email is required to add a contact.",
           "Missing required parameter: email",
           null, false, null));
@@ -80,7 +80,7 @@ public class ContactsComponent {
     }
 
     saveContacts(contacts);
-    context.response(render(true, null,
+    context.completeJson(200, render(true, null,
         status,
         status,
         null, false,
@@ -95,7 +95,7 @@ public class ContactsComponent {
     List<Contact> contacts = loadContacts();
     String html = renderContactsHtml("All Contacts", contacts);
     String status = contacts.size() + " contacts";
-    context.response(render(true, null,
+    context.completeJson(200, render(true, null,
         "Contacts directory loaded.",
         status,
         html, true,
@@ -111,7 +111,7 @@ public class ContactsComponent {
     Map<String, String> args = parseKeyValue(body);
     String query = args.get("query");
     if (query == null || query.isBlank()) {
-      context.response(render(false, "missing_query",
+      context.completeJson(200, render(false, "missing_query",
           "Query is required to find contacts.",
           "Missing required parameter: query",
           null, false, null));
@@ -124,7 +124,7 @@ public class ContactsComponent {
         .collect(Collectors.toList());
     String html = renderContactsHtml("Matches for \"" + query + "\"", matches);
     String status = matches.size() + " matches";
-    context.response(render(true, null,
+    context.completeJson(200, render(true, null,
         matches.isEmpty() ? "No matching contacts found." : "Found matching contacts.",
         status,
         html, true,
@@ -140,7 +140,7 @@ public class ContactsComponent {
     Map<String, String> args = parseKeyValue(body);
     String group = args.get("name");
     if (group == null || group.isBlank()) {
-      context.response(render(false, "missing_group_name",
+      context.completeJson(200, render(false, "missing_group_name",
           "Group name is required.",
           "Missing required parameter: name",
           null, false, null));
@@ -152,7 +152,7 @@ public class ContactsComponent {
         .collect(Collectors.toList());
     String html = renderContactsHtml("Group: " + group, matches);
     String status = matches.size() + " contacts in group";
-    context.response(render(true, null,
+    context.completeJson(200, render(true, null,
         matches.isEmpty() ? "No contacts in that group." : "Group contacts loaded.",
         status,
         html, true,
@@ -168,7 +168,7 @@ public class ContactsComponent {
     Map<String, String> args = parseKeyValue(body);
     String email = args.get("email");
     if (email == null || email.isBlank()) {
-      context.response(render(false, "missing_email",
+      context.completeJson(200, render(false, "missing_email",
           "Email is required to remove a contact.",
           "Missing required parameter: email",
           null, false, null));
@@ -178,14 +178,14 @@ public class ContactsComponent {
     int before = contacts.size();
     contacts.removeIf(c -> c.email.equalsIgnoreCase(email));
     if (contacts.size() == before) {
-      context.response(render(false, "contact_not_found",
+      context.completeJson(200, render(false, "contact_not_found",
           "Contact not found: " + email,
           "Contact not found",
           null, false, Map.of("email", email)));
       return true;
     }
     saveContacts(contacts);
-    context.response(render(true, null,
+    context.completeJson(200, render(true, null,
         "Removed contact: " + email,
         "Contact removed",
         null, false, Map.of("email", email)));
@@ -193,7 +193,7 @@ public class ContactsComponent {
   }
 
   private String bodyString(CommandContext context) {
-    return AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    return context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null ? "" : AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8).trim();
   }
 
   private List<Contact> loadContacts() {

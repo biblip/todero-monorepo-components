@@ -3,7 +3,7 @@ package com.example.todero.component.template;
 import com.social100.processor.AIAController;
 import com.social100.processor.Action;
 import com.social100.todero.common.aiatpio.AiatpIO;
-import com.social100.todero.common.aiatpio.AiatpIO.HttpRequest;
+import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.storage.Storage;
@@ -27,46 +27,47 @@ public class TemplateComponent {
 
   @Action(group = "template", command = "ping", description = "Respond with pong.")
   public Boolean ping(CommandContext context) {
-    context.response("pong");
+    context.completeText(200, "pong");
     return Boolean.TRUE;
   }
 
   @Action(group = "template", command = "echo", description = "Echo the request body.")
   public Boolean echo(CommandContext context) {
-    HttpRequest request = context.getHttpRequest();
+    AiatpRequest request = context.getAiatpRequest();
     String body = request == null ? "" : bodyToString(request);
-    context.response(body);
+    context.completeText(200, body);
     return Boolean.TRUE;
   }
 
   @Action(group = "template", command = "headers", description = "Return request headers.")
   public Boolean headers(CommandContext context) {
-    HttpRequest request = context.getHttpRequest();
+    AiatpRequest request = context.getAiatpRequest();
     Map<String, String> headers = request == null ? Map.of() : headersToMap(request);
-    context.response(toJsonLike(headers));
+    context.completeText(200, toJsonLike(headers));
     return Boolean.TRUE;
   }
 
   @Action(group = "template", command = "event", description = "Emit an event and respond.")
   public Boolean event(CommandContext context) {
-    context.event(TemplateEvents.TEMPLATE_EVENT.name(), "event fired");
-    context.response("event emitted");
+    context.emitCustom(TemplateEvents.TEMPLATE_EVENT.name(), TemplateEvents.TEMPLATE_EVENT.name(),
+        "text/plain; charset=utf-8", "event fired".getBytes(AiatpIO.UTF_8), "final");
+    context.completeText(200, "event emitted");
     return Boolean.TRUE;
   }
 
-  private String bodyToString(HttpRequest request) {
-    if (request.body() == null) {
+  private String bodyToString(AiatpRequest request) {
+    if (request.getBody() == null) {
       return "";
     }
-    return AiatpIO.bodyToString(request.body(), AiatpIO.UTF_8);
+    return AiatpIO.bodyToString(request.getBody(), AiatpIO.UTF_8);
   }
 
-  private Map<String, String> headersToMap(HttpRequest request) {
-    if (request.headers() == null) {
+  private Map<String, String> headersToMap(AiatpRequest request) {
+    if (request.getHeaders() == null) {
       return Map.of();
     }
     Map<String, String> headers = new LinkedHashMap<>();
-    for (Map.Entry<String, String> entry : request.headers()) {
+    for (Map.Entry<String, String> entry : request.getHeaders()) {
       headers.put(entry.getKey(), entry.getValue());
     }
     return headers;

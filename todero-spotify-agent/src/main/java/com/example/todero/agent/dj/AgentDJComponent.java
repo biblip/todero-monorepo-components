@@ -13,6 +13,9 @@ import com.social100.todero.common.ai.agent.AgentPrompt;
 import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpRequest;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
+import com.social100.todero.common.aiatpio.AiatpTerminalResult;
 import com.social100.todero.common.agent.work.AppendActionRequest;
 import com.social100.todero.common.agent.work.CompletionRequest;
 import com.social100.todero.common.agent.work.FailureRequest;
@@ -123,10 +126,10 @@ public class AgentDJComponent {
     System.out.println("[DJ-AGENT][TRACE][process] L2 correlationId=" + correlationId);
     final String source = "process";
     System.out.println("[DJ-AGENT][TRACE][process] L3 source=" + source);
-    String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    String prompt = requestBody(context);
     String requestIdHeader = "";
     try {
-      requestIdHeader = safeTrim(context.getHttpRequest().headers().getFirst("X-Request-Id"));
+      requestIdHeader = requestHeader(context, "X-Request-Id");
     } catch (Exception ignored) {
       requestIdHeader = "";
     }
@@ -261,7 +264,7 @@ public class AgentDJComponent {
   public Boolean react(CommandContext context) {
     final String correlationId = newCorrelationId();
     final String source = "react";
-    String rawPayload = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    String rawPayload = requestBody(context);
     System.out.println("[DJ-AGENT] react received correlationId=" + correlationId + " payload=" + rawPayload);
     if (rawPayload.isEmpty()) {
       String envelope = renderContractEnvelope(
@@ -553,18 +556,26 @@ public class AgentDJComponent {
     String internalRequestId = "dj-tool-" + newCorrelationId();
     CompletableFuture<SpotifyExecutionResult> outFuture = new CompletableFuture<>();
     SpotifyEventAggregate aggregate = new SpotifyEventAggregate();
+    AiatpRequest internalRequest = AiatpRuntimeAdapter.withHeader(
+        AiatpRuntimeAdapter.request(
+            "ACTION",
+            "/" + SPOTIFY_COMPONENT + "/" + command,
+            AiatpIO.Body.ofString(spotifyArgs, StandardCharsets.UTF_8)
+        ),
+        "X-Request-Id",
+        internalRequestId
+    ).toBuilder()
+        .requestId(internalRequestId)
+        .build();
 
     CommandContext internalContext = parentContext.cloneBuilder()
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + SPOTIFY_COMPONENT + "/" + command)
-            .setHeader("X-Request-Id", internalRequestId)
-            .body(AiatpIO.Body.ofString(spotifyArgs, StandardCharsets.UTF_8))
-            .build())
+        .aiatpRequest(internalRequest)
         .eventConsumer(wrapper -> {
           forwardSpotifyEvent(parentContext, wrapper, internalRequestId);
           completeFromSpotifyEvent(outFuture, wrapper, internalRequestId, aggregate);
         })
-        .consumer(response -> {
-          String body = AiatpIO.bodyToString(response.body(), StandardCharsets.UTF_8);
+        .terminalConsumer(result -> {
+          String body = terminalBody(result);
           if (!safeTrim(body).isEmpty() && !aggregate.hasEvent()) {
             outFuture.complete(new SpotifyExecutionResult(
                 "response",
@@ -572,7 +583,7 @@ public class AgentDJComponent {
                 "",
                 body,
                 "",
-                response.status(),
+                terminalStatus(result),
                 null
             ));
           }
@@ -1882,14 +1893,14 @@ public class AgentDJComponent {
       }
       String headerRequestId = "";
       try {
-        headerRequestId = safeTrim(context.getHttpRequest().headers().getFirst("X-Request-Id"));
+        headerRequestId = requestHeader(context, "X-Request-Id");
       } catch (Exception ignored) {
         headerRequestId = "";
       }
       System.out.println("[DJ-AGENT][EMIT] begin contextId=" + (contextId.isEmpty() ? "<none>" : contextId)
           + " X-Request-Id=" + (headerRequestId.isEmpty() ? "<none>" : headerRequestId)
           + " hasManager=" + (context.getComponentManager() != null)
-          + " hasHttpRequest=" + (context.getHttpRequest() != null)
+          + " hasRequest=" + (context.getAiatpRequest() != null)
           + " body=" + redactedForLogs(jsonBody));
       JsonNode root = JSON.readTree(jsonBody);
       JsonNode channels = root.path("channels");
@@ -2174,7 +2185,7 @@ public class AgentDJComponent {
       contextId = "";
     }
     try {
-      headerRequestId = safeTrim(context.getHttpRequest().headers().getFirst("X-Request-Id"));
+      headerRequestId = requestHeader(context, "X-Request-Id");
     } catch (Exception ignored) {
       headerRequestId = "";
     }
@@ -2310,6 +2321,39 @@ public class AgentDJComponent {
 
   private static String safeTrim(String v) {
     return v == null ? "" : v.trim();
+  }
+
+  private static String requestBody(CommandContext context) {
+    AiatpRequest request = context == null ? null : context.getAiatpRequest();
+    if (request == null || request.getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(request.getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body.trim();
+  }
+
+  private static String requestHeader(CommandContext context, String name) {
+    AiatpRequest request = context == null ? null : context.getAiatpRequest();
+    if (request == null || request.getHeaders() == null || name == null || name.isBlank()) {
+      return "";
+    }
+    return safeTrim(request.getHeaders().getFirst(name));
+  }
+
+  private static String terminalBody(AiatpTerminalResult result) {
+    if (result == null || result.getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(result.getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
+  }
+
+  private static int terminalStatus(AiatpTerminalResult result) {
+    if (result == null) {
+      return 500;
+    }
+    String outcome = safeTrim(result.getOutcome()).toLowerCase();
+    return "failure".equals(outcome) ? 500 : 200;
   }
 
   private static String usageReact() {

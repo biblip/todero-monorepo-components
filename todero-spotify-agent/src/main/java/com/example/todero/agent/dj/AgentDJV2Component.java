@@ -8,6 +8,8 @@ import com.social100.todero.common.ai.agent.AgentContext;
 import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpRequest;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.lineparser.LineParserUtil;
@@ -95,7 +97,7 @@ public class AgentDJV2Component {
   public Boolean process(CommandContext context) {
     String correlationId = newCorrelationId();
     String source = "process";
-    String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    String prompt = requestBody(context);
     System.out.println("[DJV2] process received correlationId=" + correlationId + " prompt=" + prompt);
     if (prompt.isBlank()) {
       emitStatusAndChat(context, "Prompt is required. Usage: process <goal>");
@@ -111,7 +113,7 @@ public class AgentDJV2Component {
       description = "Queue an external event for asynchronous agent reaction")
   public Boolean react(CommandContext context) {
     String correlationId = newCorrelationId();
-    String raw = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    String raw = requestBody(context);
     if (raw.isBlank()) {
       emitStatusAndChat(context, "Event payload is required.");
       return true;
@@ -151,12 +153,20 @@ public class AgentDJV2Component {
                               AgentDecisionLoop.ToolCall call,
                               AgentDecisionLoop.ToolExecutionHandle handle) throws Exception {
     String requestId = "djv2-tool-" + newCorrelationId();
+    AiatpRequest internalRequest = AiatpRuntimeAdapter.withHeader(
+        AiatpRuntimeAdapter.request(
+            "ACTION",
+            "/" + SPOTIFY_COMPONENT + "/" + call.command(),
+            AiatpIO.Body.ofString(safeTrim(call.args()), StandardCharsets.UTF_8)
+        ),
+        "X-Request-Id",
+        requestId
+    ).toBuilder()
+        .requestId(requestId)
+        .build();
 
     CommandContext internalContext = parentContext.cloneBuilder()
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + SPOTIFY_COMPONENT + "/" + call.command())
-            .setHeader("X-Request-Id", requestId)
-            .body(AiatpIO.Body.ofString(safeTrim(call.args()), StandardCharsets.UTF_8))
-            .build())
+        .aiatpRequest(internalRequest)
         .eventConsumer(wrapper -> handleToolEvent(wrapper, requestId, handle))
         .build();
 
@@ -491,6 +501,15 @@ public class AgentDJV2Component {
 
   private static String safeTrim(String v) {
     return v == null ? "" : v.trim();
+  }
+
+  private static String requestBody(CommandContext context) {
+    AiatpRequest request = context == null ? null : context.getAiatpRequest();
+    if (request == null || request.getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(request.getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body.trim();
   }
 
   private static String newCorrelationId() {

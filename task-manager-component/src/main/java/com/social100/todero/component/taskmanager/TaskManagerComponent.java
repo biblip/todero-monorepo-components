@@ -484,7 +484,7 @@ public class TaskManagerComponent {
         subscriptionId = UUID.randomUUID().toString();
       }
       String finalSubscriptionId = subscriptionId;
-      Runnable unsubscribe = dispatcher.subscribe(agentId, event -> context.event(EVENT_TASK, event.payloadJson()));
+      Runnable unsubscribe = dispatcher.subscribe(agentId, event -> context.emitCustom(EVENT_TASK, EVENT_TASK, "application/json; charset=utf-8", event.payloadJson().getBytes(StandardCharsets.UTF_8), "progress"));
       subscriptionHandlesByAgent.computeIfAbsent(agentId, ignored -> new ConcurrentHashMap<>())
           .put(finalSubscriptionId, unsubscribe);
 
@@ -553,7 +553,7 @@ public class TaskManagerComponent {
       int status = httpStatus(result);
       logActionResult(command, format, result, status);
       if ("text".equals(format)) {
-        context.response(renderText(command, result));
+        context.completeText(status, renderText(command, result));
         return;
       }
       Map<String, Object> payload = new LinkedHashMap<>();
@@ -566,10 +566,10 @@ public class TaskManagerComponent {
           "format", format,
           "timestamp", Instant.now().toString()
       ));
-      context.responseJson(status, JSON.writeValueAsString(payload));
+      context.completeJson(status, JSON.writeValueAsString(payload));
     } catch (Exception e) {
       logActionException(command, e);
-      context.responseJson(500, "{\"ok\":false,\"errorCode\":\"internal_error\",\"message\":\"Failed to encode response.\"}");
+      context.completeJson(500, "{\"ok\":false,\"errorCode\":\"internal_error\",\"message\":\"Failed to encode response.\"}");
     }
   }
 
@@ -599,8 +599,8 @@ public class TaskManagerComponent {
   private ParsedInput parseInput(CommandContext context) {
     String command = extractCommand(context);
     String raw = "";
-    if (context.getHttpRequest() != null && context.getHttpRequest().body() != null) {
-      raw = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8);
+    if (context.getAiatpRequest() != null && context.getAiatpRequest().getBody() != null) {
+      raw = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
     }
     try {
       ParsedInput parsed = parseInputRaw(raw);
@@ -615,10 +615,10 @@ public class TaskManagerComponent {
   }
 
   private String extractCommand(CommandContext context) {
-    if (context == null || context.getHttpRequest() == null) {
+    if (context == null || context.getAiatpRequest() == null) {
       return "unknown";
     }
-    String target = context.getHttpRequest().requestTarget();
+    String target = context.getAiatpRequest().getTarget();
     if (target == null || target.isBlank()) {
       return "unknown";
     }

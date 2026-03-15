@@ -62,14 +62,14 @@ public class AiaAdminComponent {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageInstall(), List.of("coord"))) return false;
     if (args.tokens.isEmpty()) {
-      context.response(usageInstall());
+      context.completeText(200, usageInstall());
       return false;
     }
     if (!args.positional.isEmpty()) return invalidArgs(context, usageInstall(), args.positional);
 
     List<String> coords = args.multi("coord");
     if (coords.isEmpty()) {
-      context.response("At least one --coord is required\\n" + usageInstall());
+      context.completeText(200, "At least one --coord is required\\n" + usageInstall());
       return false;
     }
 
@@ -94,14 +94,14 @@ public class AiaAdminComponent {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageUninstall(), List.of("coord"))) return false;
     if (args.tokens.isEmpty()) {
-      context.response(usageUninstall());
+      context.completeText(200, usageUninstall());
       return false;
     }
     if (!args.positional.isEmpty()) return invalidArgs(context, usageUninstall(), args.positional);
 
     List<String> coords = args.multi("coord");
     if (coords.isEmpty()) {
-      context.response("At least one --coord is required\\n" + usageUninstall());
+      context.completeText(200, "At least one --coord is required\\n" + usageUninstall());
       return false;
     }
 
@@ -147,7 +147,7 @@ public class AiaAdminComponent {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageCheckout(), List.of("latest", "previous", "restore-state", "force"))) return false;
     if (args.tokens.isEmpty()) {
-      context.response(usageCheckout());
+      context.completeText(200, usageCheckout());
       return false;
     }
 
@@ -157,7 +157,7 @@ public class AiaAdminComponent {
     if (args.bool("latest", false)) selectors++;
     if (args.bool("previous", false)) selectors++;
     if (selectors > 1) {
-      context.response("Only one selector is allowed: <ver>, --latest, or --previous\\n" + usageCheckout());
+      context.completeText(200, "Only one selector is allowed: <ver>, --latest, or --previous\\n" + usageCheckout());
       return false;
     }
 
@@ -246,11 +246,11 @@ public class AiaAdminComponent {
           "Component manager is not available in command context.",
           ""
       );
-      context.response(renderResult(action, fail));
+      context.completeText(200, renderResult(action, fail));
       return fail;
     }
     PrivilegedOperationResult result = manager.lifecycleRuntimeService().execute(request, null);
-    context.response(renderResult(action, result));
+    context.completeText(200, renderResult(action, result));
     return result;
   }
 
@@ -264,17 +264,16 @@ public class AiaAdminComponent {
           "Component manager is not available in command context.",
           ""
       );
-      context.response(renderResult(action, fail));
+      context.completeText(200, renderResult(action, fail));
       return fail;
     }
     PrivilegedOperationResult result = manager.adminControlRuntimeService().execute(request, null);
-    context.response(renderResult(action, result));
+    context.completeText(200, renderResult(action, result));
     return result;
   }
 
   private ParsedArgs parseBody(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    String body = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    String body = requestBody(context);
     ArgumentParser parser = new ArgumentParser();
     List<String> tokens = parser.tokenizeCommandLine(body == null ? "" : body);
     return ParsedArgs.fromTokens(tokens);
@@ -352,14 +351,14 @@ public class AiaAdminComponent {
       }
     }
     if (!unknown.isEmpty()) {
-      context.response("Unrecognized flag(s): " + String.join(", ", unknown) + "\\n" + usage);
+      context.completeText(200, "Unrecognized flag(s): " + String.join(", ", unknown) + "\\n" + usage);
       return false;
     }
     return true;
   }
 
   private boolean invalidArgs(CommandContext context, String usage, List<String> args) {
-    context.response("Unrecognized argument(s): " + String.join(" ", args) + "\\n" + usage);
+    context.completeText(200, "Unrecognized argument(s): " + String.join(" ", args) + "\\n" + usage);
     return false;
   }
 
@@ -438,5 +437,14 @@ public class AiaAdminComponent {
       }
       return positional.get(0);
     }
+  }
+
+
+  private static String requestBody(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
   }
 }

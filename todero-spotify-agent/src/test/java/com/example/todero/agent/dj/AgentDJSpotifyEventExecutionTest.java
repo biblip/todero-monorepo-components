@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
@@ -30,9 +31,8 @@ class AgentDJSpotifyEventExecutionTest {
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.emitStatus("Playing search for Enya.", "final")))
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
-            .body(AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8))
-            .build())
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj/process",
+            AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
         .build();
 
     Object result = invokeExecuteSpotifyInternal(component, parent, "play", "enya");
@@ -49,9 +49,8 @@ class AgentDJSpotifyEventExecutionTest {
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) ->
             ctx.emitAuthJson("{\"ok\":false,\"errorCode\":\"auth_required\",\"message\":\"Login required\"}", "final")))
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
-            .body(AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8))
-            .build())
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj/process",
+            AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
         .build();
 
     Object result = invokeExecuteSpotifyInternal(component, parent, "play", "enya");
@@ -69,9 +68,8 @@ class AgentDJSpotifyEventExecutionTest {
           ctx.emitStatus("Suggestions ready.", "progress");
           ctx.emitHtml("<html>suggestions</html>", "final", "html", true);
         }))
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
-            .body(AiatpIO.Body.ofString("suggest enya 5", StandardCharsets.UTF_8))
-            .build())
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj/process",
+            AiatpIO.Body.ofString("suggest enya 5", StandardCharsets.UTF_8)))
         .build();
 
     Object result = invokeExecuteSpotifyInternal(component, parent, "suggest", "enya 5");
@@ -91,9 +89,8 @@ class AgentDJSpotifyEventExecutionTest {
           ctx.emitStatus("Open the Spotify link.", "progress");
           ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"}}", "final");
         }))
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
-            .body(AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8))
-            .build())
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj/process",
+            AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8)))
         .build();
 
     Object result = invokeExecuteSpotifyInternal(component, parent, "auth-begin", "");
@@ -110,9 +107,8 @@ class AgentDJSpotifyEventExecutionTest {
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.emitError("No devices available.")))
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
-            .body(AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8))
-            .build())
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj/process",
+            AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
         .build();
 
     Object result = invokeExecuteSpotifyInternal(component, parent, "play", "enya");

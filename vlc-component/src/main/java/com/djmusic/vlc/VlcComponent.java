@@ -34,7 +34,7 @@ public class VlcComponent {
     // Create an instance of the TaskScheduler
     scheduler.scheduleTask(() -> {
       if (globalContext != null) {
-        globalContext.event(VlcService.VlcComponentEvents.VOLUME_CHANGE.name(), "The Volume has changed");
+        globalContext.emitCustom(VlcService.VlcComponentEvents.VOLUME_CHANGE.name(), VlcService.VlcComponentEvents.VOLUME_CHANGE.name(), "text/plain; charset=utf-8", "The Volume has changed".getBytes(StandardCharsets.UTF_8), "progress");
       }
     }, 10000);
     // Add a shutdown hook to gracefully stop the scheduler
@@ -45,17 +45,16 @@ public class VlcComponent {
       command = "events",
       description = "Start / Stop Sending events. Usage: events ON|OFF")
   public Boolean eventsCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response(context.getInstance().getAvailableEvents().toString());
+      context.completeText(200, context.getInstance().getAvailableEvents().toString());
     } else {
       boolean eventsOn = "on".equalsIgnoreCase(commandArgs);
       if (eventsOn) {
         this.globalContext = context;
-        context.response("events are now ON");
+        context.completeText(200, "events are now ON");
       } else {
-        context.response("events are now OFF");
+        context.completeText(200, "events are now OFF");
         this.globalContext = null;
       }
     }
@@ -66,13 +65,12 @@ public class VlcComponent {
       command = "move",
       description = "Moves the playback to the specified time. Usage: move <HH:MM:SS|MM:SS|SS>")
   public Boolean moveCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("Error: Please specify the time to move to. Usage: move <time>");
+      context.completeText(200, "Error: Please specify the time to move to. Usage: move <time>");
       return true;
     }
-    context.response(this.vlcService.moveCommand(commandArgs));
+    context.completeText(200, this.vlcService.moveCommand(commandArgs));
     return true;
   }
 
@@ -80,7 +78,7 @@ public class VlcComponent {
       command = "mute",
       description = "Toggles the mute state of the playback if valid media is loaded.")
   public Boolean muteCommand(CommandContext context) {
-    context.response(this.vlcService.muteCommand());
+    context.completeText(200, this.vlcService.muteCommand());
     return true;
   }
 
@@ -88,7 +86,7 @@ public class VlcComponent {
       command = "pause",
       description = "Pauses the playback if it is currently playing.")
   public Boolean pauseCommand(CommandContext context) {
-    context.response(this.vlcService.pauseCommand());
+    context.completeText(200, this.vlcService.pauseCommand());
     return true;
   }
 
@@ -96,13 +94,12 @@ public class VlcComponent {
       command = "play",
       description = "Plays the specified media file. If no file is specified, resumes the current one. Usage: play [media]")
   public Boolean playCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("Error: Please specify the song to play");
+      context.completeText(200, "Error: Please specify the song to play");
       return true;
     }
-    context.response(this.vlcService.playCommand(commandArgs));
+    context.completeText(200, this.vlcService.playCommand(commandArgs));
     return true;
   }
 
@@ -110,14 +107,13 @@ public class VlcComponent {
       command = "skip",
       description = "Skips the playback forward or backward by the specified number of seconds. Usage: skip <+/-seconds>")
   public Boolean skipCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("Error: Please specify the number of seconds to skip. Usage: skip <+/-seconds>");
+      context.completeText(200, "Error: Please specify the number of seconds to skip. Usage: skip <+/-seconds>");
       return true;
     }
     long skipTime = Long.parseLong(commandArgs);
-    context.response(this.vlcService.skipCommand(skipTime));
+    context.completeText(200, this.vlcService.skipCommand(skipTime));
     return true;
   }
 
@@ -125,10 +121,9 @@ public class VlcComponent {
       command = "status",
       description = "Displays the current status of VLC. Use 'status all' for all media info available.")
   public Boolean statusCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     boolean all = (commandArgs != null && !commandArgs.isEmpty() && "all".equalsIgnoreCase(commandArgs));
-    context.response(this.vlcService.statusCommand(all));
+    context.completeText(200, this.vlcService.statusCommand(all));
     return true;
   }
 
@@ -136,7 +131,7 @@ public class VlcComponent {
       command = "stop",
       description = "Stops the playback if it is currently active.")
   public Boolean stopCommand(CommandContext context) {
-    context.response(this.vlcService.stopCommand());
+    context.completeText(200, this.vlcService.stopCommand());
     return true;
   }
 
@@ -144,14 +139,13 @@ public class VlcComponent {
       command = "volume",
       description = "Sets the volume to a specified level between 0 and 150. Usage: volume <level>")
   public Boolean volumeCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("No volume level provided. Please specify a volume level between 0 and 150.");
+      context.completeText(200, "No volume level provided. Please specify a volume level between 0 and 150.");
       return true;
     }
     int volume = Integer.parseInt(commandArgs);
-    context.response(this.vlcService.volumeCommand(volume));
+    context.completeText(200, this.vlcService.volumeCommand(volume));
     return true;
   }
 
@@ -159,7 +153,7 @@ public class VlcComponent {
       command = "volume-down",
       description = "Decreases the volume by 5 units.")
   public Boolean volumeDownCommand(CommandContext context) {
-    context.response(this.vlcService.volumeDownCommand());
+    context.completeText(200, this.vlcService.volumeDownCommand());
     return true;
   }
 
@@ -167,7 +161,7 @@ public class VlcComponent {
       command = "volume-up",
       description = "Increases the volume by 5 units.")
   public Boolean volumeUpCommand(CommandContext context) {
-    context.response(this.vlcService.volumeUpCommand());
+    context.completeText(200, this.vlcService.volumeUpCommand());
     return true;
   }
 
@@ -175,13 +169,12 @@ public class VlcComponent {
       command = "playlist-add",
       description = "Adds the specified media file to the playlist. Usage: add-playlist [media]")
   public Boolean playlistAdd(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("No song to add.");
+      context.completeText(200, "No song to add.");
       return true;
     }
-    context.response(this.vlcService.playlistAdd(commandArgs));
+    context.completeText(200, this.vlcService.playlistAdd(commandArgs));
     return true;
   }
 
@@ -189,7 +182,7 @@ public class VlcComponent {
       command = "playlist-remove",
       description = "Remove current paying media from the playlist Usage: playlist-remove, if there is no current media playing then does nothing")
   public Boolean playlistRemove(CommandContext context) {
-    context.response(this.vlcService.playlistRemove());
+    context.completeText(200, this.vlcService.playlistRemove());
     return true;
   }
 
@@ -197,7 +190,7 @@ public class VlcComponent {
       command = "playlist-next",
       description = "Play the next media in the playlist. Usage: playlist-next")
   public Boolean playlistNext(CommandContext context) {
-    context.response(this.vlcService.playlistNext());
+    context.completeText(200, this.vlcService.playlistNext());
     return true;
   }
 
@@ -205,7 +198,16 @@ public class VlcComponent {
       command = "playlist-list",
       description = "Inform the user of the playlist items and which is the current item. Usage: playlist-list")
   public Boolean playlistList(CommandContext context) {
-    context.response(this.vlcService.playlistList());
+    context.completeText(200, this.vlcService.playlistList());
     return true;
+  }
+
+
+  private static String requestBody(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
   }
 }

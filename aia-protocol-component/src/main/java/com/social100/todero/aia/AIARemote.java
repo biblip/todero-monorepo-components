@@ -4,6 +4,7 @@ import com.social100.processor.AIAController;
 import com.social100.processor.Action;
 import com.social100.todero.aia.parser.AIAArgumentParser;
 import com.social100.todero.aia.service.ApiAIAProtocolService;
+import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.aiatpio.AiatpIO;
@@ -40,7 +41,7 @@ public class AIARemote {
     if (stringApiAIAProtocolServiceMap == null || stringApiAIAProtocolServiceMap.isEmpty()) {
       return true;
     }
-    context.response("[" + stringApiAIAProtocolServiceMap.entrySet().stream()
+    context.completeText(200, "[" + stringApiAIAProtocolServiceMap.entrySet().stream()
         .map(entry -> entry.getKey() + " : " + entry.getValue().getServer() + " -> " + entry.getValue().getStatus())
         .collect(Collectors.joining("\n")) + "]");
     return true;
@@ -52,10 +53,9 @@ public class AIARemote {
   public Boolean registerCommand(CommandContext context) {
     this.context[0] = context;
 
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("Register a aia server   register --host <url> --name <name>");
+      context.completeText(200, "Register a aia server   register --host <url> --name <name>");
       return false;
     }
     AIAArgumentParser parser = new AIAArgumentParser();
@@ -65,17 +65,22 @@ public class AIARemote {
       String name = parser.getArgument("name").toLowerCase(Locale.ROOT);
       Map<String, ApiAIAProtocolService> stringApiAIAProtocolServiceMap = sessionUserApiAIAProtocolServiceMap.computeIfAbsent(context.getId(), k -> new ConcurrentHashMap<>());
       if (stringApiAIAProtocolServiceMap.containsKey(name)) {
-        context.response("name already used ... '" + cli.getServerRawHost() + "'   name: " + name);
+        context.completeText(200, "name already used ... '" + cli.getServerRawHost() + "'   name: " + name);
         return false;
       }
       ApiAIAProtocolService service = new ApiAIAProtocolService(cli, (eventName, message) -> {
-        context.response(message.toResponse());
+        AiatpIORequestWrapper wrapper = message;
+        if (wrapper.getAiatpEvent() != null) {
+          context.emitEvent(wrapper.getAiatpEvent());
+        } else if (wrapper.getAiatpTerminalResult() != null) {
+          context.complete(wrapper.getAiatpTerminalResult());
+        }
       });
-      context.response("Connecting ... '" + cli.getServerRawHost() + "'   called: " + name);
+      context.completeText(200, "Connecting ... '" + cli.getServerRawHost() + "'   called: " + name);
       stringApiAIAProtocolServiceMap.put(name, service);
-      context.response("Registration active with '" + cli.getVhostSni() + " : " + cli.getPort() + "'");
+      context.completeText(200, "Registration active with '" + cli.getVhostSni() + " : " + cli.getPort() + "'");
     } else {
-      context.response(parser.errorMessage());
+      context.completeText(200, parser.errorMessage());
     }
     return true;
   }
@@ -93,7 +98,7 @@ public class AIARemote {
     //if (parser.parse(context.getArgs())) {
       String name = parser.getArgument("name").toLowerCase(Locale.ROOT);
 
-      context.response("Unregister ... '" + name + "'");
+      context.completeText(200, "Unregister ... '" + name + "'");
 
       Map<String, ApiAIAProtocolService> stringApiAIAProtocolServiceMap = sessionUserApiAIAProtocolServiceMap.get(context.getId());
       if (stringApiAIAProtocolServiceMap == null || stringApiAIAProtocolServiceMap.isEmpty()) {
@@ -104,9 +109,9 @@ public class AIARemote {
 
       service.unregister();
 
-      context.response("server is no longer active name : '" + name + "'");
+      context.completeText(200, "server is no longer active name : '" + name + "'");
     //} else {
-      context.response(parser.errorMessage());
+      context.completeText(200, parser.errorMessage());
     //}
     return true;
   }
@@ -117,10 +122,9 @@ public class AIARemote {
   public Boolean execCommand(CommandContext context) {
     this.context[0] = context;
 
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("Register a aia server   register --url <url> --name <name>");
+      context.completeText(200, "Register a aia server   register --url <url> --name <name>");
       return false;
     }
 
@@ -132,7 +136,7 @@ public class AIARemote {
     parser.addRule("name", value -> value != null && !value.trim().isEmpty(), "defaultName");
 
     if (args.length < 2) {
-      context.response("Not enough arguments  exec --name <name> command...");
+      context.completeText(200, "Not enough arguments  exec --name <name> command...");
     }
 
     String[] subArray = Arrays.copyOfRange(args, 0, 2);
@@ -160,7 +164,7 @@ public class AIARemote {
       if (offendingWord[0] != null) {
         String warningMessage = "Offending word " + offendingWord[0] + " in '" + String.join(" ", rest) + "'";
         System.out.println(warningMessage);
-        context.response(warningMessage);
+        context.completeText(200, warningMessage);
         return true;
       }
 
@@ -175,10 +179,10 @@ public class AIARemote {
         service.exec(line);
         return true;
       }
-      context.response("name not found:  name='" + name + "'");
+      context.completeText(200, "name not found:  name='" + name + "'");
       return false;
     } else {
-      context.response(parser.errorMessage());
+      context.completeText(200, parser.errorMessage());
     }
     return true;
   }
@@ -187,10 +191,9 @@ public class AIARemote {
       command = "set-header",
       description = "Set a session header  set-header --name <name> --header <Header> --value <Value>")
   public Boolean setHeaderCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("Set a session header  set-header --name <name> --header <Header> --value <Value>");
+      context.completeText(200, "Set a session header  set-header --name <name> --header <Header> --value <Value>");
       return false;
     }
 
@@ -200,7 +203,7 @@ public class AIARemote {
     parser.addRule("value", value -> value != null && !value.trim().isEmpty(), null);
 
     if (!parser.parse(commandArgs)) {
-      context.response(parser.errorMessage());
+      context.completeText(200, parser.errorMessage());
       return false;
     }
 
@@ -210,16 +213,16 @@ public class AIARemote {
 
     Map<String, ApiAIAProtocolService> services = sessionUserApiAIAProtocolServiceMap.get(context.getId());
     if (services == null || services.isEmpty()) {
-      context.response("No active sessions for this user.");
+      context.completeText(200, "No active sessions for this user.");
       return false;
     }
     ApiAIAProtocolService service = services.get(name);
     if (service == null) {
-      context.response("name not found:  name='" + name + "'");
+      context.completeText(200, "name not found:  name='" + name + "'");
       return false;
     }
     service.setSessionHeader(header, value);
-    context.response("Header set for '" + name + "': " + header);
+    context.completeText(200, "Header set for '" + name + "': " + header);
     return true;
   }
 
@@ -227,10 +230,9 @@ public class AIARemote {
       command = "unset-header",
       description = "Remove a session header  unset-header --name <name> --header <Header>")
   public Boolean unsetHeaderCommand(CommandContext context) {
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.response("Remove a session header  unset-header --name <name> --header <Header>");
+      context.completeText(200, "Remove a session header  unset-header --name <name> --header <Header>");
       return false;
     }
 
@@ -239,7 +241,7 @@ public class AIARemote {
     parser.addRule("header", value -> value != null && !value.trim().isEmpty(), null);
 
     if (!parser.parse(commandArgs)) {
-      context.response(parser.errorMessage());
+      context.completeText(200, parser.errorMessage());
       return false;
     }
 
@@ -248,16 +250,16 @@ public class AIARemote {
 
     Map<String, ApiAIAProtocolService> services = sessionUserApiAIAProtocolServiceMap.get(context.getId());
     if (services == null || services.isEmpty()) {
-      context.response("No active sessions for this user.");
+      context.completeText(200, "No active sessions for this user.");
       return false;
     }
     ApiAIAProtocolService service = services.get(name);
     if (service == null) {
-      context.response("name not found:  name='" + name + "'");
+      context.completeText(200, "name not found:  name='" + name + "'");
       return false;
     }
     service.removeSessionHeader(header);
-    context.response("Header removed for '" + name + "': " + header);
+    context.completeText(200, "Header removed for '" + name + "': " + header);
     return true;
   }
 
@@ -266,7 +268,7 @@ public class AIARemote {
       description = "Subscribe to an event in this component")
   public Boolean subscribeToEvent(CommandContext context) {
     this.context[0] = context;
-    context.response("Done");
+    context.completeText(200, "Done");
     return true;
   }
 
@@ -275,8 +277,16 @@ public class AIARemote {
       description = "Unubscribe from an event in this component")
   public Boolean unsubscribeFromEvent(CommandContext context) {
     this.context[0] = context;
-    context.response("Done");
+    context.completeText(200, "Done");
     return true;
+  }
+
+  private static String requestBody(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
   }
 
   public enum AIAProtocolEvents implements EventDefinition {

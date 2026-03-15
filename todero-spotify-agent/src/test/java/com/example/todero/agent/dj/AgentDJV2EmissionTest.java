@@ -3,6 +3,7 @@ package com.example.todero.agent.dj;
 import com.example.todero.agent.dj.loop.AgentDecisionLoop;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.storage.Storage;
 import org.junit.jupiter.api.Test;
@@ -22,9 +23,10 @@ class AgentDJV2EmissionTest {
     List<String> channels = new ArrayList<>();
     CommandContext context = CommandContext.builder()
         .sourceId("src-1")
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj.v2/process")
-            .setHeader("X-Request-Id", "r-1")
-            .build())
+        .aiatpRequest(AiatpRuntimeAdapter.withHeader(
+            AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj.v2/process", AiatpIO.Body.none()),
+            "X-Request-Id",
+            "r-1"))
         .eventConsumer(wrapper -> channels.add(wrapper.getXEvent().channel))
         .build();
 
@@ -49,9 +51,10 @@ class AgentDJV2EmissionTest {
     List<String> bodies = new ArrayList<>();
     CommandContext context = CommandContext.builder()
         .sourceId("src-1")
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj.v2/process")
-            .setHeader("X-Request-Id", "r-2")
-            .build())
+        .aiatpRequest(AiatpRuntimeAdapter.withHeader(
+            AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj.v2/process", AiatpIO.Body.none()),
+            "X-Request-Id",
+            "r-2"))
         .eventConsumer(wrapper -> {
           AiatpIO.XProto.Event event = wrapper.getXEvent();
           channels.add(event.channel);

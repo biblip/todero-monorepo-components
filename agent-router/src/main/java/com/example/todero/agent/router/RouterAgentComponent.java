@@ -7,6 +7,8 @@ import com.social100.processor.Action;
 import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.ai.llm.OpenAiLLM;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
+import com.social100.todero.common.aiatpio.AiatpTerminalResult;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.model.component.ComponentDescriptor;
@@ -82,7 +84,7 @@ public class RouterAgentComponent {
       command = "process",
       description = "Route a user prompt to the best available internal agent")
   public Boolean process(CommandContext context) {
-    String prompt = AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8).trim();
+    String prompt = requestBody(context);
     if (prompt.isEmpty()) {
       context.emitError("Prompt is required. Usage: process <text>");
       return true;
@@ -136,14 +138,14 @@ public class RouterAgentComponent {
 
       String delegatedPrompt = preDispatch.delegatedPrompt;
       System.out.println("[ROUTER-AGENT] delegating to " + decision.route + " prompt=" + delegatedPrompt);
-      AiatpIO.HttpResponse delegated = delegateToAgent(context, decision.route, "process", delegatedPrompt);
+      AiatpTerminalResult delegated = delegateToAgent(context, decision.route, "process", delegatedPrompt);
       if (delegated == null) {
         System.out.println("[ROUTER-AGENT] no response from agent=" + decision.route);
         context.emitError("Agent did not return a response.");
         return true;
       }
 
-      String delegatedBody = AiatpIO.bodyToString(delegated.body(), StandardCharsets.UTF_8);
+      String delegatedBody = terminalBody(delegated);
       System.out.println("[ROUTER-AGENT] received response body=" + delegatedBody.substring(0, Math.min(256, delegatedBody.length())));
       JsonNode delegatedJson = extractFirstJsonBlock(delegatedBody);
       if (opaqueAuthRelay) {
@@ -396,30 +398,39 @@ public class RouterAgentComponent {
     return agents.get(0).name;
   }
 
-  private AiatpIO.HttpResponse delegateToAgent(CommandContext context,
-                                               String agentName,
-                                               String command,
-                                               String args) {
-    CompletableFuture<AiatpIO.HttpResponse> out = new CompletableFuture<>();
+  private AiatpTerminalResult delegateToAgent(CommandContext context,
+                                              String agentName,
+                                              String command,
+                                              String args) {
+    CompletableFuture<AiatpTerminalResult> out = new CompletableFuture<>();
     CommandContext internal = context.toBuilder()
-        .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + agentName + "/" + command)
-            .body(AiatpIO.Body.ofString(args, StandardCharsets.UTF_8))
-            .build())
-        .consumer(out::complete)
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/" + agentName + "/" + command,
+            AiatpIO.Body.ofString(args, StandardCharsets.UTF_8)))
+        .terminalConsumer(out::complete)
         .build();
     try {
       context.execute(agentName, command, internal);
       return out.get(DELEGATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     } catch (TimeoutException e) {
-      return AiatpIO.HttpResponse.newBuilder(504)
-          .setHeader("Content-Type", "application/json; charset=utf-8")
-          .body(AiatpIO.Body.ofString("{\"error\":\"delegate_timeout\",\"agent\":" + quote(agentName) + "}", StandardCharsets.UTF_8))
+      return AiatpRuntimeAdapter.textTerminalResult(
+          "error",
+          "failure",
+          "delegate_timeout",
+          "{\"error\":\"delegate_timeout\",\"agent\":" + quote(agentName) + "}",
+          "application/json; charset=utf-8")
+          .toBuilder()
+          .errorCode("delegate_timeout")
           .build();
     } catch (Exception e) {
-      return AiatpIO.HttpResponse.newBuilder(500)
-          .setHeader("Content-Type", "application/json; charset=utf-8")
-          .body(AiatpIO.Body.ofString("{\"error\":\"delegate_failed\",\"agent\":" + quote(agentName)
-              + ",\"message\":" + quote(e.getMessage()) + "}", StandardCharsets.UTF_8))
+      return AiatpRuntimeAdapter.textTerminalResult(
+          "error",
+          "failure",
+          "delegate_failed",
+          "{\"error\":\"delegate_failed\",\"agent\":" + quote(agentName)
+              + ",\"message\":" + quote(e.getMessage()) + "}",
+          "application/json; charset=utf-8")
+          .toBuilder()
+          .errorCode("delegate_failed")
           .build();
     }
   }
@@ -507,19 +518,18 @@ public class RouterAgentComponent {
                                                  String agentName,
                                                  ComponentDescriptor descriptor) {
     try {
-      CompletableFuture<AiatpIO.HttpResponse> out = new CompletableFuture<>();
+      CompletableFuture<AiatpTerminalResult> out = new CompletableFuture<>();
       CommandContext internal = CommandContext.builder()
-          .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + agentName + "/capabilities")
-              .body(AiatpIO.Body.ofString("", StandardCharsets.UTF_8))
-              .build())
-          .consumer(out::complete)
+          .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/" + agentName + "/capabilities",
+              AiatpIO.Body.ofString("", StandardCharsets.UTF_8)))
+          .terminalConsumer(out::complete)
           .build();
       context.execute(agentName, "capabilities", internal);
-      AiatpIO.HttpResponse response = out.get(DELEGATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      if (response.status() >= 400) {
+      AiatpTerminalResult response = out.get(DELEGATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      if ("failure".equalsIgnoreCase(safe(response.getOutcome()))) {
         return null;
       }
-      String body = AiatpIO.bodyToString(response.body(), StandardCharsets.UTF_8);
+      String body = terminalBody(response);
       JsonNode root = extractFirstJsonBlock(body);
       JsonNode manifestNode = firstManifestNode(root);
       if (manifestNode == null || manifestNode.isMissingNode() || manifestNode.isNull()) {
@@ -549,6 +559,22 @@ public class RouterAgentComponent {
     } catch (Exception ignored) {
       return null;
     }
+  }
+
+  private static String terminalBody(AiatpTerminalResult result) {
+    if (result == null || result.getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(result.getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
+  }
+
+  private static String requestBody(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body.trim();
   }
 
   private static JsonNode firstManifestNode(JsonNode root) {

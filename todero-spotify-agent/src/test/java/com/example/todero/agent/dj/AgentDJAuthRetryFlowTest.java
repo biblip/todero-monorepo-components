@@ -1,6 +1,7 @@
 package com.example.todero.agent.dj;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
@@ -36,9 +37,8 @@ class AgentDJAuthRetryFlowTest {
       StubManager manager = new StubManager();
       CommandContext parent = CommandContext.builder()
           .componentManager(manager)
-          .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/com.shellaia.verbatim.agent.dj/process")
-              .body(AiatpIO.Body.ofString("test", StandardCharsets.UTF_8))
-              .build())
+          .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj/process",
+              AiatpIO.Body.ofString("test", StandardCharsets.UTF_8)))
           .build();
 
       String rootWorkId = openRootWork(component);
@@ -144,11 +144,7 @@ class AgentDJAuthRetryFlowTest {
       } else {
         body = "{\"ok\":false,\"errorCode\":\"execution_failed\",\"message\":\"Unsupported command in test\"}";
       }
-      AiatpIO.HttpResponse response = AiatpIO.HttpResponse.newBuilder(200)
-          .setHeader("Content-Type", "application/json; charset=utf-8")
-          .body(AiatpIO.Body.ofString(body, StandardCharsets.UTF_8))
-          .build();
-      context.response(response);
+      context.completeJson(200, body);
     }
   }
 

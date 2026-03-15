@@ -129,8 +129,9 @@ public class DashboardPlannerComponent {
       description = "Send data to show in the dashboard")
   public Boolean send(CommandContext context) {
     System.out.println("send");
-    AiatpIO.HttpRequest httpRequest = context.getHttpRequest();
-    final String commandArgs = AiatpIO.bodyToString(httpRequest.body(), StandardCharsets.UTF_8);
+    final String commandArgs = context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null
+        ? ""
+        : AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
     if (commandArgs != null && !commandArgs.isEmpty()) {
       String json = commandArgs;
       System.out.println("send : " + json);
@@ -183,7 +184,7 @@ public class DashboardPlannerComponent {
         String[] commandArgs = arguments.toArray(new String[0]);
 
         CommandContext internalContext = CommandContext.builder()
-            .consumer(context::response)
+            .terminalConsumer(context::complete)
             .build();
 
         //context.execute("com.shellaia.verbatim.component.vlc", command, internalContext);
