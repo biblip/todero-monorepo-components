@@ -9,6 +9,7 @@ import com.social100.todero.common.ai.llm.OpenAiLLM;
 import com.social100.todero.common.aiatpio.AiatpEvent;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.aiatpio.AiatpTerminalResult;
 import com.social100.todero.common.command.CommandContext;
@@ -435,6 +436,11 @@ public class RouterAgentComponent {
         delegatedRequestBase,
         CommandContext.HDR_INTERNAL_EVENT_DELIVERY,
         "local");
+    System.out.println("[ROUTER-AGENT][TRACE][delegate-request] agent=" + agentName
+        + " command=" + command
+        + " requestId=" + safe(delegatedRequest.getRequestId())
+        + " upstreamControl=" + headerValue(delegatedRequest, UPSTREAM_CONTROL_HEADER)
+        + " internalDelivery=" + headerValue(delegatedRequest, CommandContext.HDR_INTERNAL_EVENT_DELIVERY));
     CompletableFuture<DelegatedAgentResult> out = new CompletableFuture<>();
     CommandContext internal = context.toBuilder()
         .aiatpRequest(delegatedRequest)
@@ -459,6 +465,11 @@ public class RouterAgentComponent {
       return;
     }
     AiatpEvent event = wrapper.getAiatpEvent();
+    System.out.println("[ROUTER-AGENT][TRACE][delegate-event] delegatedRequestId=" + safe(delegatedRequest.getRequestId())
+        + " actualReference=" + safe(event == null ? null : event.getReference())
+        + " channel=" + safe(event == null ? null : event.getChannel())
+        + " terminal=" + (event != null && event.isTerminal())
+        + " semanticType=" + safe(event == null ? null : event.getSemanticType()));
     if (!isMatchingDelegatedEvent(event, delegatedRequest.getRequestId())) {
       return;
     }
@@ -1249,6 +1260,14 @@ public class RouterAgentComponent {
 
   private static String safe(String value) {
     return value == null ? "" : value.trim();
+  }
+
+  private static String headerValue(AiatpRequest request, String name) {
+    if (request == null || request.getHeaders() == null || name == null || name.isBlank()) {
+      return "";
+    }
+    String value = request.getHeaders().getFirst(name);
+    return value == null ? "" : value;
   }
 
   private String failureEnvelopeJson(String agentName, String errorCode, String message) {

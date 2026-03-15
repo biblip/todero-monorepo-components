@@ -187,6 +187,10 @@ public class AgentDJV2Component {
     ).toBuilder()
         .requestId(requestId)
         .build();
+    System.out.println("[DJV2][TRACE][tool-request] command=" + call.command()
+        + " requestId=" + requestId
+        + " interactiveMode=" + headerValue(internalRequest, CommandContext.HDR_INTERACTIVE_MODE)
+        + " internalDelivery=" + headerValue(internalRequest, CommandContext.HDR_INTERNAL_EVENT_DELIVERY));
 
     CommandContext internalContext = parentContext.cloneBuilder()
         .aiatpRequest(internalRequest)
@@ -236,6 +240,11 @@ public class AgentDJV2Component {
       return;
     }
     String ref = safeTrim(event.getReference());
+    System.out.println("[DJV2][TRACE][tool-event] expectedRequestId=" + expectedRequestId
+        + " actualReference=" + ref
+        + " channel=" + safeTrim(event.getChannel())
+        + " terminal=" + event.isTerminal()
+        + " semanticType=" + safeTrim(event.getSemanticType()));
     if (!expectedRequestId.equals(ref)) {
       return;
     }
@@ -707,6 +716,14 @@ public class AgentDJV2Component {
     }
     String value = request.getHeaders().getFirst(UPSTREAM_CONTROL_HEADER);
     return value != null && "true".equalsIgnoreCase(value.trim());
+  }
+
+  private static String headerValue(AiatpRequest request, String name) {
+    if (request == null || request.getHeaders() == null || name == null || name.isBlank()) {
+      return "";
+    }
+    String value = request.getHeaders().getFirst(name);
+    return value == null ? "" : value;
   }
 
   private static boolean isOutOfScopeResult(String prompt,
