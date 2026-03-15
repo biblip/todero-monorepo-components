@@ -53,6 +53,7 @@ public class RouterAgentComponent {
   private static final String ROUTER_NAME = "com.shellaia.verbatim.agent.router";
   private static final String DJ_AGENT_V2 = "com.shellaia.verbatim.agent.dj.v2";
   private static final String DJ_AGENT_LEGACY = "com.shellaia.verbatim.agent.dj";
+  private static final String UPSTREAM_CONTROL_HEADER = "X-AIATP-Upstream-Control";
   private static final long DELEGATE_TIMEOUT_SECONDS = 30;
   private static final long ROUTE_TTL_MS = 30 * 60 * 1000L;
   private static final Pattern ARG_PATTERN = Pattern.compile("--[a-zA-Z0-9-]+");
@@ -108,6 +109,7 @@ public class RouterAgentComponent {
     System.out.println("[ROUTER-AGENT] process start session=" + sessionId + " prompt=" + prompt);
 
     boolean rerouteAttempted = false;
+    Set<String> excludedAgents = new HashSet<>();
     while (true) {
       List<AgentCapability> agents = discoverAgents(context);
       if (agents.isEmpty()) {
@@ -117,8 +119,8 @@ public class RouterAgentComponent {
 
       StickyRoute sticky = stickyBySession.get(sessionId);
       RouteDecision decision = opaqueAuthRelay
-          ? decideOpaqueRelayRoute(prompt, sticky, agents)
-          : decideRoute(prompt, sticky, agents);
+          ? decideOpaqueRelayRoute(prompt, sticky, agents, excludedAgents)
+          : decideRoute(prompt, sticky, agents, excludedAgents);
       System.out.println("[ROUTER-AGENT] decision route=" + decision.route + " reason=" + decision.reason + " switched=" + decision.switched);
       context.emitThought("route=" + safe(decision.route)
           + " reason=" + safe(decision.reason)
@@ -153,6 +155,9 @@ public class RouterAgentComponent {
       if (opaqueAuthRelay) {
         System.out.println("[ROUTER-AGENT] opaque auth relay route=" + decision.route);
         stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
+        if (delegated.terminalHtmlForwarded()) {
+          return true;
+        }
         if (!emitDelegatedPayload(context, delegatedJson, delegatedBody)) {
           context.emitError("Delegated agent response is missing required channels metadata.");
         }
@@ -161,16 +166,25 @@ public class RouterAgentComponent {
 
       if (!rerouteAttempted && indicatesFailureSignal(delegatedJson)) {
         rerouteAttempted = true;
+        excludedAgents.add(decision.route);
         stickyBySession.remove(sessionId);
-        context.emitStatus("Rerouting to another agent.", "progress");
-        context.emitThought("reroute=true reason=failure_signal agent=" + safe(decision.route), "progress");
-        System.out.println("[ROUTER-AGENT] fallback triggered by "
-            + readPath(delegatedJson.path("meta"), "errorCode")
-            + "; rerouting prompt: " + prompt);
-        continue;
+        RouteDecision retryDecision = decideRoute(prompt, sticky, agents, excludedAgents);
+        if (retryDecision.route != null && !retryDecision.route.isBlank()) {
+          context.emitStatus("Rerouting to another agent.", "progress");
+          context.emitThought("reroute=true reason=failure_signal agent=" + safe(decision.route), "progress");
+          System.out.println("[ROUTER-AGENT] fallback triggered by "
+              + readPath(delegatedJson.path("meta"), "errorCode")
+              + "; rerouting prompt: " + prompt);
+          continue;
+        }
       }
 
       if (delegatedJson == null || !delegatedJson.has("channels") || !delegatedJson.path("channels").isObject()) {
+        if (delegated.terminalHtmlForwarded()) {
+          stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
+          System.out.println("[ROUTER-AGENT] terminal html already forwarded reason=" + (rerouteAttempted ? "agent-fallback" : decision.reason));
+          return true;
+        }
         System.out.println("[ROUTER-AGENT] delegated response missing channels");
         context.emitError("Delegated agent response is missing required channels metadata.");
         return true;
@@ -232,13 +246,17 @@ public class RouterAgentComponent {
     return true;
   }
 
-  private RouteDecision decideRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents) {
-    StickyRoute normalizedSticky = normalizeSticky(sticky, agents);
-    if (normalizedSticky != null && containsAgent(agents, normalizedSticky.agent)) {
+  private RouteDecision decideRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents, Set<String> excludedAgents) {
+    List<AgentCapability> candidates = excludeAgents(agents, excludedAgents);
+    if (candidates.isEmpty()) {
+      return new RouteDecision("", false, "no-eligible-agent", "No eligible agent available.");
+    }
+    StickyRoute normalizedSticky = normalizeSticky(sticky, candidates);
+    if (normalizedSticky != null && containsAgent(candidates, normalizedSticky.agent)) {
       return new RouteDecision(normalizedSticky.agent, false, "sticky-continue", "Continuing with current agent.");
     }
 
-    String intentRoute = routeFromIntent(prompt, agents);
+    String intentRoute = routeFromIntent(prompt, candidates);
     if (!intentRoute.isBlank()) {
       boolean switched = normalizedSticky == null || !safe(normalizedSticky.agent).equals(intentRoute);
       String reason = switched ? "intent-switch" : "intent-keep";
@@ -246,31 +264,35 @@ public class RouterAgentComponent {
       return new RouteDecision(intentRoute, switched, reason, userMessage);
     }
 
-    RouteDecision llmDecision = planWithLlm(prompt, normalizedSticky, agents);
-    if (llmDecision != null && isValidRoute(llmDecision.route, agents)) {
+    RouteDecision llmDecision = planWithLlm(prompt, normalizedSticky, candidates);
+    if (llmDecision != null && isValidRoute(llmDecision.route, candidates)) {
       boolean switched = normalizedSticky == null || !safe(normalizedSticky.agent).equals(llmDecision.route);
       return new RouteDecision(llmDecision.route, switched, llmDecision.reason, llmDecision.userMessage);
     }
 
-    String fallback = heuristicRoute(prompt, normalizedSticky, agents);
+    String fallback = heuristicRoute(prompt, normalizedSticky, candidates);
     boolean switched = normalizedSticky == null || !safe(normalizedSticky.agent).equals(fallback);
     return new RouteDecision(fallback, switched, "heuristic-fallback", "Routing to the best matching agent.");
   }
 
-  private RouteDecision decideOpaqueRelayRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents) {
-    StickyRoute normalizedSticky = normalizeSticky(sticky, agents);
-    if (normalizedSticky != null && containsAgent(agents, normalizedSticky.agent)) {
+  private RouteDecision decideOpaqueRelayRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents, Set<String> excludedAgents) {
+    List<AgentCapability> candidates = excludeAgents(agents, excludedAgents);
+    if (candidates.isEmpty()) {
+      return new RouteDecision("", false, "no-eligible-agent", "No eligible agent available.");
+    }
+    StickyRoute normalizedSticky = normalizeSticky(sticky, candidates);
+    if (normalizedSticky != null && containsAgent(candidates, normalizedSticky.agent)) {
       return new RouteDecision(normalizedSticky.agent, false, "opaque-auth-sticky", "Continuing with sticky auth relay agent.");
     }
-    String byIntent = routeFromIntent(prompt, agents);
+    String byIntent = routeFromIntent(prompt, candidates);
     if (!byIntent.isBlank()) {
       return new RouteDecision(byIntent, true, "opaque-auth-intent", "Routing auth relay by intent.");
     }
-    String preferred = preferredOpaqueRelayAgent(agents);
+    String preferred = preferredOpaqueRelayAgent(candidates);
     if (!preferred.isBlank()) {
       return new RouteDecision(preferred, true, "opaque-auth-preferred", "Routing auth relay to preferred agent.");
     }
-    return new RouteDecision(agents.get(0).name, true, "opaque-auth-fallback", "Routing auth relay to fallback agent.");
+    return new RouteDecision(candidates.get(0).name, true, "opaque-auth-fallback", "Routing auth relay to fallback agent.");
   }
 
   private static String preferredOpaqueRelayAgent(List<AgentCapability> agents) {
@@ -405,11 +427,18 @@ public class RouterAgentComponent {
                                               String command,
                                               String args) {
     AiatpIO.Body body = AiatpIO.Body.ofString(args, StandardCharsets.UTF_8);
-    var delegatedRequest = AiatpRuntimeAdapter.request("ACTION", "/" + agentName + "/" + command, body);
+    var delegatedRequestBase = AiatpRuntimeAdapter.withHeader(
+        AiatpRuntimeAdapter.request("ACTION", "/" + agentName + "/" + command, body),
+        UPSTREAM_CONTROL_HEADER,
+        "true");
+    final var delegatedRequest = AiatpRuntimeAdapter.withHeader(
+        delegatedRequestBase,
+        CommandContext.HDR_INTERNAL_EVENT_DELIVERY,
+        "local");
     CompletableFuture<DelegatedAgentResult> out = new CompletableFuture<>();
     CommandContext internal = context.toBuilder()
         .aiatpRequest(delegatedRequest)
-        .eventConsumer(wrapper -> handleDelegatedEvent(wrapper, delegatedRequest, out))
+        .eventConsumer(wrapper -> handleDelegatedEvent(context, wrapper, delegatedRequest, out))
         .terminalConsumer(result -> handleDelegatedTerminalResult(result, delegatedRequest, out))
         .build();
     try {
@@ -422,7 +451,8 @@ public class RouterAgentComponent {
     }
   }
 
-  private void handleDelegatedEvent(AiatpIORequestWrapper wrapper,
+  private void handleDelegatedEvent(CommandContext routerContext,
+                                    AiatpIORequestWrapper wrapper,
                                     com.social100.todero.common.aiatpio.AiatpRequest delegatedRequest,
                                     CompletableFuture<DelegatedAgentResult> out) {
     if (wrapper == null || out.isDone()) {
@@ -432,8 +462,22 @@ public class RouterAgentComponent {
     if (!isMatchingDelegatedEvent(event, delegatedRequest.getRequestId())) {
       return;
     }
+    if (isControlEvent(event)) {
+      JsonNode controlEnvelope = extractFirstJsonBlock(eventBody(event));
+      if (!event.isTerminal()) {
+        forwardDelegatedControlProgress(routerContext, controlEnvelope);
+        return;
+      }
+      out.complete(new DelegatedAgentResult(event, wrapper.getAiatpTerminalResult(), eventBody(event), false));
+      return;
+    }
+    boolean terminalHtmlForwarded = false;
+    if (isHtmlEvent(event)) {
+      forwardDelegatedHtml(routerContext, event);
+      terminalHtmlForwarded = event.isTerminal();
+    }
     if (event.isTerminal()) {
-      out.complete(new DelegatedAgentResult(event, wrapper.getAiatpTerminalResult(), eventBody(event)));
+      out.complete(new DelegatedAgentResult(event, wrapper.getAiatpTerminalResult(), eventBody(event), terminalHtmlForwarded));
     }
   }
 
@@ -445,31 +489,82 @@ public class RouterAgentComponent {
     }
     AiatpIO.XProto.Event terminalEvent = AiatpRuntimeAdapter.toTerminalEvent(delegatedRequest, result);
     AiatpEvent aiatpEvent = terminalEvent == null ? null : AiatpRuntimeAdapter.fromXProtoEvent(terminalEvent);
-    out.complete(new DelegatedAgentResult(aiatpEvent, result, terminalBody(result)));
+    out.complete(new DelegatedAgentResult(aiatpEvent, result, terminalBody(result), false));
   }
 
   private DelegatedAgentResult failureDelegatedResult(com.social100.todero.common.aiatpio.AiatpRequest delegatedRequest,
                                                       String agentName,
                                                       String errorCode,
                                                       String message) {
-    StringBuilder json = new StringBuilder();
-    json.append("{\"error\":").append(quote(errorCode)).append(",\"agent\":").append(quote(agentName));
-    if (message != null && !message.isBlank()) {
-      json.append(",\"message\":").append(quote(message));
-    }
-    json.append('}');
+    String json = failureEnvelopeJson(agentName, errorCode, message);
     AiatpTerminalResult result = AiatpRuntimeAdapter.textTerminalResult(
             "error",
             "failure",
             errorCode,
-            json.toString(),
+            json,
             "application/json; charset=utf-8")
         .toBuilder()
         .errorCode(errorCode)
         .build();
     AiatpIO.XProto.Event terminalEvent = AiatpRuntimeAdapter.toTerminalEvent(delegatedRequest, result);
     AiatpEvent event = terminalEvent == null ? null : AiatpRuntimeAdapter.fromXProtoEvent(terminalEvent);
-    return new DelegatedAgentResult(event, result, terminalBody(result));
+    return new DelegatedAgentResult(event, result, terminalBody(result), false);
+  }
+
+  private static boolean isHtmlEvent(AiatpEvent event) {
+    return event != null && "html".equalsIgnoreCase(safe(event.getChannel()));
+  }
+
+  private static boolean isControlEvent(AiatpEvent event) {
+    return event != null && "control".equalsIgnoreCase(safe(event.getChannel()));
+  }
+
+  private void forwardDelegatedControlProgress(CommandContext context, JsonNode delegatedJson) {
+    if (context == null || delegatedJson == null || delegatedJson.isMissingNode()) {
+      return;
+    }
+    String status = readPath(delegatedJson, "channels.status.message");
+    if (!status.isBlank()) {
+      context.emitStatus(status, "progress");
+    }
+    String thought = readPath(delegatedJson, "channels.thought.message");
+    if (!thought.isBlank()) {
+      context.emitThought(thought, "progress");
+    }
+    String chat = readPath(delegatedJson, "channels.chat.message");
+    if (!chat.isBlank()) {
+      context.emitChat(chat, "progress");
+    }
+    JsonNode htmlNode = delegatedJson.path("channels").path("webview");
+    String html = readPath(htmlNode, "html");
+    String htmlMode = readPath(htmlNode, "mode");
+    boolean htmlReplace = !htmlNode.isMissingNode() && htmlNode.path("replace").asBoolean(true);
+    if (!html.isBlank() || "suggestions_from_toolsteps".equalsIgnoreCase(htmlMode)) {
+      context.emitHtml(html, "progress", htmlMode.isBlank() ? "html" : htmlMode, htmlReplace);
+    }
+    JsonNode auth = delegatedJson.path("channels").path("auth");
+    if (auth.isObject()) {
+      context.emitAuthJson(auth.toString(), "progress");
+    }
+  }
+
+  private void forwardDelegatedHtml(CommandContext context, AiatpEvent event) {
+    if (context == null || event == null) {
+      return;
+    }
+    String phase = safe(event.getPhase());
+    String mode = firstNonBlank(
+        event.getHeaders() == null ? null : event.getHeaders().getFirst("Html-Mode"),
+        "html");
+    boolean replace = event.getHeaders() != null && "false".equalsIgnoreCase(safe(event.getHeaders().getFirst("Html-Replace")))
+        ? false
+        : true;
+    context.emitHtml(
+        eventBody(event),
+        event.isTerminal() ? "final" : firstNonBlank(phase, "progress"),
+        mode,
+        replace
+    );
   }
 
   private static boolean isMatchingDelegatedEvent(AiatpEvent event, String expectedRequestId) {
@@ -720,6 +815,15 @@ public class RouterAgentComponent {
       return false;
     }
     return agents.stream().anyMatch(a -> name.equals(a.name));
+  }
+
+  private static List<AgentCapability> excludeAgents(List<AgentCapability> agents, Set<String> excludedAgents) {
+    if (excludedAgents == null || excludedAgents.isEmpty()) {
+      return agents;
+    }
+    return agents.stream()
+        .filter(agent -> !excludedAgents.contains(agent.name))
+        .toList();
   }
 
   private StickyRoute normalizeSticky(StickyRoute sticky, List<AgentCapability> agents) {
@@ -1147,13 +1251,54 @@ public class RouterAgentComponent {
     return value == null ? "" : value.trim();
   }
 
+  private String failureEnvelopeJson(String agentName, String errorCode, String message) {
+    try {
+      JsonNode authNode = mapper.nullNode();
+      var root = mapper.createObjectNode();
+      root.put("kind", "terminal");
+      root.put("outcome", "failure");
+      root.put("terminal", true);
+      var payload = root.putObject("payload");
+      payload.put("message", firstNonBlank(message, "Delegated agent failed."));
+      payload.put("agent", safe(agentName));
+      var meta = root.putObject("meta");
+      meta.put("outcome", "failure");
+      meta.put("errorCode", safe(errorCode));
+      meta.put("agent", safe(agentName));
+      var projections = root.putObject("projections");
+      projections.putObject("status").put("message", firstNonBlank(message, "Delegated agent failed."));
+      projections.putObject("chat").put("message", "");
+      projections.set("auth", authNode);
+      var projectionWebview = projections.putObject("webview");
+      projectionWebview.putNull("html");
+      projectionWebview.put("mode", "none");
+      projectionWebview.put("replace", false);
+      var channels = root.putObject("channels");
+      channels.putObject("status").put("message", firstNonBlank(message, "Delegated agent failed."));
+      channels.putObject("chat").put("message", "");
+      channels.set("auth", authNode);
+      var webview = channels.putObject("webview");
+      webview.putNull("html");
+      webview.put("mode", "none");
+      webview.put("replace", false);
+      return mapper.writeValueAsString(root);
+    } catch (Exception e) {
+      return "{\"kind\":\"terminal\",\"outcome\":\"failure\",\"terminal\":true,\"meta\":{\"outcome\":\"failure\",\"errorCode\":"
+          + quote(errorCode)
+          + "},\"channels\":{\"status\":{\"message\":"
+          + quote(firstNonBlank(message, "Delegated agent failed."))
+          + "},\"chat\":{\"message\":\"\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+    }
+  }
+
   public enum RouterEvent implements EventDefinition {
     chat("Chat message channel"),
     status("Status message channel"),
     html("HTML payload channel"),
     auth("Delegated auth payload channel"),
     error("Protocol error channel"),
-    thought("Reasoning/thought channel");
+    thought("Reasoning/thought channel"),
+    control("Control channel");
 
     private final String description;
 
@@ -1187,7 +1332,8 @@ public class RouterAgentComponent {
 
   private record DelegatedAgentResult(AiatpEvent terminalEvent,
                                       AiatpTerminalResult terminalResult,
-                                      String body) {
+                                      String body,
+                                      boolean terminalHtmlForwarded) {
     private String outcome() {
       if (terminalEvent != null && terminalEvent.getOutcome() != null && !terminalEvent.getOutcome().isBlank()) {
         return terminalEvent.getOutcome();

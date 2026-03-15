@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentDJV2EmissionTest {
 
@@ -78,13 +79,92 @@ class AgentDJV2EmissionTest {
     assertEquals("No active system LLM available.", bodies.get(1));
   }
 
+  @Test
+  void emitLoopResultUsesControlEnvelopeWhenUpstreamControlRequested() throws Exception {
+    AgentDJV2Component component = new AgentDJV2Component(new InMemoryStorage());
+    List<AiatpIORequestWrapper> seen = new ArrayList<>();
+    CommandContext context = CommandContext.builder()
+        .sourceId("src-1")
+        .aiatpRequest(AiatpRuntimeAdapter.withHeader(
+            AiatpRuntimeAdapter.withHeader(
+                AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj.v2/process", AiatpIO.Body.none()),
+                "X-Request-Id",
+                "r-3"),
+            "X-AIATP-Upstream-Control",
+            "true"))
+        .eventConsumer(seen::add)
+        .build();
+
+    AgentDecisionLoop.LoopResult result = new AgentDecisionLoop.LoopResult(
+        AgentDecisionLoop.StopReason.toolTerminal(),
+        new AgentDecisionLoop.PlannerResult("suggest lions", "Suggestions ready.", ""),
+        null,
+        List.of(),
+        new AgentDecisionLoop.Channels("Suggestions ready.", "Suggestions ready.", "<html>done</html>", "html", true, ""),
+        AgentDecisionLoop.DeliverySummary.none()
+    );
+
+    invokeEmitLoopResult(component, context, result);
+
+    assertEquals(1, seen.size());
+    AiatpIO.XProto.Event event = seen.get(0).getXEvent();
+    String body = AiatpIO.bodyToString(event.body(), StandardCharsets.UTF_8);
+    assertEquals("control", event.channel);
+    assertEquals("true", event.headers().getFirst("Event-Terminal"));
+    assertTrue(body.contains("\"channels\""));
+    assertTrue(body.contains("\"webview\""));
+    assertTrue(body.contains("<html>done</html>"));
+  }
+
+  @Test
+  void emitLoopResultUsesCanonicalOutOfScopeControlWhenActionIsNoneOutsideDomain() throws Exception {
+    AgentDJV2Component component = new AgentDJV2Component(new InMemoryStorage());
+    List<AiatpIORequestWrapper> seen = new ArrayList<>();
+    CommandContext context = CommandContext.builder()
+        .sourceId("src-1")
+        .aiatpRequest(AiatpRuntimeAdapter.withHeader(
+            AiatpRuntimeAdapter.withHeader(
+                AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.verbatim.agent.dj.v2/process", AiatpIO.Body.none()),
+                "X-Request-Id",
+                "r-4"),
+            "X-AIATP-Upstream-Control",
+            "true"))
+        .eventConsumer(seen::add)
+        .build();
+
+    AgentDecisionLoop.LoopResult result = new AgentDecisionLoop.LoopResult(
+        AgentDecisionLoop.StopReason.actionNone(),
+        new AgentDecisionLoop.PlannerResult("none", "I can't send emails. I can help with Spotify music playback.", ""),
+        null,
+        List.of(),
+        new AgentDecisionLoop.Channels(
+            "I can't send emails. I can help with Spotify music playback.",
+            "I can't send emails. I can help with Spotify music playback.",
+            "",
+            "none",
+            false,
+            ""),
+        AgentDecisionLoop.DeliverySummary.none()
+    );
+
+    Method method = AgentDJV2Component.class.getDeclaredMethod(
+        "emitLoopResult", CommandContext.class, AgentDecisionLoop.LoopResult.class, String.class, String.class, String.class);
+    method.setAccessible(true);
+    method.invoke(component, context, result, "send an email to june", "process", "corr-2");
+
+    String body = AiatpIO.bodyToString(seen.get(0).getXEvent().body(), StandardCharsets.UTF_8);
+    assertTrue(body.contains("\"outcome\":\"unhandled_intent\""));
+    assertTrue(body.contains("\"errorCode\":\"agent_capability_mismatch\""));
+    assertTrue(body.contains("\"stopReason\":\"out_of_scope\""));
+  }
+
   private static void invokeEmitLoopResult(AgentDJV2Component component,
                                            CommandContext context,
                                            AgentDecisionLoop.LoopResult result) throws Exception {
     Method method = AgentDJV2Component.class.getDeclaredMethod(
-        "emitLoopResult", CommandContext.class, AgentDecisionLoop.LoopResult.class, String.class, String.class);
+        "emitLoopResult", CommandContext.class, AgentDecisionLoop.LoopResult.class, String.class, String.class, String.class);
     method.setAccessible(true);
-    method.invoke(component, context, result, "process", "corr-1");
+    method.invoke(component, context, result, "send an email to june", "process", "corr-1");
   }
 
   private static final class InMemoryStorage implements Storage {

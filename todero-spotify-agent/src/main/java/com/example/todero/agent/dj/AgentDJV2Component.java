@@ -35,6 +35,13 @@ public class AgentDJV2Component {
   private static final String DJV2_BUILD_MARKER = "djv2-event-loop-2026-03-14T11:35Z";
   private static final String MAIN_GROUP = "Main";
   private static final String SPOTIFY_COMPONENT = "com.shellaia.verbatim.component.spotify";
+  private static final String UPSTREAM_CONTROL_HEADER = "X-AIATP-Upstream-Control";
+  private static final Set<String> MUSIC_DOMAIN_HINTS = Set.of(
+      "spotify", "music", "song", "songs", "track", "tracks", "album", "albums",
+      "artist", "artists", "playlist", "playlists", "play", "pause", "stop",
+      "volume", "queue", "recommend", "recommended", "suggest", "suggestions",
+      "listen", "listening", "shuffle", "repeat", "device", "devices"
+  );
   private static final int MAX_STEPS = 4;
   private static final long REQUEST_TIMEOUT_SECONDS = 60;
   private static final long TOOL_TIMEOUT_SECONDS = 12;
@@ -76,6 +83,7 @@ public class AgentDJV2Component {
     auth("Built-in auth channel event"),
     error("Built-in error channel event"),
     thought("Reasoning/thought channel"),
+    control("Control channel"),
     AGENT_DECISION("Agent produced a structured decision event with trace metadata"),
     AGENT_REACTION("Agent reacted to a runtime event");
 
@@ -103,7 +111,11 @@ public class AgentDJV2Component {
       emitStatusAndChat(context, "Prompt is required. Usage: process <goal>");
       return true;
     }
-    context.emitStatus("Processing request...", "progress");
+    if (usesUpstreamControl(context)) {
+      emitControlProgress(context, "Processing request...", correlationId, source);
+    } else {
+      context.emitStatus("Processing request...", "progress");
+    }
     cognitionExecutor.submit(() -> runLoopAndEmit(context, prompt, source, correlationId));
     return true;
   }
@@ -121,8 +133,14 @@ public class AgentDJV2Component {
     String prompt = "External event: " + raw;
     cognitionExecutor.submit(() -> runLoopAndEmit(context, prompt, "react", correlationId));
 
-    context.emitStatus("Event accepted for asynchronous reaction.", "final");
-    context.emitChat("Event accepted for asynchronous reaction.", "final");
+    if (usesUpstreamControl(context)) {
+      emitControlTerminal(context, "success", "react_accepted", "Event accepted for asynchronous reaction.",
+          new AgentDecisionLoop.Channels("", "Event accepted for asynchronous reaction.", "", "none", false, ""),
+          "react", correlationId);
+    } else {
+      context.emitStatus("Event accepted for asynchronous reaction.", "final");
+      context.emitChat("Event accepted for asynchronous reaction.", "final");
+    }
     return true;
   }
 
@@ -161,6 +179,11 @@ public class AgentDJV2Component {
         ),
         "X-Request-Id",
         requestId
+    );
+    internalRequest = AiatpRuntimeAdapter.withHeader(
+        internalRequest,
+        CommandContext.HDR_INTERNAL_EVENT_DELIVERY,
+        "local"
     ).toBuilder()
         .requestId(requestId)
         .build();
@@ -179,7 +202,9 @@ public class AgentDJV2Component {
                               String correlationId) {
     try {
       AgentDecisionLoop loop = new AgentDecisionLoop();
-      AgentDecisionLoop.EventForwarder forwarder = new AgentDecisionLoop.EventForwarder(context);
+      AgentDecisionLoop.EventForwarder forwarder = usesUpstreamControl(context)
+          ? null
+          : new AgentDecisionLoop.EventForwarder(context);
       AgentDecisionLoop.LoopRequest request = new AgentDecisionLoop.LoopRequest(
           prompt,
           source,
@@ -192,7 +217,7 @@ public class AgentDJV2Component {
       AgentDecisionLoop.ToolCallParser parser = this::parseAction;
       AgentDecisionLoop.AsyncToolExecutor executor = (call, handle) -> executeSpotify(context, call, handle);
       loop.start(request, planner, parser, executor, null, null,
-          result -> emitLoopResult(context, result, source, correlationId),
+          result -> emitLoopResult(context, result, prompt, source, correlationId),
           cognitionExecutor,
           loopScheduler);
     } catch (Exception e) {
@@ -286,10 +311,17 @@ public class AgentDJV2Component {
 
   private void emitLoopResult(CommandContext context,
                               AgentDecisionLoop.LoopResult result,
+                              String prompt,
                               String source,
                               String correlationId) {
     if (result == null || result.channels() == null) {
-      emitStatusAndChat(context, "Agent completed without result.");
+      if (usesUpstreamControl(context)) {
+        emitControlTerminal(context, "failure", "empty_result", "Agent completed without result.",
+            new AgentDecisionLoop.Channels("", "Agent completed without result.", "", "none", false, ""),
+            source, correlationId);
+      } else {
+        emitStatusAndChat(context, "Agent completed without result.");
+      }
       return;
     }
     AgentDecisionLoop.Channels channels = result.channels();
@@ -300,6 +332,18 @@ public class AgentDJV2Component {
     String stopMessage = safeTrim(result.stopReason() == null ? null : result.stopReason().message);
     boolean failed = isFailureStop(stopCode);
     boolean suppressSuccessReplay = "tool_terminal".equals(stopCode) && delivery.hasTerminalForwardedContent();
+    boolean outOfScope = isOutOfScopeResult(prompt, result, channels, stopCode);
+    if (usesUpstreamControl(context)) {
+      emitControlTerminal(context,
+          outOfScope ? "unhandled_intent"
+              : failed ? "failure" : ("tool_terminal".equals(stopCode) && !safeTrim(channels.authJson()).isEmpty() ? "auth_handoff" : "success"),
+          outOfScope ? "out_of_scope" : (stopCode.isEmpty() ? "completed" : stopCode),
+          stopMessage,
+          channels,
+          source,
+          correlationId);
+      return;
+    }
     if (failed) {
       String failure = stopMessage.isEmpty() ? "Agent execution failed." : stopMessage;
       context.emitStatus(failure, "final");
@@ -332,8 +376,147 @@ public class AgentDJV2Component {
   }
 
   private void emitStatusAndChat(CommandContext context, String message) {
+    if (usesUpstreamControl(context)) {
+      emitControlTerminal(context, "failure", "agent_error", message,
+          new AgentDecisionLoop.Channels(message, message, "", "none", false, ""),
+          "process", "");
+      return;
+    }
     context.emitStatus(message, "final");
     context.emitChat(message, "final");
+  }
+
+  private void emitControlProgress(CommandContext context,
+                                   String status,
+                                   String correlationId,
+                                   String source) {
+    context.emitControlJson(buildControlEnvelopeJson(
+        "progress",
+        "progress",
+        false,
+        "",
+        new AgentDecisionLoop.Channels("", status, "", "none", false, ""),
+        source,
+        correlationId), "progress", "delegate_progress");
+  }
+
+  private void emitControlTerminal(CommandContext context,
+                                   String outcome,
+                                   String stopCode,
+                                   String stopMessage,
+                                   AgentDecisionLoop.Channels channels,
+                                   String source,
+                                   String correlationId) {
+    context.emitControlJson(buildControlEnvelopeJson(
+        "terminal",
+        outcome,
+        true,
+        stopCode,
+        channels,
+        source,
+        correlationId,
+        stopMessage), "failure".equals(outcome) ? "error" : "final", "delegate_terminal");
+  }
+
+  private String buildControlEnvelopeJson(String kind,
+                                          String outcome,
+                                          boolean terminal,
+                                          String stopCode,
+                                          AgentDecisionLoop.Channels channels,
+                                          String source,
+                                          String correlationId) {
+    return buildControlEnvelopeJson(kind, outcome, terminal, stopCode, channels, source, correlationId, "");
+  }
+
+  private String buildControlEnvelopeJson(String kind,
+                                          String outcome,
+                                          boolean terminal,
+                                          String stopCode,
+                                          AgentDecisionLoop.Channels channels,
+                                          String source,
+                                          String correlationId,
+                                          String stopMessage) {
+    try {
+      com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+      com.fasterxml.jackson.databind.node.ObjectNode root = mapper.createObjectNode();
+      root.put("kind", safeTrim(kind));
+      root.put("outcome", safeTrim(outcome));
+      root.put("terminal", terminal);
+      com.fasterxml.jackson.databind.node.ObjectNode payload = root.putObject("payload");
+      payload.put("stopReason", safeTrim(stopCode));
+      payload.put("message", safeTrim(stopMessage));
+      com.fasterxml.jackson.databind.node.ObjectNode meta = root.putObject("meta");
+      meta.put("outcome", safeTrim(outcome));
+      meta.put("stopReason", safeTrim(stopCode));
+      meta.put("source", safeTrim(source));
+      meta.put("correlationId", safeTrim(correlationId));
+      if ("failure".equals(safeTrim(outcome))) {
+        meta.put("errorCode", safeTrim(stopCode));
+      } else if ("unhandled_intent".equals(safeTrim(outcome))) {
+        meta.put("errorCode", "agent_capability_mismatch");
+      }
+
+      com.fasterxml.jackson.databind.node.ObjectNode projections = root.putObject("projections");
+      com.fasterxml.jackson.databind.node.ObjectNode channelsNode = root.putObject("channels");
+      writeChannels(projections, channelsNode, channels);
+      return mapper.writeValueAsString(root);
+    } catch (Exception e) {
+      String message = safeTrim(stopMessage);
+      return "{\"kind\":\"terminal\",\"outcome\":\"failure\",\"terminal\":true,\"meta\":{\"outcome\":\"failure\",\"errorCode\":\"control_encode_failed\"},\"channels\":{\"status\":{\"message\":"
+          + quote(message.isEmpty() ? "Control envelope encoding failed." : message)
+          + "},\"chat\":{\"message\":"
+          + quote(message.isEmpty() ? "Control envelope encoding failed." : message)
+          + "},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+    }
+  }
+
+  private static void writeChannels(com.fasterxml.jackson.databind.node.ObjectNode projections,
+                                    com.fasterxml.jackson.databind.node.ObjectNode channelsNode,
+                                    AgentDecisionLoop.Channels channels) {
+    String chat = safeTrim(channels == null ? null : channels.chat());
+    String status = safeTrim(channels == null ? null : channels.status());
+    String html = safeTrim(channels == null ? null : channels.html());
+    String mode = safeTrim(channels == null ? null : channels.webviewMode());
+    String authJson = safeTrim(channels == null ? null : channels.authJson());
+    boolean replace = channels != null && channels.webviewReplace();
+
+    projections.putObject("chat").put("message", chat);
+    projections.putObject("status").put("message", status);
+    com.fasterxml.jackson.databind.node.ObjectNode projectionWebview = projections.putObject("webview");
+    if (html.isEmpty()) {
+      projectionWebview.putNull("html");
+    } else {
+      projectionWebview.put("html", html);
+    }
+    projectionWebview.put("mode", mode.isEmpty() ? "none" : mode);
+    projectionWebview.put("replace", replace);
+    if (!authJson.isEmpty()) {
+      try {
+        projections.set("auth", new com.fasterxml.jackson.databind.ObjectMapper().readTree(authJson));
+      } catch (Exception e) {
+        projections.put("auth_raw", authJson);
+      }
+    } else {
+      projections.putNull("auth");
+    }
+
+    channelsNode.putObject("chat").put("message", chat);
+    channelsNode.putObject("status").put("message", status);
+    com.fasterxml.jackson.databind.node.ObjectNode webview = channelsNode.putObject("webview");
+    if (html.isEmpty()) {
+      webview.putNull("html");
+    } else {
+      webview.put("html", html);
+    }
+    webview.put("mode", mode.isEmpty() ? "none" : mode);
+    webview.put("replace", replace);
+    if (!authJson.isEmpty()) {
+      try {
+        channelsNode.set("auth", new com.fasterxml.jackson.databind.ObjectMapper().readTree(authJson));
+      } catch (Exception e) {
+        channelsNode.put("auth_raw", authJson);
+      }
+    }
   }
 
   private static String loadSystemPrompt(String resourcePath) {
@@ -515,6 +698,93 @@ public class AgentDJV2Component {
 
   private static String newCorrelationId() {
     return UUID.randomUUID().toString();
+  }
+
+  private static boolean usesUpstreamControl(CommandContext context) {
+    AiatpRequest request = context == null ? null : context.getAiatpRequest();
+    if (request == null || request.getHeaders() == null) {
+      return false;
+    }
+    String value = request.getHeaders().getFirst(UPSTREAM_CONTROL_HEADER);
+    return value != null && "true".equalsIgnoreCase(value.trim());
+  }
+
+  private static boolean isOutOfScopeResult(String prompt,
+                                            AgentDecisionLoop.LoopResult result,
+                                            AgentDecisionLoop.Channels channels,
+                                            String stopCode) {
+    if (!"action_none".equals(stopCode)) {
+      return false;
+    }
+    AgentDecisionLoop.PlannerResult plan = result == null ? null : result.plan();
+    String action = safeTrim(plan == null ? null : plan.action()).toLowerCase();
+    if (!action.isEmpty() && !"none".equals(action)) {
+      return false;
+    }
+    if (containsOutOfScopeHint(safeTrim(channels == null ? null : channels.chat()))
+        || containsOutOfScopeHint(safeTrim(channels == null ? null : channels.status()))) {
+      return true;
+    }
+    return !looksInMusicDomain(prompt);
+  }
+
+  private static boolean containsOutOfScopeHint(String text) {
+    String normalized = safeTrim(text).toLowerCase();
+    if (normalized.isEmpty()) {
+      return false;
+    }
+    return normalized.contains("outside spotify scope")
+        || normalized.contains("outside of music scope")
+        || normalized.contains("outside spotify")
+        || normalized.contains("can't send")
+        || normalized.contains("cannot send")
+        || normalized.contains("can't help")
+        || normalized.contains("cannot help")
+        || normalized.contains("i am here to help with spotify")
+        || normalized.contains("i can help with spotify")
+        || normalized.contains("spotify music playback");
+  }
+
+  private static boolean looksInMusicDomain(String prompt) {
+    String normalized = safeTrim(prompt).toLowerCase();
+    if (normalized.isEmpty()) {
+      return false;
+    }
+    for (String token : normalized.split("[^a-z0-9]+")) {
+      if (MUSIC_DOMAIN_HINTS.contains(token)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static String quote(String value) {
+    if (value == null) {
+      return "null";
+    }
+    StringBuilder out = new StringBuilder(value.length() + 2);
+    out.append('"');
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      switch (c) {
+        case '"' -> out.append("\\\"");
+        case '\\' -> out.append("\\\\");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            out.append(String.format("\\u%04x", (int) c));
+          } else {
+            out.append(c);
+          }
+        }
+      }
+    }
+    out.append('"');
+    return out.toString();
   }
 
   private record ValidatedAction(String command, String args, String errorCode, String error) {
