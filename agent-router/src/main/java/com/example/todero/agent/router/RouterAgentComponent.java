@@ -6,7 +6,9 @@ import com.social100.processor.AIAController;
 import com.social100.processor.Action;
 import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.ai.llm.OpenAiLLM;
+import com.social100.todero.common.aiatpio.AiatpEvent;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.aiatpio.AiatpTerminalResult;
 import com.social100.todero.common.command.CommandContext;
@@ -138,14 +140,14 @@ public class RouterAgentComponent {
 
       String delegatedPrompt = preDispatch.delegatedPrompt;
       System.out.println("[ROUTER-AGENT] delegating to " + decision.route + " prompt=" + delegatedPrompt);
-      AiatpTerminalResult delegated = delegateToAgent(context, decision.route, "process", delegatedPrompt);
+      DelegatedAgentResult delegated = delegateToAgent(context, decision.route, "process", delegatedPrompt);
       if (delegated == null) {
         System.out.println("[ROUTER-AGENT] no response from agent=" + decision.route);
         context.emitError("Agent did not return a response.");
         return true;
       }
 
-      String delegatedBody = terminalBody(delegated);
+      String delegatedBody = delegated.body();
       System.out.println("[ROUTER-AGENT] received response body=" + delegatedBody.substring(0, Math.min(256, delegatedBody.length())));
       JsonNode delegatedJson = extractFirstJsonBlock(delegatedBody);
       if (opaqueAuthRelay) {
@@ -398,41 +400,94 @@ public class RouterAgentComponent {
     return agents.get(0).name;
   }
 
-  private AiatpTerminalResult delegateToAgent(CommandContext context,
+  private DelegatedAgentResult delegateToAgent(CommandContext context,
                                               String agentName,
                                               String command,
                                               String args) {
-    CompletableFuture<AiatpTerminalResult> out = new CompletableFuture<>();
+    AiatpIO.Body body = AiatpIO.Body.ofString(args, StandardCharsets.UTF_8);
+    var delegatedRequest = AiatpRuntimeAdapter.request("ACTION", "/" + agentName + "/" + command, body);
+    CompletableFuture<DelegatedAgentResult> out = new CompletableFuture<>();
     CommandContext internal = context.toBuilder()
-        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/" + agentName + "/" + command,
-            AiatpIO.Body.ofString(args, StandardCharsets.UTF_8)))
-        .terminalConsumer(out::complete)
+        .aiatpRequest(delegatedRequest)
+        .eventConsumer(wrapper -> handleDelegatedEvent(wrapper, delegatedRequest, out))
+        .terminalConsumer(result -> handleDelegatedTerminalResult(result, delegatedRequest, out))
         .build();
     try {
       context.execute(agentName, command, internal);
       return out.get(DELEGATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     } catch (TimeoutException e) {
-      return AiatpRuntimeAdapter.textTerminalResult(
-          "error",
-          "failure",
-          "delegate_timeout",
-          "{\"error\":\"delegate_timeout\",\"agent\":" + quote(agentName) + "}",
-          "application/json; charset=utf-8")
-          .toBuilder()
-          .errorCode("delegate_timeout")
-          .build();
+      return failureDelegatedResult(delegatedRequest, agentName, "delegate_timeout", null);
     } catch (Exception e) {
-      return AiatpRuntimeAdapter.textTerminalResult(
-          "error",
-          "failure",
-          "delegate_failed",
-          "{\"error\":\"delegate_failed\",\"agent\":" + quote(agentName)
-              + ",\"message\":" + quote(e.getMessage()) + "}",
-          "application/json; charset=utf-8")
-          .toBuilder()
-          .errorCode("delegate_failed")
-          .build();
+      return failureDelegatedResult(delegatedRequest, agentName, "delegate_failed", e.getMessage());
     }
+  }
+
+  private void handleDelegatedEvent(AiatpIORequestWrapper wrapper,
+                                    com.social100.todero.common.aiatpio.AiatpRequest delegatedRequest,
+                                    CompletableFuture<DelegatedAgentResult> out) {
+    if (wrapper == null || out.isDone()) {
+      return;
+    }
+    AiatpEvent event = wrapper.getAiatpEvent();
+    if (!isMatchingDelegatedEvent(event, delegatedRequest.getRequestId())) {
+      return;
+    }
+    if (event.isTerminal()) {
+      out.complete(new DelegatedAgentResult(event, wrapper.getAiatpTerminalResult(), eventBody(event)));
+    }
+  }
+
+  private void handleDelegatedTerminalResult(AiatpTerminalResult result,
+                                             com.social100.todero.common.aiatpio.AiatpRequest delegatedRequest,
+                                             CompletableFuture<DelegatedAgentResult> out) {
+    if (result == null || out.isDone()) {
+      return;
+    }
+    AiatpIO.XProto.Event terminalEvent = AiatpRuntimeAdapter.toTerminalEvent(delegatedRequest, result);
+    AiatpEvent aiatpEvent = terminalEvent == null ? null : AiatpRuntimeAdapter.fromXProtoEvent(terminalEvent);
+    out.complete(new DelegatedAgentResult(aiatpEvent, result, terminalBody(result)));
+  }
+
+  private DelegatedAgentResult failureDelegatedResult(com.social100.todero.common.aiatpio.AiatpRequest delegatedRequest,
+                                                      String agentName,
+                                                      String errorCode,
+                                                      String message) {
+    StringBuilder json = new StringBuilder();
+    json.append("{\"error\":").append(quote(errorCode)).append(",\"agent\":").append(quote(agentName));
+    if (message != null && !message.isBlank()) {
+      json.append(",\"message\":").append(quote(message));
+    }
+    json.append('}');
+    AiatpTerminalResult result = AiatpRuntimeAdapter.textTerminalResult(
+            "error",
+            "failure",
+            errorCode,
+            json.toString(),
+            "application/json; charset=utf-8")
+        .toBuilder()
+        .errorCode(errorCode)
+        .build();
+    AiatpIO.XProto.Event terminalEvent = AiatpRuntimeAdapter.toTerminalEvent(delegatedRequest, result);
+    AiatpEvent event = terminalEvent == null ? null : AiatpRuntimeAdapter.fromXProtoEvent(terminalEvent);
+    return new DelegatedAgentResult(event, result, terminalBody(result));
+  }
+
+  private static boolean isMatchingDelegatedEvent(AiatpEvent event, String expectedRequestId) {
+    if (event == null || expectedRequestId == null || expectedRequestId.isBlank()) {
+      return false;
+    }
+    if (!"REQ".equalsIgnoreCase(safe(event.getScope()))) {
+      return false;
+    }
+    return expectedRequestId.equals(safe(event.getReference()));
+  }
+
+  private static String eventBody(AiatpEvent event) {
+    if (event == null || event.getBody() == null) {
+      return "";
+    }
+    String body = AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8);
+    return body == null ? "" : body;
   }
 
   private List<AgentCapability> discoverAgents(CommandContext context) {
@@ -518,18 +573,11 @@ public class RouterAgentComponent {
                                                  String agentName,
                                                  ComponentDescriptor descriptor) {
     try {
-      CompletableFuture<AiatpTerminalResult> out = new CompletableFuture<>();
-      CommandContext internal = CommandContext.builder()
-          .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/" + agentName + "/capabilities",
-              AiatpIO.Body.ofString("", StandardCharsets.UTF_8)))
-          .terminalConsumer(out::complete)
-          .build();
-      context.execute(agentName, "capabilities", internal);
-      AiatpTerminalResult response = out.get(DELEGATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      if ("failure".equalsIgnoreCase(safe(response.getOutcome()))) {
+      DelegatedAgentResult response = delegateToAgent(context, agentName, "capabilities", "");
+      if (response == null || "failure".equalsIgnoreCase(safe(response.outcome()))) {
         return null;
       }
-      String body = terminalBody(response);
+      String body = response.body();
       JsonNode root = extractFirstJsonBlock(body);
       JsonNode manifestNode = firstManifestNode(root);
       if (manifestNode == null || manifestNode.isMissingNode() || manifestNode.isNull()) {
@@ -1135,6 +1183,17 @@ public class RouterAgentComponent {
   }
 
   private record RouteDecision(String route, boolean switched, String reason, String userMessage) {
+  }
+
+  private record DelegatedAgentResult(AiatpEvent terminalEvent,
+                                      AiatpTerminalResult terminalResult,
+                                      String body) {
+    private String outcome() {
+      if (terminalEvent != null && terminalEvent.getOutcome() != null && !terminalEvent.getOutcome().isBlank()) {
+        return terminalEvent.getOutcome();
+      }
+      return terminalResult == null ? "" : safe(terminalResult.getOutcome());
+    }
   }
 
   private record PreDispatchResult(boolean allowed, String delegatedPrompt, String reason, String message) {
