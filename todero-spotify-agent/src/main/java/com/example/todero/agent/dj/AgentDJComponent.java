@@ -74,7 +74,6 @@ public class AgentDJComponent {
   private static final Pattern PLAYLIST_ROW_PATTERN = Pattern.compile("^\\s*\\d+\\)\\s*(.+?)\\s*\\[id=([^,\\]]+).*$");
   private static final Pattern ADD_QUOTED_SONG_PATTERN = Pattern.compile("(?i)\\badd\\s+[\"']([^\"']+)[\"']");
   private static final ObjectMapper JSON = new ObjectMapper();
-  private static final Set<String> TERMINAL_EVENT_CHANNELS = Set.of("status", "chat", "html", "auth", "error");
   private static final Set<String> SUPPORTED_COMMANDS = Set.of(
       "play", "pause", "stop", "volume", "volume-up", "volume-down", "mute",
       "move", "skip", "previous", "status", "queue", "playlist-play", "recently-played",
@@ -644,20 +643,20 @@ public class AgentDJComponent {
   private void forwardSpotifyEvent(CommandContext parentContext,
                                    AiatpIORequestWrapper wrapper,
                                    String expectedRequestId) {
-    if (parentContext == null || wrapper == null || wrapper.getXEvent() == null) {
+    if (parentContext == null || wrapper == null || wrapper.getAiatpEvent() == null) {
       return;
     }
-    AiatpIO.XProto.Event event = wrapper.getXEvent();
-    String eventRef = safeTrim(event.reference);
-    boolean reqMatch = event.scope == AiatpIO.XProto.EventScope.REQ && expectedRequestId.equals(eventRef);
+    com.social100.todero.common.aiatpio.AiatpEvent event = wrapper.getAiatpEvent();
+    String eventRef = safeTrim(event.getReference());
+    boolean reqMatch = "REQ".equalsIgnoreCase(safeTrim(event.getScope())) && expectedRequestId.equals(eventRef);
     if (!reqMatch) {
       return;
     }
-    String channel = safeTrim(event.channel).toLowerCase();
-    String phase = safeTrim(event.headers().getFirst("Event-Phase")).toLowerCase();
-    String body = safeTrim(AiatpIO.bodyToString(event.body(), StandardCharsets.UTF_8));
-    boolean isFinal = "final".equals(phase);
-    String emitPhase = isFinal ? "final" : "progress";
+    String channel = safeTrim(event.getChannel()).toLowerCase();
+    String phase = safeTrim(event.getPhase()).toLowerCase();
+    String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
+    boolean terminal = event.isTerminal();
+    String emitPhase = "error".equals(phase) ? "error" : (terminal ? "final" : "progress");
     System.out.println("[DJ-AGENT][EMIT] forward_tool_event channel=" + channel
         + " phase=" + (phase.isEmpty() ? "<none>" : phase)
         + " ref=" + eventRef
@@ -678,27 +677,27 @@ public class AgentDJComponent {
                                         AiatpIORequestWrapper wrapper,
                                         String expectedRequestId,
                                         SpotifyEventAggregate aggregate) {
-    if (outFuture.isDone() || wrapper == null || wrapper.getXEvent() == null) {
+    if (outFuture.isDone() || wrapper == null || wrapper.getAiatpEvent() == null) {
       if (outFuture.isDone()) {
         System.out.println("[DJ-AGENT][EVENT] skip reason=future_done");
       }
       return;
     }
-    AiatpIO.XProto.Event event = wrapper.getXEvent();
-    String eventRef = safeTrim(event.reference);
-    boolean reqMatch = event.scope == AiatpIO.XProto.EventScope.REQ && expectedRequestId.equals(eventRef);
-    String channel = safeTrim(event.channel).toLowerCase();
-    String phase = safeTrim(event.headers().getFirst("Event-Phase")).toLowerCase();
-    String body = safeTrim(AiatpIO.bodyToString(event.body(), StandardCharsets.UTF_8));
+    com.social100.todero.common.aiatpio.AiatpEvent event = wrapper.getAiatpEvent();
+    String eventRef = safeTrim(event.getReference());
+    boolean reqMatch = "REQ".equalsIgnoreCase(safeTrim(event.getScope())) && expectedRequestId.equals(eventRef);
+    String channel = safeTrim(event.getChannel()).toLowerCase();
+    String phase = safeTrim(event.getPhase()).toLowerCase();
+    String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
     String errorCode = "auth".equals(channel) ? extractAuthErrorCode(body) : "";
     if ("error".equals(channel) && errorCode.isEmpty()) {
       errorCode = "tool-execution-failed";
     }
-    boolean terminal = isTerminalEventChannel(channel, phase, errorCode);
+    boolean terminal = event.isTerminal();
     if (reqMatch) {
       System.out.println("[DJ-AGENT][EVENT] marker=" + DJ_BUILD_MARKER
           + " correlated=true"
-          + " scope=" + event.scope
+          + " scope=" + event.getScope()
           + " channel=" + channel
           + " phase=" + (phase.isEmpty() ? "<none>" : phase)
           + " ref=" + (eventRef.isEmpty() ? "<none>" : eventRef)
@@ -707,19 +706,19 @@ public class AgentDJComponent {
     }
     if (!reqMatch) {
       System.out.println("[DJ-AGENT][EVENT] marker=" + DJ_BUILD_MARKER
-          + " scope=" + event.scope
+          + " scope=" + event.getScope()
           + " channel=" + channel
           + " phase=" + (phase.isEmpty() ? "<none>" : phase)
           + " ref=" + (eventRef.isEmpty() ? "<none>" : eventRef)
           + " expectedRef=" + expectedRequestId
           + " terminal=" + terminal);
     }
-    if (!reqMatch && !(event.scope == AiatpIO.XProto.EventScope.TRIGGER && terminal)) {
-      System.out.println("[DJ-AGENT][EVENT] skip reason=scope_mismatch scope=" + event.scope
+    if (!reqMatch && !("TRIGGER".equalsIgnoreCase(safeTrim(event.getScope())) && terminal)) {
+      System.out.println("[DJ-AGENT][EVENT] skip reason=scope_mismatch scope=" + event.getScope()
           + " ref=" + eventRef + " expected=" + expectedRequestId + " terminal=" + terminal);
       return;
     }
-    aggregate.record(channel, phase, body, errorCode);
+    aggregate.record(channel, phase, terminal, body, errorCode);
     if (!terminal) {
       System.out.println("[DJ-AGENT][EVENT] skip reason=non_terminal channel=" + channel + " phase=" + phase);
       return;
@@ -731,19 +730,6 @@ public class AgentDJComponent {
     System.out.println("[DJ-AGENT][EVENT] completing future channel=" + channel + " phase=" + phase);
     outFuture.complete(new SpotifyExecutionResult("event", channel, phase, body, errorCode, 200, aggregate.snapshot()));
     System.out.println("[DJ-AGENT][EVENT] future completed done=" + outFuture.isDone());
-  }
-
-  private static boolean isTerminalEventChannel(String channel, String phase, String errorCode) {
-    if (!TERMINAL_EVENT_CHANNELS.contains(channel)) {
-      return false;
-    }
-    if ("error".equals(channel)) {
-      return true;
-    }
-    if ("auth".equals(channel)) {
-      return !safeTrim(errorCode).isEmpty() || "final".equals(phase) || phase.isEmpty();
-    }
-    return "final".equals(phase) || phase.isEmpty();
   }
 
   private ToolExecution buildToolExecutionFromEvent(String command,
@@ -2701,7 +2687,7 @@ public class AgentDJComponent {
     private String terminalErrorCode = "";
     private boolean eventSeen = false;
 
-    synchronized void record(String channel, String phase, String body, String errorCode) {
+    synchronized void record(String channel, String phase, boolean terminal, String body, String errorCode) {
       eventSeen = true;
       if ("status".equals(channel) && !safeTrim(body).isEmpty()) {
         lastStatus = body;
@@ -2715,7 +2701,7 @@ public class AgentDJComponent {
         lastError = body;
       }
 
-      if (isTerminalEventChannel(channel, phase, errorCode)) {
+      if (terminal) {
         terminalChannel = channel;
         terminalPhase = phase;
         terminalBody = body;

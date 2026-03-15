@@ -12,8 +12,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public final class AgentDecisionLoop {
-  private static final Set<String> TERMINAL_CHANNELS = Set.of("status", "chat", "html", "auth", "error");
-
   public LoopSession start(LoopRequest request,
                            Planner planner,
                            ToolCallParser parser,
@@ -108,7 +106,7 @@ public final class AgentDecisionLoop {
   public record ToolCall(String command, String args, String rawAction) {
   }
 
-  public record ToolEvent(String channel, String phase, String body, String errorCode) {
+  public record ToolEvent(String channel, String phase, boolean terminal, String body, String errorCode) {
   }
 
   public record ToolCallResult(boolean ok, String errorCode, String message, ToolEventAggregate aggregate) {
@@ -219,7 +217,6 @@ public final class AgentDecisionLoop {
         return;
       }
       String channel = safe(event.channel()).toLowerCase();
-      String phase = safe(event.phase()).toLowerCase();
       String body = safe(event.body());
       switch (channel) {
         case "status" -> lastStatus = body;
@@ -234,7 +231,7 @@ public final class AgentDecisionLoop {
         default -> {
         }
       }
-      if (isTerminal(channel, phase, event.errorCode())) {
+      if (event.terminal()) {
         terminalSeen = true;
       }
     }
@@ -292,8 +289,8 @@ public final class AgentDecisionLoop {
       String channel = safe(event.channel()).toLowerCase();
       String phase = safe(event.phase()).toLowerCase();
       String body = safe(event.body());
-      String emitPhase = "final".equals(phase) ? "final" : "progress";
-      boolean terminal = isTerminal(channel, phase, event.errorCode());
+      String emitPhase = "error".equals(phase) ? "error" : (event.terminal() ? "final" : "progress");
+      boolean terminal = event.terminal();
       switch (channel) {
         case "status" -> {
           context.emitStatus(body, emitPhase);
@@ -628,20 +625,6 @@ public final class AgentDecisionLoop {
         onToolCompletion(stepNumber, false, errorCode, message);
       }
     }
-  }
-
-  public static boolean isTerminal(String channel, String phase, String errorCode) {
-    String normalized = safe(channel).toLowerCase();
-    if (!TERMINAL_CHANNELS.contains(normalized)) {
-      return false;
-    }
-    if ("error".equals(normalized)) {
-      return true;
-    }
-    if ("auth".equals(normalized)) {
-      return !safe(errorCode).isBlank() || phase.isBlank() || "final".equals(phase);
-    }
-    return phase.isBlank() || "final".equals(phase);
   }
 
   private static Channels buildChannels(StopReason stopReason, PlannerResult plan, ToolCallResult tool) {

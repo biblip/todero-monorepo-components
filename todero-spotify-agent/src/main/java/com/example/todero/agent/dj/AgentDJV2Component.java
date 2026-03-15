@@ -203,20 +203,20 @@ public class AgentDJV2Component {
   private void handleToolEvent(AiatpIORequestWrapper wrapper,
                                String expectedRequestId,
                                AgentDecisionLoop.ToolExecutionHandle handle) {
-    if (wrapper == null || wrapper.getXEvent() == null) {
+    if (wrapper == null || wrapper.getAiatpEvent() == null) {
       return;
     }
-    AiatpIO.XProto.Event event = wrapper.getXEvent();
-    if (event.scope != AiatpIO.XProto.EventScope.REQ) {
+    com.social100.todero.common.aiatpio.AiatpEvent event = wrapper.getAiatpEvent();
+    if (!"REQ".equalsIgnoreCase(safeTrim(event.getScope()))) {
       return;
     }
-    String ref = safeTrim(event.reference);
+    String ref = safeTrim(event.getReference());
     if (!expectedRequestId.equals(ref)) {
       return;
     }
-    String channel = safeTrim(event.channel).toLowerCase();
-    String phase = safeTrim(event.headers().getFirst("Event-Phase")).toLowerCase();
-    String body = safeTrim(AiatpIO.bodyToString(event.body(), StandardCharsets.UTF_8));
+    String channel = safeTrim(event.getChannel()).toLowerCase();
+    String phase = safeTrim(event.getPhase()).toLowerCase();
+    String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
     String errorCode = "";
     if ("auth".equals(channel)) {
       errorCode = extractAuthErrorCode(body);
@@ -224,9 +224,10 @@ public class AgentDJV2Component {
     if ("error".equals(channel) && errorCode.isBlank()) {
       errorCode = "tool-execution-failed";
     }
-    AgentDecisionLoop.ToolEvent toolEvent = new AgentDecisionLoop.ToolEvent(channel, phase, body, errorCode);
+    boolean terminal = event.isTerminal();
+    AgentDecisionLoop.ToolEvent toolEvent = new AgentDecisionLoop.ToolEvent(channel, phase, terminal, body, errorCode);
     handle.onEvent(toolEvent);
-    if (AgentDecisionLoop.isTerminal(channel, phase, errorCode)) {
+    if (terminal) {
       boolean ok = !"error".equals(channel) && errorCode.isBlank();
       String message = body.isBlank() ? (ok ? "completed" : "Tool failed.") : body;
       if (ok) {

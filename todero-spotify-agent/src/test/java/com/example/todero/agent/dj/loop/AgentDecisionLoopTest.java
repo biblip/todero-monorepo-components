@@ -63,7 +63,7 @@ class AgentDecisionLoopTest {
           (prompt, step) -> new AgentDecisionLoop.PlannerResult("play enya", "Playing Enya.", ""),
           action -> new AgentDecisionLoop.ToolCall("play", "enya", action),
           (call, handle) -> {
-            handle.onEvent(new AgentDecisionLoop.ToolEvent("error", "final", "Spotify authentication required.", "auth_required"));
+            handle.onEvent(new AgentDecisionLoop.ToolEvent("error", "error", true, "Spotify authentication required.", "auth_required"));
             handle.fail("auth_required", "Spotify authentication required.");
           },
           null,
@@ -95,9 +95,9 @@ class AgentDecisionLoopTest {
         .build();
     AgentDecisionLoop.EventForwarder forwarder = new AgentDecisionLoop.EventForwarder(context);
 
-    forwarder.onEvent(new AgentDecisionLoop.ToolEvent("status", "progress", "Processing", ""));
-    forwarder.onEvent(new AgentDecisionLoop.ToolEvent("chat", "final", "Playing now", ""));
-    forwarder.onEvent(new AgentDecisionLoop.ToolEvent("html", "final", "<html>x</html>", ""));
+    forwarder.onEvent(new AgentDecisionLoop.ToolEvent("status", "progress", false, "Processing", ""));
+    forwarder.onEvent(new AgentDecisionLoop.ToolEvent("chat", "final", true, "Playing now", ""));
+    forwarder.onEvent(new AgentDecisionLoop.ToolEvent("html", "final", true, "<html>x</html>", ""));
 
     AgentDecisionLoop.DeliverySummary summary = forwarder.summary();
 
