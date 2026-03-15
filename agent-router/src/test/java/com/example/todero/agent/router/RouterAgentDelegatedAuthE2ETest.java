@@ -130,14 +130,14 @@ class RouterAgentDelegatedAuthE2ETest {
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       AgentCapabilityManifest manifest = AgentCapabilityManifest.builder()
           .contractVersion(1)
-          .agentName("com.shellaia.verbatim.agent.dj")
+          .agentName("com.shellaia.verbatim.agent.dj.v2")
           .commands(List.of(
               AgentCommandSchema.builder().name("process").build(),
               AgentCommandSchema.builder().name("capabilities").build()
           ))
           .build();
       return List.of(ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj")
+          .name("com.shellaia.verbatim.agent.dj.v2")
           .type(ServerType.AI)
           .visible(false)
           .agentCapabilityManifest(manifest)
@@ -151,7 +151,7 @@ class RouterAgentDelegatedAuthE2ETest {
 
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
-      if (!"com.shellaia.verbatim.agent.dj".equals(componentName) || !"process".equals(command)) {
+      if (!"com.shellaia.verbatim.agent.dj.v2".equals(componentName) || !"process".equals(command)) {
         context.response(AiatpIO.HttpResponse.newBuilder(404)
             .setHeader("Content-Type", "application/json; charset=utf-8")
             .body(AiatpIO.Body.ofString("{\"error\":\"not_found\"}", StandardCharsets.UTF_8))

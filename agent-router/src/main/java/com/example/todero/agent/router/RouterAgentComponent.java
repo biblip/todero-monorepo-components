@@ -47,6 +47,8 @@ import static com.social100.todero.common.config.Util.parseDotenv;
 public class RouterAgentComponent {
   private static final String MAIN_GROUP = "Main";
   private static final String ROUTER_NAME = "com.shellaia.verbatim.agent.router";
+  private static final String DJ_AGENT_V2 = "com.shellaia.verbatim.agent.dj.v2";
+  private static final String DJ_AGENT_LEGACY = "com.shellaia.verbatim.agent.dj";
   private static final long DELEGATE_TIMEOUT_SECONDS = 30;
   private static final long ROUTE_TTL_MS = 30 * 60 * 1000L;
   private static final Pattern ARG_PATTERN = Pattern.compile("--[a-zA-Z0-9-]+");
@@ -227,32 +229,34 @@ public class RouterAgentComponent {
   }
 
   private RouteDecision decideRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents) {
-    if (sticky != null && containsAgent(agents, sticky.agent)) {
-      return new RouteDecision(sticky.agent, false, "sticky-continue", "Continuing with current agent.");
+    StickyRoute normalizedSticky = normalizeSticky(sticky, agents);
+    if (normalizedSticky != null && containsAgent(agents, normalizedSticky.agent)) {
+      return new RouteDecision(normalizedSticky.agent, false, "sticky-continue", "Continuing with current agent.");
     }
 
     String intentRoute = routeFromIntent(prompt, agents);
     if (!intentRoute.isBlank()) {
-      boolean switched = sticky == null || !safe(sticky.agent).equals(intentRoute);
+      boolean switched = normalizedSticky == null || !safe(normalizedSticky.agent).equals(intentRoute);
       String reason = switched ? "intent-switch" : "intent-keep";
       String userMessage = switched ? "Switching to the best matching agent." : "Continuing with current agent.";
       return new RouteDecision(intentRoute, switched, reason, userMessage);
     }
 
-    RouteDecision llmDecision = planWithLlm(prompt, sticky, agents);
+    RouteDecision llmDecision = planWithLlm(prompt, normalizedSticky, agents);
     if (llmDecision != null && isValidRoute(llmDecision.route, agents)) {
-      boolean switched = sticky == null || !safe(sticky.agent).equals(llmDecision.route);
+      boolean switched = normalizedSticky == null || !safe(normalizedSticky.agent).equals(llmDecision.route);
       return new RouteDecision(llmDecision.route, switched, llmDecision.reason, llmDecision.userMessage);
     }
 
-    String fallback = heuristicRoute(prompt, sticky, agents);
-    boolean switched = sticky == null || !safe(sticky.agent).equals(fallback);
+    String fallback = heuristicRoute(prompt, normalizedSticky, agents);
+    boolean switched = normalizedSticky == null || !safe(normalizedSticky.agent).equals(fallback);
     return new RouteDecision(fallback, switched, "heuristic-fallback", "Routing to the best matching agent.");
   }
 
   private RouteDecision decideOpaqueRelayRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents) {
-    if (sticky != null && containsAgent(agents, sticky.agent)) {
-      return new RouteDecision(sticky.agent, false, "opaque-auth-sticky", "Continuing with sticky auth relay agent.");
+    StickyRoute normalizedSticky = normalizeSticky(sticky, agents);
+    if (normalizedSticky != null && containsAgent(agents, normalizedSticky.agent)) {
+      return new RouteDecision(normalizedSticky.agent, false, "opaque-auth-sticky", "Continuing with sticky auth relay agent.");
     }
     String byIntent = routeFromIntent(prompt, agents);
     if (!byIntent.isBlank()) {
@@ -267,8 +271,13 @@ public class RouterAgentComponent {
 
   private static String preferredOpaqueRelayAgent(List<AgentCapability> agents) {
     for (AgentCapability agent : agents) {
+      if (DJ_AGENT_V2.equals(agent.name)) {
+        return agent.name;
+      }
+    }
+    for (AgentCapability agent : agents) {
       String n = safe(agent.name).toLowerCase(Locale.ROOT);
-      if (n.contains(".agent.dj") || n.endsWith(".dj")) {
+      if (n.contains(".agent.dj.v2") || n.endsWith(".dj.v2")) {
         return agent.name;
       }
     }
@@ -431,6 +440,9 @@ public class RouterAgentComponent {
 
     for (String name : agentNames) {
       if (name == null || name.isBlank() || ROUTER_NAME.equals(name)) {
+        continue;
+      }
+      if (DJ_AGENT_LEGACY.equals(name)) {
         continue;
       }
       ComponentDescriptor descriptor = descriptorsByName.get(name);
@@ -634,6 +646,16 @@ public class RouterAgentComponent {
       return false;
     }
     return agents.stream().anyMatch(a -> name.equals(a.name));
+  }
+
+  private StickyRoute normalizeSticky(StickyRoute sticky, List<AgentCapability> agents) {
+    if (sticky == null) {
+      return null;
+    }
+    if (DJ_AGENT_LEGACY.equals(sticky.agent) && containsAgent(agents, DJ_AGENT_V2)) {
+      return new StickyRoute(DJ_AGENT_V2, sticky.updatedAtMs, sticky.lastPrompt, sticky.lastTaskId, sticky.lastTaskAgent);
+    }
+    return sticky;
   }
 
   private static boolean isValidRoute(String route, List<AgentCapability> agents) {

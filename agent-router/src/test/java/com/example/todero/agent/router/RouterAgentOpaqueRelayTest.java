@@ -118,14 +118,14 @@ class RouterAgentOpaqueRelayTest {
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       AgentCapabilityManifest manifest = AgentCapabilityManifest.builder()
           .contractVersion(1)
-          .agentName("com.shellaia.verbatim.agent.dj")
+          .agentName("com.shellaia.verbatim.agent.dj.v2")
           .commands(List.of(
               AgentCommandSchema.builder().name("process").requiredArgs(List.of()).build(),
               AgentCommandSchema.builder().name("capabilities").requiredArgs(List.of()).build()
           ))
           .build();
       return List.of(ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj")
+          .name("com.shellaia.verbatim.agent.dj.v2")
           .type(ServerType.AI)
           .visible(false)
           .agentCapabilityManifest(manifest)
@@ -139,7 +139,7 @@ class RouterAgentOpaqueRelayTest {
 
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
-      if ("com.shellaia.verbatim.agent.dj".equals(componentName) && "process".equals(command)) {
+      if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "process".equals(command)) {
         lastDelegatedPrompt.set(AiatpIO.bodyToString(context.getHttpRequest().body(), StandardCharsets.UTF_8));
         context.response(AiatpIO.HttpResponse.newBuilder(200)
             .setHeader("Content-Type", "application/json; charset=utf-8")
@@ -147,10 +147,10 @@ class RouterAgentOpaqueRelayTest {
             .build());
         return;
       }
-      if ("com.shellaia.verbatim.agent.dj".equals(componentName) && "capabilities".equals(command)) {
+      if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "capabilities".equals(command)) {
         context.response(AiatpIO.HttpResponse.newBuilder(200)
             .setHeader("Content-Type", "application/json; charset=utf-8")
-            .body(AiatpIO.Body.ofString("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj\",\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", StandardCharsets.UTF_8))
+            .body(AiatpIO.Body.ofString("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj.v2\",\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", StandardCharsets.UTF_8))
             .build());
         return;
       }

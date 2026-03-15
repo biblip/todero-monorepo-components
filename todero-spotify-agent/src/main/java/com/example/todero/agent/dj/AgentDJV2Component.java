@@ -19,11 +19,9 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ScheduledExecutorService;
 
 @AIAController(name = "com.shellaia.verbatim.agent.dj.v2",
     type = ServerType.AI,
@@ -47,11 +45,23 @@ public class AgentDJV2Component {
   );
 
   private final ExecutorService cognitionExecutor;
+  private final ExecutorService toolDispatchExecutor;
+  private final ScheduledExecutorService loopScheduler;
 
   public AgentDJV2Component(Storage storage) {
     System.out.println("[DJV2][BUILD] marker=" + DJV2_BUILD_MARKER);
     this.cognitionExecutor = Executors.newSingleThreadExecutor(r -> {
       Thread t = new Thread(r, "djv2-cognition");
+      t.setDaemon(true);
+      return t;
+    });
+    this.toolDispatchExecutor = Executors.newCachedThreadPool(r -> {
+      Thread t = new Thread(r, "djv2-tool-dispatch");
+      t.setDaemon(true);
+      return t;
+    });
+    this.loopScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+      Thread t = new Thread(r, "djv2-loop-timer");
       t.setDaemon(true);
       return t;
     });
@@ -92,26 +102,7 @@ public class AgentDJV2Component {
       return true;
     }
     context.emitStatus("Processing request...", "progress");
-
-    CompletableFuture<AgentDecisionLoop.LoopResult> future = CompletableFuture.supplyAsync(() -> {
-      AgentDecisionLoop loop = new AgentDecisionLoop();
-      AgentDecisionLoop.EventForwarder forwarder = new AgentDecisionLoop.EventForwarder(context);
-      AgentDecisionLoop.LoopRequest request = new AgentDecisionLoop.LoopRequest(
-          prompt, source, correlationId, MAX_STEPS, forwarder);
-      AgentDecisionLoop.Planner planner = (workingPrompt, step) -> planNextAction(context, workingPrompt);
-      AgentDecisionLoop.ToolCallParser parser = this::parseAction;
-      AgentDecisionLoop.ToolExecutor executor = (call, sink) -> executeSpotify(context, call, sink);
-      return loop.run(request, planner, parser, executor, null, null);
-    }, cognitionExecutor);
-
-    try {
-      AgentDecisionLoop.LoopResult result = future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-      emitLoopResult(context, result, source, correlationId);
-    } catch (TimeoutException e) {
-      emitStatusAndChat(context, "Agent processing exceeded " + REQUEST_TIMEOUT_SECONDS + " seconds");
-    } catch (Exception e) {
-      emitStatusAndChat(context, "Agent execution failed: " + safeTrim(e.getMessage()));
-    }
+    cognitionExecutor.submit(() -> runLoopAndEmit(context, prompt, source, correlationId));
     return true;
   }
 
@@ -126,17 +117,7 @@ public class AgentDJV2Component {
       return true;
     }
     String prompt = "External event: " + raw;
-    cognitionExecutor.submit(() -> {
-      AgentDecisionLoop loop = new AgentDecisionLoop();
-      AgentDecisionLoop.EventForwarder forwarder = new AgentDecisionLoop.EventForwarder(context);
-      AgentDecisionLoop.LoopRequest request = new AgentDecisionLoop.LoopRequest(
-          prompt, "react", correlationId, MAX_STEPS, forwarder);
-      AgentDecisionLoop.Planner planner = (workingPrompt, step) -> planNextAction(context, workingPrompt);
-      AgentDecisionLoop.ToolCallParser parser = this::parseAction;
-      AgentDecisionLoop.ToolExecutor executor = (call, sink) -> executeSpotify(context, call, sink);
-      AgentDecisionLoop.LoopResult result = loop.run(request, planner, parser, executor, null, null);
-      emitLoopResult(context, result, "react", correlationId);
-    });
+    cognitionExecutor.submit(() -> runLoopAndEmit(context, prompt, "react", correlationId));
 
     context.emitStatus("Event accepted for asynchronous reaction.", "final");
     context.emitChat("Event accepted for asynchronous reaction.", "final");
@@ -166,51 +147,52 @@ public class AgentDJV2Component {
     return new AgentDecisionLoop.ToolCall(validated.command, validated.args, action);
   }
 
-  private AgentDecisionLoop.ToolCallResult executeSpotify(CommandContext parentContext,
-                                                          AgentDecisionLoop.ToolCall call,
-                                                          AgentDecisionLoop.ToolEventSink sink) throws Exception {
+  private void executeSpotify(CommandContext parentContext,
+                              AgentDecisionLoop.ToolCall call,
+                              AgentDecisionLoop.ToolExecutionHandle handle) throws Exception {
     String requestId = "djv2-tool-" + newCorrelationId();
-    CompletableFuture<AgentDecisionLoop.ToolCallResult> future = new CompletableFuture<>();
 
     CommandContext internalContext = parentContext.cloneBuilder()
         .httpRequest(AiatpIO.HttpRequest.newBuilder("ACTION", "/" + SPOTIFY_COMPONENT + "/" + call.command())
             .setHeader("X-Request-Id", requestId)
             .body(AiatpIO.Body.ofString(safeTrim(call.args()), StandardCharsets.UTF_8))
             .build())
-        .eventConsumer(wrapper -> handleToolEvent(wrapper, requestId, call, sink, future))
-        .consumer(response -> {
-          if (future.isDone()) {
-            return;
-          }
-          String body = AiatpIO.bodyToString(response.body(), StandardCharsets.UTF_8);
-          future.complete(AgentDecisionLoop.ToolCallResult.success(call, safeTrim(body), null));
-        })
+        .eventConsumer(wrapper -> handleToolEvent(wrapper, requestId, handle))
         .build();
 
-    ExecutorService dispatchExecutor = Executors.newSingleThreadExecutor(r -> {
-      Thread t = new Thread(r, "djv2-tool-dispatch");
-      t.setDaemon(true);
-      return t;
-    });
-    try {
-      dispatchExecutor.submit(() -> parentContext.execute(SPOTIFY_COMPONENT, call.command(), internalContext));
-    } finally {
-      dispatchExecutor.shutdown();
-    }
+    toolDispatchExecutor.submit(() -> parentContext.execute(SPOTIFY_COMPONENT, call.command(), internalContext));
+  }
 
+  private void runLoopAndEmit(CommandContext context,
+                              String prompt,
+                              String source,
+                              String correlationId) {
     try {
-      return future.get(TOOL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-    } catch (TimeoutException e) {
-      return AgentDecisionLoop.ToolCallResult.failure(call, "tool-execution-failed",
-          "Tool execution timed out after " + TOOL_TIMEOUT_SECONDS + "s", null);
+      AgentDecisionLoop loop = new AgentDecisionLoop();
+      AgentDecisionLoop.EventForwarder forwarder = new AgentDecisionLoop.EventForwarder(context);
+      AgentDecisionLoop.LoopRequest request = new AgentDecisionLoop.LoopRequest(
+          prompt,
+          source,
+          correlationId,
+          MAX_STEPS,
+          REQUEST_TIMEOUT_SECONDS * 1000L,
+          TOOL_TIMEOUT_SECONDS * 1000L,
+          forwarder);
+      AgentDecisionLoop.Planner planner = (workingPrompt, step) -> planNextAction(context, workingPrompt);
+      AgentDecisionLoop.ToolCallParser parser = this::parseAction;
+      AgentDecisionLoop.AsyncToolExecutor executor = (call, handle) -> executeSpotify(context, call, handle);
+      loop.start(request, planner, parser, executor, null, null,
+          result -> emitLoopResult(context, result, source, correlationId),
+          cognitionExecutor,
+          loopScheduler);
+    } catch (Exception e) {
+      emitStatusAndChat(context, "Agent execution failed: " + safeTrim(e.getMessage()));
     }
   }
 
   private void handleToolEvent(AiatpIORequestWrapper wrapper,
                                String expectedRequestId,
-                               AgentDecisionLoop.ToolCall call,
-                               AgentDecisionLoop.ToolEventSink sink,
-                               CompletableFuture<AgentDecisionLoop.ToolCallResult> future) {
+                               AgentDecisionLoop.ToolExecutionHandle handle) {
     if (wrapper == null || wrapper.getXEvent() == null) {
       return;
     }
@@ -233,18 +215,14 @@ public class AgentDJV2Component {
       errorCode = "tool-execution-failed";
     }
     AgentDecisionLoop.ToolEvent toolEvent = new AgentDecisionLoop.ToolEvent(channel, phase, body, errorCode);
-    sink.onEvent(toolEvent);
-    if (future.isDone()) {
-      return;
-    }
+    handle.onEvent(toolEvent);
     if (AgentDecisionLoop.isTerminal(channel, phase, errorCode)) {
       boolean ok = !"error".equals(channel) && errorCode.isBlank();
       String message = body.isBlank() ? (ok ? "completed" : "Tool failed.") : body;
       if (ok) {
-        future.complete(AgentDecisionLoop.ToolCallResult.success(call, message, null));
+        handle.complete(message);
       } else {
-        future.complete(AgentDecisionLoop.ToolCallResult.failure(call, errorCode.isBlank() ? "tool-execution-failed" : errorCode,
-            message, null));
+        handle.fail(errorCode.isBlank() ? "tool-execution-failed" : errorCode, message);
       }
     }
   }
@@ -304,25 +282,29 @@ public class AgentDJV2Component {
       return;
     }
     AgentDecisionLoop.Channels channels = result.channels();
+    AgentDecisionLoop.DeliverySummary delivery = result.delivery() == null
+        ? AgentDecisionLoop.DeliverySummary.none()
+        : result.delivery();
     String stopCode = safeTrim(result.stopReason() == null ? null : result.stopReason().code);
     String stopMessage = safeTrim(result.stopReason() == null ? null : result.stopReason().message);
     boolean failed = isFailureStop(stopCode);
+    boolean suppressSuccessReplay = "tool_terminal".equals(stopCode) && delivery.hasTerminalForwardedContent();
     if (failed) {
       String failure = stopMessage.isEmpty() ? "Agent execution failed." : stopMessage;
       context.emitStatus(failure, "final");
       context.emitChat(failure, "final");
-    } else if (!safeTrim(channels.status()).isEmpty()) {
+    } else if (!suppressSuccessReplay && !delivery.terminalStatusForwarded() && !safeTrim(channels.status()).isEmpty()) {
       context.emitStatus(channels.status(), "final");
     }
-    if (!failed && !safeTrim(channels.chat()).isEmpty()) {
+    if (!failed && !suppressSuccessReplay && !delivery.terminalChatForwarded() && !safeTrim(channels.chat()).isEmpty()) {
       context.emitChat(channels.chat(), "final");
     }
-    if (!safeTrim(channels.html()).isEmpty()) {
+    if (!suppressSuccessReplay && !delivery.terminalHtmlForwarded() && !safeTrim(channels.html()).isEmpty()) {
       context.emitHtml(channels.html(), "final",
           safeTrim(channels.webviewMode()).isEmpty() ? "html" : channels.webviewMode(),
           channels.webviewReplace());
     }
-    if (!safeTrim(channels.authJson()).isEmpty()) {
+    if (!suppressSuccessReplay && !delivery.terminalAuthForwarded() && !safeTrim(channels.authJson()).isEmpty()) {
       context.emitAuthJson(channels.authJson(), "final");
     }
     context.emitThought("source=" + source + " correlationId=" + correlationId
@@ -333,6 +315,8 @@ public class AgentDJV2Component {
     return "planner_exception".equals(stopCode)
         || "invalid_action".equals(stopCode)
         || "tool_failed".equals(stopCode)
+        || "request_timeout".equals(stopCode)
+        || "tool_timeout".equals(stopCode)
         || "max_steps_reached".equals(stopCode);
   }
 

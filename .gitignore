@@ -11,3 +11,5 @@ out/
 
 
 .mvn/maven.config
+
+**/agents-playground
