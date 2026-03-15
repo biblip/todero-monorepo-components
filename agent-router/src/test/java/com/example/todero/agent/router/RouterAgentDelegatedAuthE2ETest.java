@@ -131,14 +131,14 @@ class RouterAgentDelegatedAuthE2ETest {
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       AgentCapabilityManifest manifest = AgentCapabilityManifest.builder()
           .contractVersion(1)
-          .agentName("com.shellaia.verbatim.agent.dj.v2")
+          .agentName("com.shellaia.verbatim.agent.dj")
           .commands(List.of(
               AgentCommandSchema.builder().name("process").build(),
               AgentCommandSchema.builder().name("capabilities").build()
           ))
           .build();
       return List.of(ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj.v2")
+          .name("com.shellaia.verbatim.agent.dj")
           .type(ServerType.AI)
           .visible(false)
           .agentCapabilityManifest(manifest)
@@ -152,7 +152,7 @@ class RouterAgentDelegatedAuthE2ETest {
 
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
-      if (!"com.shellaia.verbatim.agent.dj.v2".equals(componentName) || !"process".equals(command)) {
+      if (!"com.shellaia.verbatim.agent.dj".equals(componentName) || !"process".equals(command)) {
         context.completeJson(404, "{\"error\":\"not_found\"}");
         return;
       }

@@ -298,13 +298,13 @@ public class RouterAgentComponent {
 
   private static String preferredOpaqueRelayAgent(List<AgentCapability> agents) {
     for (AgentCapability agent : agents) {
-      if (DJ_AGENT_V2.equals(agent.name)) {
+      if (DJ_AGENT_LEGACY.equals(agent.name)) {
         return agent.name;
       }
     }
     for (AgentCapability agent : agents) {
       String n = safe(agent.name).toLowerCase(Locale.ROOT);
-      if (n.contains(".agent.dj.v2") || n.endsWith(".dj.v2")) {
+      if (n.contains(".agent.dj") || n.endsWith(".dj")) {
         return agent.name;
       }
     }
@@ -614,9 +614,6 @@ public class RouterAgentComponent {
       if (name == null || name.isBlank() || ROUTER_NAME.equals(name)) {
         continue;
       }
-      if (DJ_AGENT_LEGACY.equals(name)) {
-        continue;
-      }
       ComponentDescriptor descriptor = descriptorsByName.get(name);
       AgentCapability cap = fromDescriptor(descriptor);
       if (cap == null) {
@@ -841,8 +838,8 @@ public class RouterAgentComponent {
     if (sticky == null) {
       return null;
     }
-    if (DJ_AGENT_LEGACY.equals(sticky.agent) && containsAgent(agents, DJ_AGENT_V2)) {
-      return new StickyRoute(DJ_AGENT_V2, sticky.updatedAtMs, sticky.lastPrompt, sticky.lastTaskId, sticky.lastTaskAgent);
+    if (DJ_AGENT_V2.equals(sticky.agent) && containsAgent(agents, DJ_AGENT_LEGACY)) {
+      return new StickyRoute(DJ_AGENT_LEGACY, sticky.updatedAtMs, sticky.lastPrompt, sticky.lastTaskId, sticky.lastTaskAgent);
     }
     return sticky;
   }

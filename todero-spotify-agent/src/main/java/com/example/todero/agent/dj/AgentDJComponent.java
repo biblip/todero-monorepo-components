@@ -476,12 +476,21 @@ public class AgentDJComponent {
             "AUTH_REQUIRED command=" + tool.command + " code=" + safeTrim(tool.errorCode()),
             tool.command, tool.args, redactedForLogs(tool.rawOutput()), toolDurationMs, tool.errorCode(), null);
         if (authBegin.executed) {
-          String sessionId = extractAuthSessionId(authBegin.rawOutput());
-          if (!sessionId.isEmpty()) {
-            pendingAuthRetries.put(sessionId, new PendingAuthRetry(tool.command, tool.args, initialPrompt, rootWorkId));
+          AuthDirective authDirective = extractAuthDirective(authBegin.rawOutput());
+          String sessionId = authDirective.sessionId();
+          if (!authDirective.valid()) {
+            stopReason = StopReason.TOOL_EXECUTION_FAILED;
+            String invalidMessage = "Authorization handshake failed: component returned incomplete auth metadata.";
+            lastResponse = failureResponse(initialPrompt, stopReason, "auth-begin", correlationId, invalidMessage);
+            appendLedgerAction(rootWorkId, WorkActionType.FAIL,
+                "AUTH_BEGIN_INVALID message=" + invalidMessage,
+                "auth-begin", "redirect-profile=app owner=" + LEDGER_OWNER_ID,
+                redactedForLogs(authBegin.rawOutput()), null, "auth_contract_invalid", invalidMessage);
+            break;
           }
+          pendingAuthRetries.put(sessionId, new PendingAuthRetry(tool.command, tool.args, initialPrompt, rootWorkId));
           appendLedgerAction(rootWorkId, WorkActionType.NOTE,
-              "AUTH_BEGIN sessionId=" + (sessionId.isEmpty() ? "unknown" : sessionId),
+              "AUTH_BEGIN sessionId=" + sessionId,
               "auth-begin", "redirect-profile=app owner=" + LEDGER_OWNER_ID, null, null, null, null);
           lastResponse = new CommandAgentResponse(
               initialPrompt,
@@ -865,6 +874,40 @@ public class AgentDJComponent {
       return safeTrim(readPath(root, "errorCode"));
     } catch (Exception ignored) {
       return "";
+    }
+  }
+
+  private static AuthDirective extractAuthDirective(String toolOutput) {
+    String text = safeTrim(toolOutput);
+    if (text.isEmpty()) {
+      return AuthDirective.invalid();
+    }
+    try {
+      JsonNode root = JSON.readTree(text);
+      JsonNode auth = root.path("auth");
+      JsonNode authNode = auth.isObject() ? auth : root;
+      String provider = safeTrim(readPath(authNode, "provider"));
+      String sessionId = firstNonBlank(
+          readPath(authNode, "sessionId"),
+          readPath(authNode, "session.sessionId"),
+          readPath(root, "sessionId"),
+          readPath(root, "session.sessionId")
+      );
+      String authorizeUrl = firstNonBlank(
+          readPath(authNode, "authorizeUrl"),
+          readPath(root, "authorizeUrl")
+      );
+      String completeCommand = firstNonBlank(
+          readPath(authNode, "completeCommand"),
+          readPath(root, "completeCommand")
+      );
+      boolean required = authNode.path("required").asBoolean(auth.isObject());
+      boolean hasSecureEnvelope = authNode.path("secureEnvelope").isObject() || root.path("secureEnvelope").isObject();
+      String authJson = auth.isObject() ? auth.toString() : (root.isObject() ? root.toString() : "");
+      boolean valid = required && !provider.isEmpty() && !sessionId.isEmpty() && !authorizeUrl.isEmpty();
+      return new AuthDirective(valid, provider, sessionId, authorizeUrl, completeCommand, hasSecureEnvelope, authJson);
+    } catch (Exception ignored) {
+      return AuthDirective.invalid();
     }
   }
 
@@ -1748,23 +1791,38 @@ public class AgentDJComponent {
   }
 
   private static String extractAuthSessionId(String output) {
-    String text = safeTrim(output);
+    AuthDirective authDirective = extractAuthDirective(output);
+    return authDirective.valid() ? authDirective.sessionId() : firstNonBlank(
+        safeTrim(extractAuthDirectiveLoose(output).sessionId()),
+        ""
+    );
+  }
+
+  private static AuthDirective extractAuthDirectiveLoose(String toolOutput) {
+    String text = safeTrim(toolOutput);
     if (text.isEmpty()) {
-      return "";
+      return AuthDirective.invalid();
     }
     try {
       JsonNode root = JSON.readTree(text);
-      String fromSession = readPath(root, "session.sessionId");
-      if (!fromSession.isBlank()) {
-        return fromSession;
-      }
-      String fromAuth = readPath(root, "auth.sessionId");
-      if (!fromAuth.isBlank()) {
-        return fromAuth;
-      }
-      return "";
+      JsonNode auth = root.path("auth");
+      JsonNode authNode = auth.isObject() ? auth : root;
+      String provider = safeTrim(readPath(authNode, "provider"));
+      String sessionId = firstNonBlank(
+          readPath(authNode, "sessionId"),
+          readPath(authNode, "session.sessionId"),
+          readPath(root, "sessionId"),
+          readPath(root, "session.sessionId")
+      );
+      String authorizeUrl = firstNonBlank(readPath(authNode, "authorizeUrl"), readPath(root, "authorizeUrl"));
+      String completeCommand = firstNonBlank(readPath(authNode, "completeCommand"), readPath(root, "completeCommand"));
+      boolean required = authNode.path("required").asBoolean(auth.isObject());
+      boolean hasSecureEnvelope = authNode.path("secureEnvelope").isObject() || root.path("secureEnvelope").isObject();
+      String authJson = auth.isObject() ? auth.toString() : (root.isObject() ? root.toString() : "");
+      boolean valid = !sessionId.isEmpty();
+      return new AuthDirective(valid, provider, sessionId, authorizeUrl, completeCommand, hasSecureEnvelope, authJson);
     } catch (Exception ignored) {
-      return "";
+      return AuthDirective.invalid();
     }
   }
 
@@ -1970,11 +2028,17 @@ public class AgentDJComponent {
                               String jsonBody,
                               String source,
                               String correlationId) {
+    String authJson = renderAuthJson(result.toolSteps);
+    if (result != null && result.stopReason == StopReason.AUTH_REQUIRED && !hasValidAuthDirective(authJson)) {
+      String message = "Authorization handshake failed: component returned incomplete auth metadata.";
+      String envelope = renderContractEnvelope(source, correlationId, "auth_contract_invalid", message, message, null, "none", false);
+      emitTerminalPayload(context, envelope, "failure", "auth_contract_invalid", message, source, correlationId);
+      return;
+    }
     if (!usesUpstreamControl(context)) {
       emitChannelsFromJson(context, jsonBody);
       return;
     }
-    String authJson = renderAuthJson(result.toolSteps);
     String user = result.finalResponse == null ? null : safeTrim(result.finalResponse.getUser());
     String html = result.finalResponse == null ? null : safeTrim(result.finalResponse.getHtml());
     String status = buildStatusMessage(findLastToolStep(result.toolSteps), result.stopReason);
@@ -2199,12 +2263,30 @@ public class AgentDJComponent {
 
   private static boolean isAuthHandoff(LoopResult result, String authJson) {
     return result != null
-        && (result.stopReason == StopReason.AUTH_REQUIRED || hasAuthPayload(authJson));
+        && result.stopReason == StopReason.AUTH_REQUIRED
+        && hasValidAuthDirective(authJson);
   }
 
   private static boolean hasAuthPayload(String authJson) {
     String text = safeTrim(authJson);
     return !text.isEmpty() && !"null".equalsIgnoreCase(text);
+  }
+
+  private static boolean hasValidAuthDirective(String authJson) {
+    return extractAuthDirective(authJson).valid();
+  }
+
+  private static String firstNonBlank(String... values) {
+    if (values == null) {
+      return "";
+    }
+    for (String value : values) {
+      String text = safeTrim(value);
+      if (!text.isEmpty()) {
+        return text;
+      }
+    }
+    return "";
   }
 
   private static String renderChannelsJson(LoopResult result, String user, String html) {
@@ -2478,6 +2560,27 @@ public class AgentDJComponent {
       status = output;
     }
 
+    if (usesUpstreamControl(context)) {
+      String effectiveMode = mode.isEmpty() ? (html.isEmpty() ? "none" : "html") : mode;
+      boolean effectiveReplace = replace != null ? replace : !html.isEmpty();
+      context.emitControlJson(buildControlEnvelopeJson(
+          "progress",
+          "progress",
+          false,
+          "",
+          chat,
+          status,
+          html,
+          effectiveMode,
+          effectiveReplace,
+          authJson,
+          "tool_progress",
+          correlationId,
+          "",
+          ""
+      ), "progress", "delegate_progress");
+      return;
+    }
     if (!status.isEmpty()) {
       context.emitStatus(status, "progress");
     }
@@ -3065,6 +3168,18 @@ public class AgentDJComponent {
   }
 
   private record AuthCompletionIntent(String sessionId, String rawArgs) {
+  }
+
+  private record AuthDirective(boolean valid,
+                               String provider,
+                               String sessionId,
+                               String authorizeUrl,
+                               String completeCommand,
+                               boolean hasSecureEnvelope,
+                               String authJson) {
+    private static AuthDirective invalid() {
+      return new AuthDirective(false, "", "", "", "", false, "");
+    }
   }
 
   private record ValidatedAction(String command, String args, String errorCode, String error) {

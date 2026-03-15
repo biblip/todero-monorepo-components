@@ -29,7 +29,7 @@ fi
 BUILD_PATCH=$((PATCH - 1))
 BUILD_VERSION="${MAJOR}.${MINOR}.${BUILD_PATCH}"
 
-echo "Source version from file : $VERSION"
+#echo "Source version from file : $VERSION"
 echo "Build version to use     : $BUILD_VERSION"
 
 mvn clean install -Dtodero.version="$BUILD_VERSION"

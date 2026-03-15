@@ -61,7 +61,7 @@ class RouterAgentPreDispatchRequiredArgsTest {
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       AgentCapabilityManifest manifest = AgentCapabilityManifest.builder()
           .contractVersion(1)
-          .agentName("com.shellaia.verbatim.agent.dj.v2")
+          .agentName("com.shellaia.verbatim.agent.dj")
           .commands(List.of(
               AgentCommandSchema.builder().name("play").requiredArgs(List.of("<query|uri>")).build(),
               AgentCommandSchema.builder().name("process").requiredArgs(List.of()).build(),
@@ -69,7 +69,7 @@ class RouterAgentPreDispatchRequiredArgsTest {
           ))
           .build();
       return List.of(ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj.v2")
+          .name("com.shellaia.verbatim.agent.dj")
           .type(ServerType.AI)
           .visible(false)
           .agentCapabilityManifest(manifest)
@@ -83,15 +83,15 @@ class RouterAgentPreDispatchRequiredArgsTest {
 
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
-      if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "process".equals(command)) {
+      if ("com.shellaia.verbatim.agent.dj".equals(componentName) && "process".equals(command)) {
         lastDelegatedPrompt.set(AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8));
         context.completeJson(200,
             "{\"channels\":{\"chat\":{\"message\":\"ok\"},\"status\":{\"message\":\"ok\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
-      if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName) && "capabilities".equals(command)) {
+      if ("com.shellaia.verbatim.agent.dj".equals(componentName) && "capabilities".equals(command)) {
         context.completeJson(200,
-            "{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj.v2\",\"commands\":[{\"name\":\"play\",\"requiredArgs\":[\"<query|uri>\"]},{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}");
+            "{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj\",\"commands\":[{\"name\":\"play\",\"requiredArgs\":[\"<query|uri>\"]},{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}");
         return;
       }
       context.completeJson(404, "{\"error\":\"not_found\"}");

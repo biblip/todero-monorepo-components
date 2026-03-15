@@ -194,13 +194,13 @@ class RouterAgentEventNativeDelegationTest {
     @Override
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       ComponentDescriptor.ComponentDescriptorBuilder builder = ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj.v2")
+          .name("com.shellaia.verbatim.agent.dj")
           .type(ServerType.AI)
           .visible(false);
       if (descriptorHasManifest) {
         builder.agentCapabilityManifest(AgentCapabilityManifest.builder()
             .contractVersion(1)
-            .agentName("com.shellaia.verbatim.agent.dj.v2")
+            .agentName("com.shellaia.verbatim.agent.dj")
             .commands(List.of(
                 AgentCommandSchema.builder().name("process").build(),
                 AgentCommandSchema.builder().name("capabilities").build()
@@ -217,14 +217,14 @@ class RouterAgentEventNativeDelegationTest {
 
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
-      if (!"com.shellaia.verbatim.agent.dj.v2".equals(componentName)) {
+      if (!"com.shellaia.verbatim.agent.dj".equals(componentName)) {
         context.emitError("not_found");
         return;
       }
       if ("capabilities".equals(command)) {
         capabilitiesSawProgress.set(true);
         context.emitStatus("probing", "progress");
-        context.emitChat("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj.v2\",\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", "final");
+        context.emitChat("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.verbatim.agent.dj\",\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", "final");
         return;
       }
       if ("process".equals(command)) {
@@ -251,7 +251,7 @@ class RouterAgentEventNativeDelegationTest {
     @Override
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       return List.of(ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj.v2")
+          .name("com.shellaia.verbatim.agent.dj")
           .type(ServerType.AI)
           .visible(false)
           .build());
@@ -264,7 +264,7 @@ class RouterAgentEventNativeDelegationTest {
 
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
-      if (!"com.shellaia.verbatim.agent.dj.v2".equals(componentName)) {
+      if (!"com.shellaia.verbatim.agent.dj".equals(componentName)) {
         context.emitError("not_found");
         return;
       }
@@ -289,7 +289,7 @@ class RouterAgentEventNativeDelegationTest {
     @Override
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       return List.of(ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj.v2")
+          .name("com.shellaia.verbatim.agent.dj")
           .type(ServerType.AI)
           .visible(false)
           .build());
@@ -344,7 +344,7 @@ class RouterAgentEventNativeDelegationTest {
     public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
       List<ComponentDescriptor> components = new java.util.ArrayList<>();
       components.add(ComponentDescriptor.builder()
-          .name("com.shellaia.verbatim.agent.dj.v2")
+          .name("com.shellaia.verbatim.agent.dj")
           .type(ServerType.AI)
           .visible(false)
           .build());
@@ -366,13 +366,13 @@ class RouterAgentEventNativeDelegationTest {
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
       if (!"process".equals(command)) {
-        String agentName = "com.shellaia.verbatim.agent.dj.v2".equals(componentName)
-            ? "com.shellaia.verbatim.agent.dj.v2"
+        String agentName = "com.shellaia.verbatim.agent.dj".equals(componentName)
+            ? "com.shellaia.verbatim.agent.dj"
             : "com.shellaia.verbatim.agent.zzzalt";
         context.emitChat("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"" + agentName + "\",\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", "final");
         return;
       }
-      if ("com.shellaia.verbatim.agent.dj.v2".equals(componentName)) {
+      if ("com.shellaia.verbatim.agent.dj".equals(componentName)) {
         processExecuteCount++;
         djProcessExecuteCount++;
         context.emitControlJson(
