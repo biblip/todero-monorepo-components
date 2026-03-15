@@ -64,6 +64,7 @@ public class AgentDJComponent {
   private static final String DJ_BUILD_MARKER = "dj-event-path-v3-2026-03-14T11:42Z";
   private static final String MAIN_GROUP = "Main";
   private static final String SPOTIFY_COMPONENT = "com.shellaia.verbatim.component.spotify";
+  private static final String UPSTREAM_CONTROL_HEADER = "X-AIATP-Upstream-Control";
   private static final int MAX_STEPS = 4;
   private static final long REQUEST_TIMEOUT_SECONDS = 120;
   private static final Set<String> VALID_EVENT_TYPES = Set.of("ßinformational", "state_change", "anomaly");
@@ -141,7 +142,11 @@ public class AgentDJComponent {
     System.out.println("[DJ-AGENT] process received correlationId=" + correlationId + " prompt=" + prompt);
     if (!prompt.isEmpty()) {
       System.out.println("[DJ-AGENT][TRACE][process] L6a emitStatus progress");
-      context.emitStatus("Processing request...", "progress");
+      if (usesUpstreamControl(context)) {
+        emitControlProgress(context, "Processing request...", correlationId, source);
+      } else {
+        context.emitStatus("Processing request...", "progress");
+      }
     }
     System.out.println("[DJ-AGENT][TRACE][process] L7 prompt empty check");
     if (prompt.isEmpty()) {
@@ -157,7 +162,8 @@ public class AgentDJComponent {
           false
       );
       System.out.println("[DJ-AGENT][TRACE][process] L9 invalid_request envelope built");
-      emitChannelsFromJson(context, envelope);
+      emitTerminalPayload(context, envelope, "failure", "invalid_request",
+          "Prompt is required. Usage: process <goal>", source, correlationId);
       System.out.println("[DJ-AGENT][TRACE][process] L10 invalid_request envelope emitted");
       System.out.println("[DJ-AGENT][TRACE][process] L11 return true");
       return true;
@@ -184,75 +190,74 @@ public class AgentDJComponent {
           false
       );
       System.out.println("[DJ-AGENT][TRACE][process] L18 ledger_unavailable envelope built");
-      emitChannelsFromJson(context, envelope);
+      emitTerminalPayload(context, envelope, "failure", "ledger_unavailable",
+          "Unable to create execution task in Agent Work Ledger: " + safeTrim(e.getMessage()), source, correlationId);
       System.out.println("[DJ-AGENT][TRACE][process] L19 ledger_unavailable envelope emitted");
       System.out.println("[DJ-AGENT][TRACE][process] L20 return true");
       return true;
     }
-    context.emitStatus("Go gogo!", "progress");
+    System.out.println("[DJ-AGENT][TRACE][process] L21 submit cognition future");
+    CompletableFuture<LoopResult> future = CompletableFuture.supplyAsync(
+        () -> runGoalLoop(context, prompt, true, source, correlationId, rootWork.workId()),
+        cognitionExecutor
+    );
+    System.out.println("[DJ-AGENT][TRACE][process] L22 future submitted");
 
-//    System.out.println("[DJ-AGENT][TRACE][process] L21 submit cognition future");
-//    CompletableFuture<LoopResult> future = CompletableFuture.supplyAsync(
-//        () -> runGoalLoop(context, prompt, true, source, correlationId, rootWork.workId()),
-//        cognitionExecutor
-//    );
-//    System.out.println("[DJ-AGENT][TRACE][process] L22 future submitted");
-//
-//    try {
-//      System.out.println("[DJ-AGENT][TRACE][process] L23 waiting for loop result");
-//      System.out.println("[DJ-AGENT][EMIT] process waiting for loop result timeoutSec=" + REQUEST_TIMEOUT_SECONDS);
-//      LoopResult result = future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-//      System.out.println("[DJ-AGENT][TRACE][process] L24 loop result received");
-//      System.out.println("[DJ-AGENT][EMIT] process result stopReason=" + result.stopReason
-//          + " steps=" + (result.toolSteps == null ? 0 : result.toolSteps.size()));
-//      String envelope = renderLoopResultAsJson(result);
-//      System.out.println("[DJ-AGENT][TRACE][process] L25 loop envelope built");
-//      System.out.println("[DJ-AGENT][EMIT] process envelope ready bytes=" + envelope.length());
-//      System.out.println("[DJ-AGENT][EMIT] process envelope preview=" + redactedForLogs(envelope));
-//      emitChannelsFromJson(context, envelope);
-//      System.out.println("[DJ-AGENT][TRACE][process] L26 loop envelope emitted");
-//      System.out.println("[DJ-AGENT][EMIT] process envelope emitted");
-//      System.out.println("[DJ-AGENT][TRACE][process] L27 emitThought begin");
-//      context.emitThought(renderDecisionEventAsJson(result), "final");
-//      System.out.println("[DJ-AGENT][TRACE][process] L28 emitThought done");
-//    } catch (TimeoutException e) {
-//      System.out.println("[DJ-AGENT][TRACE][process] L29 timeout exception");
-//      String timeoutMessage = "Agent processing exceeded " + REQUEST_TIMEOUT_SECONDS + " seconds";
-//      System.out.println("[DJ-AGENT][EMIT] process timeout triggered");
-//      String envelope = renderContractEnvelope(
-//          source,
-//          correlationId,
-//          "timeout",
-//          timeoutMessage,
-//          timeoutMessage,
-//          null,
-//          "none",
-//          false
-//      );
-//      System.out.println("[DJ-AGENT][TRACE][process] L30 timeout envelope built");
-//      System.out.println("[DJ-AGENT][EMIT] process timeout envelope bytes=" + envelope.length());
-//      emitChannelsFromJson(context, envelope);
-//      System.out.println("[DJ-AGENT][TRACE][process] L31 timeout envelope emitted");
-//    } catch (Exception e) {
-//      System.out.println("[DJ-AGENT][TRACE][process] L32 generic exception message=" + safeTrim(e.getMessage()));
-//      String message = safeTrim(e.getMessage()).isEmpty() ? "Unexpected agent failure." : safeTrim(e.getMessage());
-//      System.out.println("[DJ-AGENT][EMIT] process exception message=" + safeTrim(e.getMessage()));
-//      String envelope = renderContractEnvelope(
-//          source,
-//          correlationId,
-//          "agent_failed",
-//          message,
-//          "Agent execution failed.",
-//          null,
-//          "none",
-//          false
-//      );
-//      System.out.println("[DJ-AGENT][TRACE][process] L33 failure envelope built");
-//      System.out.println("[DJ-AGENT][EMIT] process failure envelope bytes=" + envelope.length()
-//          + " error=" + safeTrim(e.getMessage()));
-//      emitChannelsFromJson(context, envelope);
-//      System.out.println("[DJ-AGENT][TRACE][process] L34 failure envelope emitted");
-//    }
+    try {
+      System.out.println("[DJ-AGENT][TRACE][process] L23 waiting for loop result");
+      System.out.println("[DJ-AGENT][EMIT] process waiting for loop result timeoutSec=" + REQUEST_TIMEOUT_SECONDS);
+      LoopResult result = future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      System.out.println("[DJ-AGENT][TRACE][process] L24 loop result received");
+      System.out.println("[DJ-AGENT][EMIT] process result stopReason=" + result.stopReason
+          + " steps=" + (result.toolSteps == null ? 0 : result.toolSteps.size()));
+      String envelope = renderLoopResultAsJson(result);
+      System.out.println("[DJ-AGENT][TRACE][process] L25 loop envelope built");
+      System.out.println("[DJ-AGENT][EMIT] process envelope ready bytes=" + envelope.length());
+      System.out.println("[DJ-AGENT][EMIT] process envelope preview=" + redactedForLogs(envelope));
+      emitLoopResult(context, result, envelope, source, correlationId);
+      System.out.println("[DJ-AGENT][TRACE][process] L26 loop envelope emitted");
+      System.out.println("[DJ-AGENT][EMIT] process envelope emitted");
+      System.out.println("[DJ-AGENT][TRACE][process] L27 emitThought begin");
+      context.emitThought(renderDecisionEventAsJson(result), "final");
+      System.out.println("[DJ-AGENT][TRACE][process] L28 emitThought done");
+    } catch (TimeoutException e) {
+      System.out.println("[DJ-AGENT][TRACE][process] L29 timeout exception");
+      String timeoutMessage = "Agent processing exceeded " + REQUEST_TIMEOUT_SECONDS + " seconds";
+      System.out.println("[DJ-AGENT][EMIT] process timeout triggered");
+      String envelope = renderContractEnvelope(
+          source,
+          correlationId,
+          "timeout",
+          timeoutMessage,
+          timeoutMessage,
+          null,
+          "none",
+          false
+      );
+      System.out.println("[DJ-AGENT][TRACE][process] L30 timeout envelope built");
+      System.out.println("[DJ-AGENT][EMIT] process timeout envelope bytes=" + envelope.length());
+      emitTerminalPayload(context, envelope, "failure", "timeout", timeoutMessage, source, correlationId);
+      System.out.println("[DJ-AGENT][TRACE][process] L31 timeout envelope emitted");
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT][TRACE][process] L32 generic exception message=" + safeTrim(e.getMessage()));
+      String message = safeTrim(e.getMessage()).isEmpty() ? "Unexpected agent failure." : safeTrim(e.getMessage());
+      System.out.println("[DJ-AGENT][EMIT] process exception message=" + safeTrim(e.getMessage()));
+      String envelope = renderContractEnvelope(
+          source,
+          correlationId,
+          "agent_failed",
+          message,
+          "Agent execution failed.",
+          null,
+          "none",
+          false
+      );
+      System.out.println("[DJ-AGENT][TRACE][process] L33 failure envelope built");
+      System.out.println("[DJ-AGENT][EMIT] process failure envelope bytes=" + envelope.length()
+          + " error=" + safeTrim(e.getMessage()));
+      emitTerminalPayload(context, envelope, "failure", "agent_failed", message, source, correlationId);
+      System.out.println("[DJ-AGENT][TRACE][process] L34 failure envelope emitted");
+    }
     System.out.println("[DJ-AGENT][TRACE][process] L35 exit");
     return true;
   }
@@ -276,7 +281,8 @@ public class AgentDJComponent {
           "none",
           false
       );
-      emitChannelsFromJson(context, envelope);
+      emitTerminalPayload(context, envelope, "failure", "invalid_event_payload",
+          "Event payload is required. Usage: " + usageReact(), source, correlationId);
       return true;
     }
     ParsedEventPayload parsed = parseEventPayload(rawPayload);
@@ -291,7 +297,8 @@ public class AgentDJComponent {
           "none",
           false
       );
-      emitChannelsFromJson(context, envelope);
+      emitTerminalPayload(context, envelope, "failure", "invalid_event_payload",
+          parsed.error + " Usage: " + usageReact(), source, correlationId);
       return true;
     }
     final EventPayload event = parsed.payload;
@@ -314,7 +321,8 @@ public class AgentDJComponent {
           "none",
           false
       );
-      emitChannelsFromJson(context, envelope);
+      emitTerminalPayload(context, envelope, "failure", "ledger_unavailable",
+          "Unable to create reaction task in Agent Work Ledger: " + safeTrim(e.getMessage()), source, correlationId);
       return true;
     }
 
@@ -325,17 +333,24 @@ public class AgentDJComponent {
           + " action=" + safeTrim(result.finalResponse == null ? null : result.finalResponse.getAction()));
     });
 
-    String envelope = renderContractEnvelope(
-        source,
-        correlationId,
-        null,
-        "accepted",
-        "Event accepted for asynchronous reaction.",
-        null,
-        "none",
-        false
-    );
-    emitChannelsFromJson(context, envelope);
+    if (canEmitOwnedEvents(context)) {
+      String envelope = renderContractEnvelope(
+          source,
+          correlationId,
+          null,
+          "accepted",
+          "Event accepted for asynchronous reaction.",
+          null,
+          "none",
+          false
+      );
+      emitTerminalPayload(context, envelope, "success", "react_accepted",
+          "Event accepted for asynchronous reaction.", source, correlationId);
+    } else {
+      System.out.println("[DJ-AGENT][EMIT] react ack skipped reason=detached_context"
+          + " hasContextId=" + !safeTrim(context.getId()).isEmpty()
+          + " hasRequest=" + (context.getAiatpRequest() != null));
+    }
     return true;
   }
 
@@ -563,6 +578,11 @@ public class AgentDJComponent {
         ),
         "X-Request-Id",
         internalRequestId
+    );
+    internalRequest = AiatpRuntimeAdapter.withHeader(
+        internalRequest,
+        CommandContext.HDR_INTERNAL_EVENT_DELIVERY,
+        "local"
     ).toBuilder()
         .requestId(internalRequestId)
         .build();
@@ -656,6 +676,16 @@ public class AgentDJComponent {
     String phase = safeTrim(event.getPhase()).toLowerCase();
     String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
     boolean terminal = event.isTerminal();
+    if (usesUpstreamControl(parentContext)) {
+      System.out.println("[DJ-AGENT][EMIT] skip forward_tool_event reason=upstream_control channel=" + channel
+          + " terminal=" + terminal);
+      return;
+    }
+    if (terminal) {
+      System.out.println("[DJ-AGENT][EMIT] skip forward_tool_event reason=terminal_replayed channel=" + channel
+          + " ref=" + eventRef);
+      return;
+    }
     String emitPhase = "error".equals(phase) ? "error" : (terminal ? "final" : "progress");
     System.out.println("[DJ-AGENT][EMIT] forward_tool_event channel=" + channel
         + " phase=" + (phase.isEmpty() ? "<none>" : phase)
@@ -1933,6 +1963,248 @@ public class AgentDJComponent {
     } catch (Exception ignored) {
       System.out.println("[DJ-AGENT][EMIT] error message=" + ignored.getMessage());
     }
+  }
+
+  private void emitLoopResult(CommandContext context,
+                              LoopResult result,
+                              String jsonBody,
+                              String source,
+                              String correlationId) {
+    if (!usesUpstreamControl(context)) {
+      emitChannelsFromJson(context, jsonBody);
+      return;
+    }
+    String authJson = renderAuthJson(result.toolSteps);
+    String user = result.finalResponse == null ? null : safeTrim(result.finalResponse.getUser());
+    String html = result.finalResponse == null ? null : safeTrim(result.finalResponse.getHtml());
+    String status = buildStatusMessage(findLastToolStep(result.toolSteps), result.stopReason);
+    String htmlMode = "none";
+    boolean htmlReplace = false;
+    ToolStep lastToolStep = findLastToolStep(result.toolSteps);
+    ToolChannels toolChannels = extractToolChannels(lastToolStep == null ? "" : safeTrim(lastToolStep.toolOutput));
+    if (!safeTrim(html).isEmpty()) {
+      htmlMode = "html";
+      htmlReplace = true;
+    } else if ("suggest".equalsIgnoreCase(safeTrim(lastToolStep == null ? null : lastToolStep.toolCommand))
+        && toolChannels.html != null && !toolChannels.html.isBlank()) {
+      html = toolChannels.html;
+      htmlMode = safeTrim(toolChannels.webviewMode).isEmpty() ? "html" : safeTrim(toolChannels.webviewMode);
+      htmlReplace = toolChannels.webviewReplace == null || toolChannels.webviewReplace;
+    }
+
+    String outcome = "success";
+    String stopCode = result.stopReason == null ? "completed" : safeTrim(result.stopReason.code);
+    String stopMessage = result.stopReason == null ? "" : safeTrim(result.stopReason.message);
+    String errorCode = "";
+    if (isAuthHandoff(result, authJson)) {
+      outcome = "auth_handoff";
+    } else if (isOutOfScopeResult(result)) {
+      outcome = "unhandled_intent";
+      stopCode = "out_of_scope";
+      errorCode = "agent_capability_mismatch";
+    } else if (isFailureStopReason(result.stopReason)) {
+      outcome = "failure";
+      errorCode = stopCode;
+    }
+    emitControlTerminal(context, outcome, stopCode, stopMessage, safeTrim(user), status,
+        safeTrim(html), htmlMode, htmlReplace, authJson, source, correlationId, errorCode);
+  }
+
+  private void emitTerminalPayload(CommandContext context,
+                                   String jsonBody,
+                                   String outcome,
+                                   String stopCode,
+                                   String stopMessage,
+                                   String source,
+                                   String correlationId) {
+    if (!usesUpstreamControl(context)) {
+      emitChannelsFromJson(context, jsonBody);
+      return;
+    }
+    try {
+      JsonNode root = JSON.readTree(jsonBody);
+      JsonNode channels = root.path("channels");
+      JsonNode chatNode = channels.path("chat");
+      JsonNode statusNode = channels.path("status");
+      JsonNode webviewNode = channels.path("webview");
+      JsonNode authNode = root.path("auth");
+      String chat = readText(chatNode, "message");
+      String status = readText(statusNode, "message");
+      String html = webviewNode.isObject() ? readText(webviewNode, "html") : "";
+      String htmlMode = webviewNode.isObject() ? readText(webviewNode, "mode") : "none";
+      boolean htmlReplace = !webviewNode.isMissingNode() && webviewNode.path("replace").asBoolean(false);
+      String authJson = authNode.isObject() ? authNode.toString() : "";
+      String errorCode = "unhandled_intent".equals(outcome) ? "agent_capability_mismatch"
+          : ("failure".equals(outcome) ? safeTrim(stopCode) : "");
+      emitControlTerminal(context, outcome, stopCode, stopMessage, chat, status, html, htmlMode, htmlReplace,
+          authJson, source, correlationId, errorCode);
+    } catch (Exception e) {
+      emitControlTerminal(context, "failure", "agent_error", safeTrim(e.getMessage()),
+          "", stopMessage, "", "none", false, "", source, correlationId, "agent_error");
+    }
+  }
+
+  private void emitControlProgress(CommandContext context,
+                                   String status,
+                                   String correlationId,
+                                   String source) {
+    context.emitControlJson(buildControlEnvelopeJson(
+        "progress",
+        "progress",
+        false,
+        "",
+        "",
+        safeTrim(status),
+        "",
+        "none",
+        false,
+        "",
+        source,
+        correlationId,
+        "",
+        ""), "progress", "delegate_progress");
+  }
+
+  private void emitControlTerminal(CommandContext context,
+                                   String outcome,
+                                   String stopCode,
+                                   String stopMessage,
+                                   String chat,
+                                   String status,
+                                   String html,
+                                   String htmlMode,
+                                   boolean htmlReplace,
+                                   String authJson,
+                                   String source,
+                                   String correlationId,
+                                   String errorCode) {
+    context.emitControlJson(buildControlEnvelopeJson(
+        "terminal",
+        outcome,
+        true,
+        stopCode,
+        chat,
+        status,
+        html,
+        htmlMode,
+        htmlReplace,
+        authJson,
+        source,
+        correlationId,
+        errorCode,
+        stopMessage), "failure".equals(outcome) ? "error" : "final", "delegate_terminal");
+  }
+
+  private String buildControlEnvelopeJson(String kind,
+                                          String outcome,
+                                          boolean terminal,
+                                          String stopCode,
+                                          String chat,
+                                          String status,
+                                          String html,
+                                          String htmlMode,
+                                          boolean htmlReplace,
+                                          String authJson,
+                                          String source,
+                                          String correlationId,
+                                          String errorCode,
+                                          String stopMessage) {
+    try {
+      ObjectNode root = JSON.createObjectNode();
+      root.put("kind", safeTrim(kind));
+      root.put("outcome", safeTrim(outcome).isEmpty() ? "success" : safeTrim(outcome));
+      root.put("terminal", terminal);
+      ObjectNode payload = root.putObject("payload");
+      payload.put("stopReason", safeTrim(stopCode).isEmpty() ? "completed" : safeTrim(stopCode));
+      payload.put("message", safeTrim(stopMessage));
+      ObjectNode meta = root.putObject("meta");
+      meta.put("outcome", root.path("outcome").asText());
+      meta.put("stopReason", payload.path("stopReason").asText());
+      meta.put("source", safeTrim(source));
+      meta.put("correlationId", safeTrim(correlationId));
+      if (!safeTrim(errorCode).isEmpty()) {
+        meta.put("errorCode", safeTrim(errorCode));
+      } else if ("unhandled_intent".equals(root.path("outcome").asText())) {
+        meta.put("errorCode", "agent_capability_mismatch");
+      }
+
+      ObjectNode projections = root.putObject("projections");
+      projections.putObject("chat").put("message", safeTrim(chat));
+      projections.putObject("status").put("message", safeTrim(status));
+      ObjectNode webviewProjection = projections.putObject("webview");
+      if (safeTrim(html).isEmpty()) {
+        webviewProjection.putNull("html");
+      } else {
+        webviewProjection.put("html", safeTrim(html));
+      }
+      webviewProjection.put("mode", safeTrim(htmlMode).isEmpty() ? "none" : safeTrim(htmlMode));
+      webviewProjection.put("replace", htmlReplace);
+      if (hasAuthPayload(authJson)) {
+        try {
+          projections.set("auth", JSON.readTree(authJson));
+        } catch (Exception ignored) {
+          projections.put("auth_raw", safeTrim(authJson));
+        }
+      } else {
+        projections.putNull("auth");
+      }
+
+      ObjectNode channels = root.putObject("channels");
+      channels.putObject("chat").put("message", safeTrim(chat));
+      channels.putObject("status").put("message", safeTrim(status));
+      ObjectNode webviewChannels = channels.putObject("webview");
+      if (safeTrim(html).isEmpty()) {
+        webviewChannels.putNull("html");
+      } else {
+        webviewChannels.put("html", safeTrim(html));
+      }
+      webviewChannels.put("mode", safeTrim(htmlMode).isEmpty() ? "none" : safeTrim(htmlMode));
+      webviewChannels.put("replace", htmlReplace);
+      if (hasAuthPayload(authJson)) {
+        try {
+          channels.set("auth", JSON.readTree(authJson));
+        } catch (Exception ignored) {
+          channels.put("auth_raw", safeTrim(authJson));
+        }
+      }
+      return root.toString();
+    } catch (Exception e) {
+      return "{\"kind\":\"terminal\",\"outcome\":\"failure\",\"terminal\":true,"
+          + "\"payload\":{\"stopReason\":\"agent_error\",\"message\":" + quoteJson(safeTrim(e.getMessage())) + "},"
+          + "\"meta\":{\"outcome\":\"failure\",\"stopReason\":\"agent_error\",\"source\":" + quoteJson(source)
+          + ",\"correlationId\":" + quoteJson(correlationId) + ",\"errorCode\":\"agent_error\"},"
+          + "\"channels\":{\"chat\":{\"message\":\"\"},\"status\":{\"message\":\"Agent failed.\"},"
+          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+    }
+  }
+
+  private static boolean usesUpstreamControl(CommandContext context) {
+    AiatpRequest request = context == null ? null : context.getAiatpRequest();
+    if (request == null || request.getHeaders() == null) {
+      return false;
+    }
+    String value = request.getHeaders().getFirst(UPSTREAM_CONTROL_HEADER);
+    return value != null && "true".equalsIgnoreCase(value.trim());
+  }
+
+  private static boolean canEmitOwnedEvents(CommandContext context) {
+    return context != null
+        && !safeTrim(context.getId()).isEmpty()
+        && context.getAiatpRequest() != null;
+  }
+
+  private static boolean isOutOfScopeResult(LoopResult result) {
+    return result != null && shouldEmitFailureMeta(result);
+  }
+
+  private static boolean isAuthHandoff(LoopResult result, String authJson) {
+    return result != null
+        && (result.stopReason == StopReason.AUTH_REQUIRED || hasAuthPayload(authJson));
+  }
+
+  private static boolean hasAuthPayload(String authJson) {
+    String text = safeTrim(authJson);
+    return !text.isEmpty() && !"null".equalsIgnoreCase(text);
   }
 
   private static String renderChannelsJson(LoopResult result, String user, String html) {
