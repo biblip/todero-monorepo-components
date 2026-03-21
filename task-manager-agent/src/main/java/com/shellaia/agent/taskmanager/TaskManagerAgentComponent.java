@@ -280,7 +280,7 @@ public class TaskManagerAgentComponent {
       );
       context.completeJson(200, renderCapabilitiesEnvelope(manifest));
     } catch (Exception e) {
-      context.completeJson(500, "{\"channels\":{\"chat\":{\"message\":\"Task manager capability manifest could not be generated.\"},\"status\":{\"message\":\"Task manager capability manifest could not be generated.\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"meta\":{\"errorCode\":\"capability_manifest_generate_failed\"}}");
+      context.completeJson(500, "{\"channels\":{\"chat\":{\"message\":\"Task manager capability manifest could not be generated.\"},\"status\":{\"message\":\"Task manager capability manifest could not be generated.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"meta\":{\"errorCode\":\"capability_manifest_generate_failed\"}}");
     }
     return true;
   }
@@ -465,7 +465,7 @@ public class TaskManagerAgentComponent {
         + "\"channels\":{"
         + "\"chat\":{\"message\":" + chatMessage + "},"
         + "\"status\":{\"message\":" + statusMessage + "},"
-        + "\"webview\":{\"html\":" + webHtml + ",\"mode\":\"none\",\"replace\":false}"
+        + "\"html\":{\"html\":" + webHtml + ",\"mode\":\"none\",\"replace\":false}"
         + "},"
         + "\"meta\":{"
         + "\"source\":" + quote(source) + ","
@@ -1078,7 +1078,7 @@ public class TaskManagerAgentComponent {
           + "\"channels\":{"
           + "\"chat\":{\"message\":\"Task manager agent capabilities ready.\"},"
           + "\"status\":{\"message\":\"Capabilities ready.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
           + "},"
           + "\"manifest\":" + mapper.writeValueAsString(manifest)
           + "}";
@@ -1089,7 +1089,7 @@ public class TaskManagerAgentComponent {
           + "\"channels\":{"
           + "\"chat\":{\"message\":\"Task manager capability manifest could not be encoded.\"},"
           + "\"status\":{\"message\":\"Capability manifest encoding failed.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
           + "}"
           + "}";
     }

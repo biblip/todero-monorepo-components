@@ -198,7 +198,7 @@ public class RouterAgentComponent {
       description = "Return router capability manifest for discovery")
   public Boolean capabilities(CommandContext context) {
     AgentCapabilityManifest manifest = new RouterAgentCapabilities().manifest();
-    String payload = "{\"status\":\"ok\",\"channels\":{\"chat\":{\"message\":\"Router capabilities ready.\"},\"status\":{\"message\":\"Capabilities ready.\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"manifest\":"
+    String payload = "{\"status\":\"ok\",\"channels\":{\"chat\":{\"message\":\"Router capabilities ready.\"},\"status\":{\"message\":\"Capabilities ready.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"manifest\":"
         + toJson(manifest) + "}";
     context.completeJson(200, payload);
     return true;
@@ -215,7 +215,7 @@ public class RouterAgentComponent {
     String chatMessage = readPath(channels.path("chat"), "message");
     String statusMessage = readPath(channels.path("status"), "message");
     String thoughtMessage = readPath(channels.path("thought"), "message");
-    JsonNode htmlNode = channels.has("html") ? channels.path("html") : channels.path("html");
+    JsonNode htmlNode = channels.path("html");
     String html = readPath(htmlNode, "html");
     String htmlMode = readPath(htmlNode, "mode");
     boolean htmlReplace = !htmlNode.isMissingNode() && htmlNode.path("replace").asBoolean(true);
@@ -1147,7 +1147,7 @@ public class RouterAgentComponent {
           + quote(errorCode)
           + "},\"channels\":{\"status\":{\"message\":"
           + quote(firstNonBlank(message, "Delegated agent failed."))
-          + "},\"chat\":{\"message\":\"\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+          + "},\"chat\":{\"message\":\"\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
     }
   }
 

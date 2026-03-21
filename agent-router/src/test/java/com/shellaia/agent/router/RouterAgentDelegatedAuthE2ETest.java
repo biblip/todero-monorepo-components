@@ -102,7 +102,7 @@ class RouterAgentDelegatedAuthE2ETest {
         + "\"channels\":{"
         + "\"chat\":{\"message\":\"Authorization required.\"},"
         + "\"status\":{\"message\":\"Open authorization URL.\"},"
-        + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
         + "}"
         + "}";
 
@@ -113,7 +113,7 @@ class RouterAgentDelegatedAuthE2ETest {
         + "\"channels\":{"
         + "\"chat\":{\"message\":\"Authorization completed.\"},"
         + "\"status\":{\"message\":\"Retrying requested command.\"},"
-        + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
         + "}"
         + "}";
 

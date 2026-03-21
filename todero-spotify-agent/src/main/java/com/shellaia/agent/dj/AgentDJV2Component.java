@@ -178,7 +178,7 @@ public class AgentDJV2Component {
       );
       context.completeJson(200, renderCapabilitiesEnvelope(manifest));
     } catch (Exception e) {
-      context.completeJson(500, "{\"channels\":{\"chat\":{\"message\":\"DJ capability manifest could not be generated.\"},\"status\":{\"message\":\"DJ capability manifest could not be generated.\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"meta\":{\"errorCode\":\"capability_manifest_generate_failed\"}}");
+      context.completeJson(500, "{\"channels\":{\"chat\":{\"message\":\"DJ capability manifest could not be generated.\"},\"status\":{\"message\":\"DJ capability manifest could not be generated.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"meta\":{\"errorCode\":\"capability_manifest_generate_failed\"}}");
     }
     return true;
   }
@@ -515,7 +515,7 @@ public class AgentDJV2Component {
           + quote(message.isEmpty() ? "Control envelope encoding failed." : message)
           + "},\"chat\":{\"message\":"
           + quote(message.isEmpty() ? "Control envelope encoding failed." : message)
-          + "},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+          + "},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
     }
   }
 
@@ -587,7 +587,7 @@ public class AgentDJV2Component {
           + "\"channels\":{"
           + "\"chat\":{\"message\":\"DJ agent capabilities ready.\"},"
           + "\"status\":{\"message\":\"Capabilities ready.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
           + "},"
           + "\"manifest\":" + new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(manifest)
           + "}";
@@ -598,7 +598,7 @@ public class AgentDJV2Component {
           + "\"channels\":{"
           + "\"chat\":{\"message\":\"DJ capability manifest could not be encoded.\"},"
           + "\"status\":{\"message\":\"Capability manifest encoding failed.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
           + "}"
           + "}";
     }

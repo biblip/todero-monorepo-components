@@ -50,7 +50,7 @@ class RouterAgentOpaqueRelayTest {
   void opaqueRelayPassesPromptAndResponseUnchanged() {
     String prompt = "auth-complete session-id=s123 code=abc state=st "
         + "secureEnvelope={\"opaquePayload\":\"xyz\",\"integrity\":\"sig\"}";
-    String delegatedBody = "{\"ok\":true,\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"auth\":{\"required\":false}}";
+    String delegatedBody = "{\"ok\":true,\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"auth\":{\"required\":false}}";
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
@@ -75,7 +75,7 @@ class RouterAgentOpaqueRelayTest {
   void opaqueRelayDoesNotIntrospectMalformedEnvelopePayload() {
     String prompt = "auth-complete session-id=s123 code=abc state=st "
         + "secureEnvelope=<<<NOT_JSON_BUT_OPAQUE>>> integrity=sig.with-specials_-=+";
-    String delegatedBody = "{\"ok\":true,\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+    String delegatedBody = "{\"ok\":true,\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());

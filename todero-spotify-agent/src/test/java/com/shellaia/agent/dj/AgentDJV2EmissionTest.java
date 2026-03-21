@@ -112,7 +112,7 @@ class AgentDJV2EmissionTest {
     assertEquals("control", event.channel);
     assertEquals("true", event.headers().getFirst("Event-Terminal"));
     assertTrue(body.contains("\"channels\""));
-    assertTrue(body.contains("\"webview\""));
+    assertTrue(body.contains("\"html\""));
     assertTrue(body.contains("<html>done</html>"));
   }
 

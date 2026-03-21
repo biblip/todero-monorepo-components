@@ -222,7 +222,7 @@ public class AgentContactsComponent {
           + "\"channels\":{"
           + "\"chat\":{\"message\":\"Contacts agent capabilities ready.\"},"
           + "\"status\":{\"message\":\"Capabilities ready.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
           + "},"
           + "\"manifest\":" + mapper.writeValueAsString(manifest)
           + "}";

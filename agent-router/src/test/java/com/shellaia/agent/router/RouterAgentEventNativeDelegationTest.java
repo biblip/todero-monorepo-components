@@ -233,7 +233,7 @@ class RouterAgentEventNativeDelegationTest {
       if ("process".equals(command)) {
         processSawProgress.set(true);
         context.emitStatus("delegated-working", "progress");
-        context.emitChat("{\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}", "final");
+        context.emitChat("{\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}", "final");
         return;
       }
       context.emitError("not_found");
@@ -324,14 +324,14 @@ class RouterAgentEventNativeDelegationTest {
       context.emitControlJson(
           "{\"kind\":\"progress\",\"outcome\":\"progress\",\"terminal\":false,"
               + "\"channels\":{\"status\":{\"message\":\"planning\"},\"chat\":{\"message\":\"\"},"
-              + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
+              + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
           "progress",
           "delegate_progress");
       context.emitControlJson(
           "{\"kind\":\"terminal\",\"outcome\":\"success\",\"terminal\":true,"
               + "\"meta\":{\"outcome\":\"success\"},"
               + "\"channels\":{\"status\":{\"message\":\"done\"},\"chat\":{\"message\":\"done\"},"
-              + "\"webview\":{\"html\":\"<html>done</html>\",\"mode\":\"html\",\"replace\":true}}}",
+              + "\"html\":{\"html\":\"<html>done</html>\",\"mode\":\"html\",\"replace\":true}}}",
           "final",
           "delegate_terminal");
     }
@@ -401,7 +401,7 @@ class RouterAgentEventNativeDelegationTest {
                 + "\"meta\":{\"outcome\":\"unhandled_intent\",\"errorCode\":\"agent_capability_mismatch\"},"
                 + "\"channels\":{\"status\":{\"message\":\"I can't send emails. I can help with Spotify music playback.\"},"
                 + "\"chat\":{\"message\":\"I can't send emails. I can help with Spotify music playback.\"},"
-                + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
+                + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
             "final",
             "delegate_terminal");
         return;
@@ -414,7 +414,7 @@ class RouterAgentEventNativeDelegationTest {
                 + "\"meta\":{\"outcome\":\"success\"},"
                 + "\"channels\":{\"status\":{\"message\":\"handled by alternate agent\"},"
                 + "\"chat\":{\"message\":\"handled by alternate agent\"},"
-                + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
+                + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
             "final",
             "delegate_terminal");
         return;
@@ -423,7 +423,7 @@ class RouterAgentEventNativeDelegationTest {
           "{\"kind\":\"terminal\",\"outcome\":\"failure\",\"terminal\":true,"
               + "\"meta\":{\"outcome\":\"failure\",\"errorCode\":\"not_found\"},"
               + "\"channels\":{\"status\":{\"message\":\"not found\"},\"chat\":{\"message\":\"not found\"},"
-              + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
+              + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
           "error",
           "delegate_terminal");
     }

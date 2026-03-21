@@ -1926,7 +1926,7 @@ public class AgentDJComponent {
         + "\"chat\":{\"message\":" + quoteJson(message) + "},"
         + "\"status\":{\"message\":" + quoteJson(statusMessage) + "},"
         + "\"thought\":{\"message\":" + quoteJson("source=" + safeTrim(source) + " correlationId=" + safeTrim(correlationId)) + "},"
-        + "\"webview\":{"
+        + "\"html\":{"
         + "\"html\":" + quoteJson(html) + ","
         + "\"mode\":" + quoteJson(normalizedMode) + ","
         + "\"replace\":" + webviewReplace
@@ -2221,7 +2221,7 @@ public class AgentDJComponent {
           + "\"meta\":{\"outcome\":\"failure\",\"stopReason\":\"agent_error\",\"source\":" + quoteJson(source)
           + ",\"correlationId\":" + quoteJson(correlationId) + ",\"errorCode\":\"agent_error\"},"
           + "\"channels\":{\"chat\":{\"message\":\"\"},\"status\":{\"message\":\"Agent failed.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
     }
   }
 
@@ -2316,7 +2316,7 @@ public class AgentDJComponent {
         + "\"chat\":{\"message\":" + quoteJson(safeTrim(user)) + "},"
         + "\"status\":{\"message\":" + quoteJson(status) + "},"
         + "\"thought\":{\"message\":" + quoteJson(thought) + "},"
-        + "\"webview\":{"
+        + "\"html\":{"
         + "\"html\":" + quoteJson(hasHtml ? selectedHtml : null) + ","
         + "\"mode\":" + quoteJson(mode) + ","
         + "\"replace\":" + replace
@@ -2659,7 +2659,7 @@ public class AgentDJComponent {
           + "\"channels\":{"
           + "\"chat\":{\"message\":\"DJ agent capabilities ready.\"},"
           + "\"status\":{\"message\":\"Capabilities ready.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
           + "},"
           + "\"manifest\":" + mapper.writeValueAsString(manifest)
           + "}";
@@ -2670,7 +2670,7 @@ public class AgentDJComponent {
           + "\"channels\":{"
           + "\"chat\":{\"message\":\"DJ capability manifest could not be encoded.\"},"
           + "\"status\":{\"message\":\"Capability manifest encoding failed.\"},"
-          + "\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
           + "}"
           + "}";
     }

@@ -109,7 +109,7 @@ class AgentDJSpotifyEventExecutionTest {
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
           ctx.emitStatus("Open the Spotify link.", "progress");
           ctx.completeJson(200,
-              "{\"ok\":true,\"message\":\"Authorization required.\",\"auth\":{\"required\":true,\"provider\":\"spotify\",\"sessionId\":\"sess-1\",\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"},\"channels\":{\"status\":{\"message\":\"Open the Spotify link.\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+              "{\"ok\":true,\"message\":\"Authorization required.\",\"auth\":{\"required\":true,\"provider\":\"spotify\",\"sessionId\":\"sess-1\",\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"},\"channels\":{\"status\":{\"message\":\"Open the Spotify link.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
             AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8)))

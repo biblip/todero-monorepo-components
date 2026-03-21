@@ -111,7 +111,7 @@ class RouterAgentPreDispatchRequiredArgsTest {
       if ("com.shellaia.agent.alpha".equals(componentName) && "process".equals(command)) {
         lastDelegatedPrompt.set(AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8));
         context.completeJson(200,
-            "{\"channels\":{\"chat\":{\"message\":\"ok\"},\"status\":{\"message\":\"ok\"},\"webview\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+            "{\"channels\":{\"chat\":{\"message\":\"ok\"},\"status\":{\"message\":\"ok\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
       if ("com.shellaia.agent.alpha".equals(componentName) && "capabilities".equals(command)) {
