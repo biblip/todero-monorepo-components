@@ -23,10 +23,10 @@ workspace components / agent folder:
 
 ```sh
 mkdir -p <workspace>/components/todero-spotify-component
-cp todero-spotify-component/target/todero-spotify-component-0.1.0-SNAPSHOT.jar \
+cp todero-spotify-component/target/spotify-component-0.1.0-SNAPSHOT.jar \
   <workspace>/components/todero-spotify-component/
 mkdir -p <workspace>/components/todero-spotify-agent
-cp todero-spotify-agent/target/todero-spotify-agent-0.1.0-SNAPSHOT.jar \
+cp todero-spotify-agent/target/spotify-agent-0.1.0-SNAPSHOT.jar \
   <workspace>/components/todero-spotify-agent/
 ```
 
@@ -56,7 +56,7 @@ Assumes `todero-runner.jar` is available at the project root.
 ```sh
 java -jar todero-runner.jar \
   --workspace-dir <path> \
-  --component com.shellaia.verbatim.agent.dj \
+  --component com.shellaia.agent.dj \
   --command process \
   --body "help" \
   --header "X-Auth: my-token" \
@@ -112,7 +112,7 @@ Use the runner JAR with JDWP and attach IntelliJ.
 java "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005" \
   -jar ./todero-runner.jar \
   --workspace-dir ./workspace \
-  --component com.shellaia.verbatim.agent.dj \
+  --component com.shellaia.agent.dj \
   --command process \
   --body "help"
 ```

@@ -1,15 +1,10 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-
-  <groupId>com.example.todero</groupId>
-  <artifactId>todero-component-spotify</artifactId>
+  <groupId>com.shellaia</groupId>
+  <artifactId>shellaia-components</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
-
-  <name>todero-component-spotify</name>
-
+  <name>shellaia-components</name>
   <modules>
     <module>todero-spotify-component</module>
     <module>todero-spotify-agent</module>
@@ -26,7 +21,6 @@
     <module>task-manager-component</module>
     <module>task-manager-agent</module>
   </modules>
-
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
@@ -51,119 +45,98 @@
     <reflections.version>0.10.2</reflections.version>
     <slf4j.version>2.0.17</slf4j.version>
   </properties>
-
   <dependencyManagement>
     <dependencies>
-      <!-- Minimal local HTTP callback -->
       <dependency>
         <groupId>com.sparkjava</groupId>
         <artifactId>spark-core</artifactId>
         <version>${spark.version}</version>
       </dependency>
-
-      <!-- JSON -->
       <dependency>
         <groupId>com.google.code.gson</groupId>
         <artifactId>gson</artifactId>
         <version>${gson.version}</version>
       </dependency>
-
       <dependency>
         <groupId>org.projectlombok</groupId>
         <artifactId>lombok</artifactId>
         <version>${lombok.version}</version>
       </dependency>
-
       <dependency>
         <groupId>se.michaelthelin.spotify</groupId>
         <artifactId>spotify-web-api-java</artifactId>
         <version>${spotify.version}</version>
       </dependency>
-
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
         <version>${jackson.version}</version>
       </dependency>
-
       <dependency>
         <groupId>io.undertow</groupId>
         <artifactId>undertow-core</artifactId>
         <version>${undertow.version}</version>
       </dependency>
-
       <dependency>
         <groupId>jakarta.mail</groupId>
         <artifactId>jakarta.mail-api</artifactId>
         <version>${jakarta.mail.version}</version>
       </dependency>
-
       <dependency>
         <groupId>com.sun.mail</groupId>
         <artifactId>jakarta.mail</artifactId>
         <version>${jakarta.mail.impl.version}</version>
       </dependency>
-
       <dependency>
         <groupId>jakarta.activation</groupId>
         <artifactId>jakarta.activation-api</artifactId>
         <version>${jakarta.activation.version}</version>
       </dependency>
-
       <dependency>
         <groupId>com.google.oauth-client</groupId>
         <artifactId>google-oauth-client</artifactId>
         <version>${google.oauth.version}</version>
       </dependency>
-
       <dependency>
         <groupId>com.google.api-client</groupId>
         <artifactId>google-api-client</artifactId>
         <version>${google.api.client.version}</version>
       </dependency>
-
       <dependency>
         <groupId>com.google.apis</groupId>
         <artifactId>google-api-services-gmail</artifactId>
         <version>${google.gmail.version}</version>
       </dependency>
-
       <dependency>
         <groupId>com.google.auth</groupId>
         <artifactId>google-auth-library-oauth2-http</artifactId>
         <version>${google.auth.version}</version>
       </dependency>
-
       <dependency>
         <groupId>com.hierynomus</groupId>
         <artifactId>sshj</artifactId>
         <version>${sshj.version}</version>
       </dependency>
-
       <dependency>
         <groupId>org.bouncycastle</groupId>
         <artifactId>bcprov-jdk18on</artifactId>
         <version>${bcprov.version}</version>
       </dependency>
-
       <dependency>
         <groupId>io.github.cdimascio</groupId>
         <artifactId>java-dotenv</artifactId>
         <version>${dotenv.version}</version>
       </dependency>
-
       <dependency>
         <groupId>uk.co.caprica</groupId>
         <artifactId>vlcj</artifactId>
         <version>${vlcj.version}</version>
       </dependency>
-
       <dependency>
         <groupId>org.reflections</groupId>
         <artifactId>reflections</artifactId>
         <version>${reflections.version}</version>
       </dependency>
-
       <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>

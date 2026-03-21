@@ -24,7 +24,7 @@ Action Signature
 
 Example Skeleton
 ----------------
-@AIAController(name = "com.example.todero.component.template")
+@AIAController(name = "com.shellaia.component.template")
 public class TemplateComponent {
 
   public TemplateComponent(Storage storage) {}

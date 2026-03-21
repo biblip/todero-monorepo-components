@@ -58,7 +58,7 @@ Command syntax:
 ```
 java -jar todero-component-runner.jar \
   --workspace-dir /path/to/workspace \
-  --component com.example.todero.component.template \
+  --component com.shellaia.component.template \
   --command ping \
   --body "hello"
 ```

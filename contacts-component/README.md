@@ -14,12 +14,12 @@ Contacts are stored in `contacts.json` inside the component storage directory.
 ## Examples
 
 ```
-com.shellaia.verbatim.component.contacts add name=Alice email=alice@example.com groups=team,ops
-com.shellaia.verbatim.component.contacts add name=Bob email=bob@example.com groups=team
-com.shellaia.verbatim.component.contacts list
-com.shellaia.verbatim.component.contacts find query=alice
-com.shellaia.verbatim.component.contacts group name=team
-com.shellaia.verbatim.component.contacts remove email=alice@example.com
+com.shellaia.contacts add name=Alice email=alice@example.com groups=team,ops
+com.shellaia.contacts add name=Bob email=bob@example.com groups=team
+com.shellaia.contacts list
+com.shellaia.contacts find query=alice
+com.shellaia.contacts group name=team
+com.shellaia.contacts remove email=alice@example.com
 ```
 
 ## Storage

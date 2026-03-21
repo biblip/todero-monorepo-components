@@ -43,7 +43,7 @@ comments).  Example (spacing irrelevant, order arbitrary):
 
   [
     {
-      "name": "com.shellaia.verbatim.component.vlc",
+      "name": "com.shellaia.vlc",
       "type": "media",
       "description": "Controls VLC playback, playlists, volume, seek, status, and event streaming."
     },
@@ -91,9 +91,9 @@ Example mappings
 ────────────────────────────────────────────────────────
 Component key                                 →  type   →  sample description
 ────────────────────────────────────────────── ──────── ───────────────────────────────────────────────
-com.shellaia.verbatim.component.vlc       →  media  →  Controls VLC playback, playlists, volume, seek, status, event streaming.
-com.shellaia.verbatim.component.ssh       →  ssh    →  Opens, uploads, runs, deletes files, and closes SSH sessions.
-com.shellaia.verbatim.component.simple    →  utility→  Provides basic ping, hello, and event toggling commands.
+com.shellaia.vlc       →  media  →  Controls VLC playback, playlists, volume, seek, status, event streaming.
+com.shellaia.ssh       →  ssh    →  Opens, uploads, runs, deletes files, and closes SSH sessions.
+com.shellaia.simple    →  utility→  Provides basic ping, hello, and event toggling commands.
 
 ────────────────────────────────────────────────────────
 🚦  Rules & constraints

@@ -4,7 +4,7 @@ set -euo pipefail
 HOST="${1:-brumor.pbxkey.com}"
 SNI="${2:-$HOST}"
 CONSOLE_JAR="${CONSOLE_JAR:-/Users/arturoportilla/IdeaProjects/todero-ecosystem/todero/playground/console.jar}"
-COMPONENT="com.shellaia.verbatim.component.task.manager"
+COMPONENT="com.shellaia.taskmanager"
 
 if [[ ! -f "$CONSOLE_JAR" ]]; then
   echo "console.jar not found at: $CONSOLE_JAR" >&2

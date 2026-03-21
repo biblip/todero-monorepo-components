@@ -1,19 +1,13 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-
   <parent>
-    <groupId>com.example.todero</groupId>
-    <artifactId>todero-component-spotify</artifactId>
+    <groupId>com.shellaia</groupId>
+    <artifactId>shellaia-components</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
-
   <artifactId>email-component</artifactId>
   <packaging>jar</packaging>
-
-  <name>todero-component</name>
-
+  <name>email-component</name>
   <dependencies>
     <dependency>
       <groupId>com.social100.todero</groupId>
@@ -33,7 +27,6 @@
       <version>${todero.version}</version>
       <scope>test</scope>
     </dependency>
-
     <dependency>
       <groupId>jakarta.mail</groupId>
       <artifactId>jakarta.mail-api</artifactId>
@@ -63,7 +56,6 @@
       <artifactId>google-auth-library-oauth2-http</artifactId>
     </dependency>
   </dependencies>
-
   <build>
     <plugins>
       <plugin>

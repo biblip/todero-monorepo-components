@@ -1,6 +1,6 @@
 # Task Manager Component
 
-Component id: `com.shellaia.verbatim.component.task.manager`
+Component id: `com.shellaia.taskmanager`
 
 Purpose:
 - Shared task lifecycle manager for agents/components.
@@ -105,15 +105,15 @@ Build:
 - `mvn -f todero-monorepo-components/pom.xml -pl task-manager-component -am clean install -DskipTests`
 
 Install + reload:
-- `com.shellaia.verbatim.component.aia.admin install --set service-a --coord com.example.todero:task-manager-component:0.1.0-SNAPSHOT --reload true`
+- `com.shellaia.aia.admin install --set service-a --coord com.shellaia:task-manager-component:0.1.0-SNAPSHOT --reload true`
 
 Smoke:
 - `help`
-- `com.shellaia.verbatim.component.task.manager health --format text`
-- `com.shellaia.verbatim.component.task.manager create --task-id smoke-1 --title "smoke task" --assigned smoke-agent --created-by smoke --format text`
-- `com.shellaia.verbatim.component.task.manager list --status NEW,READY --limit 10 --format text`
-- `com.shellaia.verbatim.component.task.manager evaluate --limit 100 --format text`
-- `com.shellaia.verbatim.component.task.manager ack-event --agent smoke-agent --event-id smoke-event-id --format text`
+- `com.shellaia.taskmanager health --format text`
+- `com.shellaia.taskmanager create --task-id smoke-1 --title "smoke task" --assigned smoke-agent --created-by smoke --format text`
+- `com.shellaia.taskmanager list --status NEW,READY --limit 10 --format text`
+- `com.shellaia.taskmanager evaluate --limit 100 --format text`
+- `com.shellaia.taskmanager ack-event --agent smoke-agent --event-id smoke-event-id --format text`
 
 Demo script:
 - `task-manager-component/scripts/demo-task-manager-console.sh`

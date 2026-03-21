@@ -101,7 +101,7 @@ Every response must include top-level `channels` metadata:
   "channels": {
     "chat": { "message": "..." },
     "status": { "message": "..." },
-    "webview": { "html": null, "mode": "none", "replace": false }
+    "html": { "html": null, "mode": "none", "replace": false }
   }
 }
 ```
