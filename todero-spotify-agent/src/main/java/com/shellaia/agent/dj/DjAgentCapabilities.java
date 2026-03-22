@@ -33,8 +33,7 @@ public final class DjAgentCapabilities implements AgentCapabilityProvider {
             command("suggest", List.of("<theme>")),
             command("recommend", List.of("<theme>")),
             command("events", List.of("ON|OFF")),
-            command("capabilities", List.of()),
-            command("react", List.of("<event_payload>"))
+            command("capabilities", List.of())
         ))
         .followUpPolicyHints(Map.of(
             "supports_latest", "true",

@@ -36,7 +36,6 @@ import com.social100.todero.processor.EventDefinition;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -61,7 +60,7 @@ import static com.social100.todero.common.config.Util.parseDotenv;
 @AIAController(name = "com.shellaia.agent.dj",
     type = ServerType.AI,
     visible = true,
-    description = "DJ Agent with iterative planning and event-driven reactions",
+    description = "DJ Agent with iterative planning for Spotify control",
     events = AgentDJComponent.SimpleEvent.class,
     capabilityProvider = DjAgentCapabilities.class)
 public class AgentDJComponent {
@@ -70,7 +69,6 @@ public class AgentDJComponent {
   private static final String UPSTREAM_CONTROL_HEADER = "X-AIATP-Upstream-Control";
   private static final int MAX_STEPS = 4;
   private static final long REQUEST_TIMEOUT_SECONDS = 120;
-  private static final Set<String> VALID_EVENT_TYPES = Set.of("ßinformational", "state_change", "anomaly");
   private static final int LEDGER_SUMMARY_MAX_ENTRIES = 12;
   private static final int LEDGER_SUMMARY_MAX_CHARS = 1400;
   private static final String LEDGER_OWNER_ID = "com.shellaia.agent.dj";
@@ -231,98 +229,6 @@ public class AgentDJComponent {
       System.out.println("[DJ-AGENT][EMIT] process failure envelope bytes=" + envelope.length()
           + " error=" + safeTrim(e.getMessage()));
       emitTerminalPayload(context, envelope, "failure", "agent_failed", message, source, correlationId);
-    }
-    return true;
-  }
-
-  @Action(group = MAIN_GROUP,
-      command = "react",
-      description = "Queue an external event for asynchronous agent reaction. Usage: react event_type=<informational|state_change|anomaly>&source=<src>&message=<text>[&kind=<k>][&at_ms=<epochMs>] OR JSON payload")
-  public Boolean react(CommandContext context) {
-    final String correlationId = newCorrelationId();
-    final String source = "react";
-    String rawPayload = requestBody(context);
-    System.out.println("[DJ-AGENT] react received correlationId=" + correlationId + " payload=" + rawPayload);
-    if (rawPayload.isEmpty()) {
-      String envelope = renderContractEnvelope(
-          source,
-          correlationId,
-          "invalid_event_payload",
-          "Event payload is required. Usage: " + usageReact(),
-          "Event payload is required.",
-          null,
-          "none",
-          false
-      );
-      emitTerminalPayload(context, envelope, "failure", "invalid_event_payload",
-          "Event payload is required. Usage: " + usageReact(), source, correlationId);
-      return true;
-    }
-    ParsedEventPayload parsed = parseEventPayload(rawPayload);
-    if (parsed.error != null) {
-      String envelope = renderContractEnvelope(
-          source,
-          correlationId,
-          "invalid_event_payload",
-          parsed.error + " Usage: " + usageReact(),
-          parsed.error,
-          null,
-          "none",
-          false
-      );
-      emitTerminalPayload(context, envelope, "failure", "invalid_event_payload",
-          parsed.error + " Usage: " + usageReact(), source, correlationId);
-      return true;
-    }
-    final EventPayload event = parsed.payload;
-    String eventPrompt = buildEventPrompt(event);
-    WorkItemRecord rootWork;
-    try {
-      ensureOwnerLedger(context);
-      rootWork = openRootLedgerWork(source, eventPrompt, false, correlationId);
-      appendLedgerAction(rootWork.workId(), WorkActionType.NOTE,
-          "event_type=" + event.eventType + " source=" + event.source + " kind=" + event.kind + " at_ms=" + event.atMs,
-          null, null, null, null, null);
-    } catch (Exception e) {
-      String envelope = renderContractEnvelope(
-          source,
-          correlationId,
-          "ledger_unavailable",
-          "Unable to create reaction task in Agent Work Ledger: " + safeTrim(e.getMessage()),
-          "Agent Work Ledger initialization failed.",
-          null,
-          "none",
-          false
-      );
-      emitTerminalPayload(context, envelope, "failure", "ledger_unavailable",
-          "Unable to create reaction task in Agent Work Ledger: " + safeTrim(e.getMessage()), source, correlationId);
-      return true;
-    }
-
-    cognitionExecutor.submit(() -> {
-      LoopResult result = runGoalLoop(context, eventPrompt, false, source, correlationId, rootWork.workId());
-      System.out.println("[DJ-AGENT] react completed correlationId=" + correlationId
-          + " stopReason=" + result.stopReason
-          + " action=" + safeTrim(result.finalResponse == null ? null : result.finalResponse.getAction()));
-    });
-
-    if (canEmitOwnedEvents(context)) {
-      String envelope = renderContractEnvelope(
-          source,
-          correlationId,
-          null,
-          "accepted",
-          "Event accepted for asynchronous reaction.",
-          null,
-          "none",
-          false
-      );
-      emitTerminalPayload(context, envelope, "success", "react_accepted",
-          "Event accepted for asynchronous reaction.", source, correlationId);
-    } else {
-      System.out.println("[DJ-AGENT][EMIT] react ack skipped reason=detached_context"
-          + " hasContextId=" + !safeTrim(context.getId()).isEmpty()
-          + " hasRequest=" + (context.getAiatpRequest() != null));
     }
     return true;
   }
@@ -1359,22 +1265,6 @@ public class AgentDJComponent {
         return ValidatedAction.error(command, args, "unsupported-command", "Unsupported command: " + command);
       }
     }
-  }
-
-  private String buildEventPrompt(EventPayload event) {
-    StringBuilder prompt = new StringBuilder(512);
-    prompt.append("You received a Spotify runtime event. ")
-        .append("Decide whether to act. If action is needed, return one spotify command. ")
-        .append("If no action is needed, return action=none.\n\nEvent:\n")
-        .append("event_type=").append(event.eventType).append('\n')
-        .append("source=").append(event.source).append('\n')
-        .append("kind=").append(event.kind).append('\n')
-        .append("at_ms=").append(event.atMs).append('\n')
-        .append("message=").append(event.message);
-    if (!safeTrim(event.structuredJson).isEmpty()) {
-      prompt.append("\nstructured_event_json=").append(event.structuredJson);
-    }
-    return prompt.toString();
   }
 
   private static String coercePlannerAction(String initialPrompt,
@@ -2713,121 +2603,6 @@ public class AgentDJComponent {
     return "failure".equals(outcome) ? 500 : 200;
   }
 
-  private static String usageReact() {
-    return "Usage: react event_type=<informational|state_change|anomaly>&source=<src>&message=<text>[&kind=<k>][&at_ms=<epochMs>] OR JSON payload";
-  }
-
-  private ParsedEventPayload parseEventPayload(String raw) {
-    Map<String, String> kv = new LinkedHashMap<>();
-    String normalized = raw.trim();
-    if (normalized.startsWith("{") && normalized.endsWith("}")) {
-      try {
-        JsonNode root = mapper.readTree(normalized);
-        String eventType = safeTrim(root.path("event_type").asText()).toLowerCase();
-        String source = safeTrim(root.path("source").asText());
-        String kind = safeTrim(root.path("kind").asText("generic"));
-        long atMs = root.path("at_ms").asLong(System.currentTimeMillis());
-        String message = safeTrim(root.path("message").asText());
-
-        if (eventType.isEmpty()) {
-          eventType = "state_change";
-        }
-        if (source.isEmpty()) {
-          source = "spotify_component";
-        }
-        if (message.isEmpty()) {
-          message = safeTrim(root.path("summary").asText());
-        }
-        if (message.isEmpty()) {
-          message = "Spotify runtime event received.";
-        }
-        if (!VALID_EVENT_TYPES.contains(eventType)) {
-          return new ParsedEventPayload(null, "event_type must be one of: informational, state_change, anomaly.");
-        }
-        if (atMs <= 0) {
-          atMs = System.currentTimeMillis();
-        }
-        return new ParsedEventPayload(new EventPayload(eventType, source, kind.isEmpty() ? "generic" : kind, message, atMs, normalized), null);
-      } catch (Exception e) {
-        return new ParsedEventPayload(null, "Invalid JSON payload: " + safeTrim(e.getMessage()));
-      }
-    }
-
-    if (normalized.contains("&")) {
-      for (String part : normalized.split("&")) {
-        String[] pair = part.split("=", 2);
-        if (pair.length != 2) {
-          continue;
-        }
-        kv.put(safeTrim(urlDecode(pair[0])).toLowerCase(), safeTrim(urlDecode(pair[1])));
-      }
-    } else {
-      for (String token : normalized.split("\\s+")) {
-        String[] pair = token.split("=", 2);
-        if (pair.length != 2) {
-          continue;
-        }
-        kv.put(safeTrim(urlDecode(pair[0])).toLowerCase(), safeTrim(urlDecode(pair[1])));
-      }
-    }
-
-    String eventType = safeTrim(kv.get("event_type")).toLowerCase();
-    String source = safeTrim(kv.get("source"));
-    String message = safeTrim(kv.get("message"));
-    String kind = safeTrim(kv.getOrDefault("kind", "generic"));
-    String atMsRaw = safeTrim(kv.getOrDefault("at_ms", "0"));
-
-    if (eventType.isEmpty() || source.isEmpty() || message.isEmpty()) {
-      return new ParsedEventPayload(null, "Required keys missing. Required: event_type, source, message.");
-    }
-    if (!VALID_EVENT_TYPES.contains(eventType)) {
-      return new ParsedEventPayload(null, "event_type must be one of: informational, state_change, anomaly.");
-    }
-
-    long atMs;
-    try {
-      atMs = Long.parseLong(atMsRaw);
-    } catch (NumberFormatException e) {
-      return new ParsedEventPayload(null, "at_ms must be a number when provided.");
-    }
-    if (atMs <= 0) {
-      atMs = System.currentTimeMillis();
-    }
-
-    EventPayload payload = new EventPayload(eventType, source, kind.isEmpty() ? "generic" : kind, message, atMs, "");
-    return new ParsedEventPayload(payload, null);
-  }
-
-  private static String urlDecode(String v) {
-    try {
-      return URLDecoder.decode(v, StandardCharsets.UTF_8);
-    } catch (Exception ignored) {
-      return v;
-    }
-  }
-
-  private static String renderEventPayloadAsJson(EventPayload event) {
-    return "{"
-        + "\"event_type\":" + quoteJson(event.eventType) + ","
-        + "\"source\":" + quoteJson(event.source) + ","
-        + "\"kind\":" + quoteJson(event.kind) + ","
-        + "\"message\":" + quoteJson(event.message) + ","
-        + "\"at_ms\":" + event.atMs + ","
-        + "\"structured_json\":" + quoteJson(event.structuredJson)
-        + "}";
-  }
-
-  private static String renderReactionEventAsJson(EventPayload event, String source, String correlationId) {
-    return "{"
-        + "\"type\":\"agent_reaction\","
-        + "\"trace\":{"
-        + "\"source\":" + quoteJson(source) + ","
-        + "\"correlationId\":" + quoteJson(correlationId)
-        + "},"
-        + "\"event\":" + renderEventPayloadAsJson(event)
-        + "}";
-  }
-
   private String injectLedgerSummary(String prompt, String rootWorkId) {
     try {
       List<WorkActionRecord> actions = ownerLedger().getActions(rootWorkId, new com.social100.todero.common.agent.work.QueryOptions(LEDGER_SUMMARY_MAX_ENTRIES, 0));
@@ -3155,13 +2930,7 @@ public class AgentDJComponent {
     }
   }
 
-  private record EventPayload(String eventType, String source, String kind, String message, long atMs, String structuredJson) {
-  }
-
   private record PlaylistAddIntent(String playlistName) {
-  }
-
-  private record ParsedEventPayload(EventPayload payload, String error) {
   }
 
   private record PendingAuthRetry(String command, String args, String initialPrompt, String rootWorkId) {

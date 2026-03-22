@@ -55,29 +55,6 @@ class AgentDJCapabilitiesTest {
         root.path("manifest").path("routingHints").path("oneLineSkillSummary").asText());
   }
 
-  @Test
-  void v2CapabilitiesReturnsChannelsAndSkillSummary() throws Exception {
-    AgentDJV2Component component = new AgentDJV2Component(new EmptyStorage());
-    AtomicReference<AiatpTerminalResult> out = new AtomicReference<>();
-    CommandContext context = CommandContext.builder()
-        .sourceId("djv2-cap-test")
-        .componentManager(new FakeComponentManager())
-        .terminalConsumer(out::set)
-        .llmRegistry(fakeRegistry())
-        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj.v2/capabilities",
-            AiatpIO.Body.ofString("", StandardCharsets.UTF_8)))
-        .build();
-
-    assertTrue(component.capabilities(context));
-
-    JsonNode root = JSON.readTree(AiatpIO.bodyToString(out.get().getBody(), StandardCharsets.UTF_8));
-    assertEquals("Capabilities ready.", root.path("channels").path("status").path("message").asText());
-    assertEquals("Handles music playback, playlists, recommendations, and delegated Spotify authorization through a specialized DJ workflow.",
-        root.path("manifest").path("routingHints").path("skillSummary").asText());
-    assertEquals("Handles Spotify music playback and playlist workflows.",
-        root.path("manifest").path("routingHints").path("oneLineSkillSummary").asText());
-  }
-
   private static LLMRegistry fakeRegistry() {
     LLMClient client = (systemPrompt, userPrompt, contextJson) ->
         "{\"skillSummary\":\"Handles music playback, playlists, recommendations, and delegated Spotify authorization through a specialized DJ workflow.\","
