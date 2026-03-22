@@ -41,7 +41,8 @@ import static com.social100.todero.common.config.Util.parseDotenv;
     visible = true,
     description = "Spotify playback control component",
     events = SpotifyComponent.SpotifyEvent.class,
-    toolCapabilityProvider = SpotifyToolCapabilities.class)
+    toolCapabilityProvider = SpotifyToolCapabilities.class,
+    externalAuthStatusProvider = SpotifyExternalAuthStatusProvider.class)
 public class SpotifyComponent {
   private static final Gson GSON = new Gson();
   private static final String DJ_AGENT = "com.shellaia.agent.dj";
