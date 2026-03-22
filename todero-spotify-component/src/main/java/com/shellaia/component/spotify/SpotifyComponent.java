@@ -1282,7 +1282,12 @@ public class SpotifyComponent {
     }
     if ("suggest".equalsIgnoreCase(command == null ? "" : command.trim())) {
       context.emitStatus(safeMessage, "progress");
-      context.emitHtml(buildSuggestHtml(safeMessage), "final", "html", true);
+      String html = buildSuggestHtml(safeMessage);
+      if (html == null || html.isBlank()) {
+        context.emitChat(safeMessage, "final");
+      } else {
+        context.emitHtml(html, "final", "html", true);
+      }
       return true;
     }
     context.emitChat(safeMessage, "final");

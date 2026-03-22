@@ -398,7 +398,7 @@ class RouterAgentEventNativeDelegationTest {
         context.emitControlJson(
             "{\"kind\":\"terminal\",\"outcome\":\"unhandled_intent\",\"terminal\":true,"
                 + "\"payload\":{\"stopReason\":\"out_of_scope\",\"message\":\"I can't send emails.\"},"
-                + "\"meta\":{\"outcome\":\"unhandled_intent\",\"errorCode\":\"agent_capability_mismatch\"},"
+                + "\"meta\":{\"outcome\":\"unhandled_intent\",\"errorCode\":\"unsupported_operation\"},"
                 + "\"channels\":{\"status\":{\"message\":\"I can't send emails. I can help with Spotify music playback.\"},"
                 + "\"chat\":{\"message\":\"I can't send emails. I can help with Spotify music playback.\"},"
                 + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",

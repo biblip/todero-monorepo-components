@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -1272,9 +1273,7 @@ public class AgentDJComponent {
                                             int step,
                                             boolean interactiveRequest) {
     String action = safeTrim(plannerAction);
-    if (action.toLowerCase().startsWith("recommend ")) {
-      action = "suggest " + safeTrim(action.substring("recommend".length()));
-    }
+    action = normalizeRecommendationAction(initialPrompt, action);
     if (!interactiveRequest || step != 1) {
       return action;
     }
@@ -1284,7 +1283,9 @@ public class AgentDJComponent {
 
     if (isRecommendationIntent(prompt) && actionNone) {
       String seed = inferRecommendationSeed(initialPrompt);
-      return "suggest " + seed + " 10";
+      if (!seed.isEmpty()) {
+        return "recommend " + seed + " 10";
+      }
     }
 
     if (isTrackEventsIntent(prompt)) {
@@ -1306,6 +1307,37 @@ public class AgentDJComponent {
       }
     }
     return action;
+  }
+
+  private static String normalizeRecommendationAction(String initialPrompt, String plannerAction) {
+    String action = safeTrim(plannerAction);
+    if (action.isEmpty() || "none".equalsIgnoreCase(action)) {
+      return action;
+    }
+    LineParserUtil.ParsedLine parsed = LineParserUtil.parse(action);
+    if (parsed == null || safeTrim(parsed.first).isEmpty()) {
+      return action;
+    }
+    String command = safeTrim(parsed.first).toLowerCase(Locale.ROOT);
+    String args = joinArgs(parsed.second, parsed.remaining);
+    String specialSeed = normalizeCurrentPlaybackReference(args, initialPrompt);
+    if ("recommend".equals(command) && !specialSeed.isEmpty()) {
+      return rebuildAction("recommend", specialSeed, args);
+    }
+    if ("suggest".equals(command) && !specialSeed.isEmpty()) {
+      return rebuildAction("recommend", specialSeed, args);
+    }
+    return action;
+  }
+
+  private static String rebuildAction(String command, String seed, String originalArgs) {
+    String args = safeTrim(originalArgs);
+    String[] tokens = args.isEmpty() ? new String[0] : args.split("\\s+");
+    String suffix = "";
+    if (tokens.length > 1 && tokens[tokens.length - 1].matches("^\\d+$")) {
+      suffix = " " + tokens[tokens.length - 1];
+    }
+    return command + " " + seed + suffix;
   }
 
   private static String coerceCurrentPlaylistSongAddAction(String plannerAction,
@@ -1477,6 +1509,12 @@ public class AgentDJComponent {
   private static boolean isRecommendationIntent(String prompt) {
     return prompt.contains("recommend")
         || prompt.contains("similar to")
+        || prompt.contains("similar song")
+        || prompt.contains("similar songs")
+        || prompt.contains("similar track")
+        || prompt.contains("similar tracks")
+        || prompt.contains("another similar song")
+        || prompt.contains("another simmilar song")
         || prompt.contains("list of songs")
         || prompt.contains("song list")
         || prompt.contains("playlist ideas")
@@ -1491,6 +1529,9 @@ public class AgentDJComponent {
 
   private static String inferRecommendationSeed(String prompt) {
     String original = safeTrim(prompt);
+    if (referencesCurrentPlayback(original)) {
+      return "current-playback";
+    }
     String lower = original.toLowerCase();
     int idx = lower.indexOf("similar to");
     String seed;
@@ -1500,10 +1541,45 @@ public class AgentDJComponent {
       seed = original.replaceAll("(?i)^recommend( songs?)?( similar)?( to)?", "").trim();
     }
     seed = seed.replaceAll("[\\p{Punct}\\s]+$", "").trim();
-    if (seed.isEmpty()) {
-      return "popular songs";
+    String normalized = normalizeCurrentPlaybackReference(seed, original);
+    if (!normalized.isEmpty()) {
+      return normalized;
     }
     return seed;
+  }
+
+  private static String normalizeCurrentPlaybackReference(String raw, String promptContext) {
+    String value = safeTrim(raw);
+    if ("current-playback".equalsIgnoreCase(value)) {
+      return "current-playback";
+    }
+    if (referencesCurrentPlayback(value) || referencesCurrentPlayback(promptContext)) {
+      return "current-playback";
+    }
+    return "";
+  }
+
+  private static boolean referencesCurrentPlayback(String value) {
+    String normalized = safeTrim(value).toLowerCase(Locale.ROOT);
+    if (normalized.isEmpty()) {
+      return false;
+    }
+    return normalized.contains("current-playback")
+        || normalized.contains("currently playing")
+        || normalized.contains("current song")
+        || normalized.contains("current track")
+        || normalized.contains("this song")
+        || normalized.contains("this track")
+        || normalized.contains("what's playing")
+        || normalized.contains("what is playing")
+        || normalized.contains("what's on now")
+        || normalized.contains("what is on now")
+        || normalized.contains("playing now")
+        || normalized.contains("another similar song")
+        || normalized.contains("another simmilar song")
+        || normalized.contains("similar song")
+        || normalized.contains("similar track")
+        || normalized.contains("on now");
   }
 
   private String buildFollowupPrompt(String initialPrompt, CommandAgentResponse response, ToolExecution tool, int step, String rootWorkId) {
@@ -1938,7 +2014,7 @@ public class AgentDJComponent {
     } else if (isOutOfScopeResult(result)) {
       outcome = "unhandled_intent";
       stopCode = "out_of_scope";
-      errorCode = "agent_capability_mismatch";
+      errorCode = "unsupported_operation";
     } else if (isFailureStopReason(result.stopReason)) {
       outcome = "failure";
       errorCode = stopCode;
@@ -1971,7 +2047,7 @@ public class AgentDJComponent {
       String htmlMode = webviewNode.isObject() ? readText(webviewNode, "mode") : "none";
       boolean htmlReplace = !webviewNode.isMissingNode() && webviewNode.path("replace").asBoolean(false);
       String authJson = authNode.isObject() ? authNode.toString() : "";
-      String errorCode = "unhandled_intent".equals(outcome) ? "agent_capability_mismatch"
+      String errorCode = "unhandled_intent".equals(outcome) ? "unsupported_operation"
           : ("failure".equals(outcome) ? safeTrim(stopCode) : "");
       emitControlTerminal(context, outcome, stopCode, stopMessage, chat, status, html, htmlMode, htmlReplace,
           authJson, source, correlationId, errorCode);
@@ -2062,7 +2138,7 @@ public class AgentDJComponent {
       if (!safeTrim(errorCode).isEmpty()) {
         meta.put("errorCode", safeTrim(errorCode));
       } else if ("unhandled_intent".equals(root.path("outcome").asText())) {
-        meta.put("errorCode", "agent_capability_mismatch");
+        meta.put("errorCode", "unsupported_operation");
       }
 
       ObjectNode projections = root.putObject("projections");
@@ -2238,7 +2314,7 @@ public class AgentDJComponent {
     }
     return "{"
         + "\"outcome\":\"unhandled_intent\","
-        + "\"errorCode\":\"agent_capability_mismatch\""
+        + "\"errorCode\":\"unsupported_operation\""
         + "}";
   }
 

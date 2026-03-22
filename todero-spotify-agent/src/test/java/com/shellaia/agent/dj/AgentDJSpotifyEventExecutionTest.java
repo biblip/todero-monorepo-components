@@ -26,6 +26,66 @@ class AgentDJSpotifyEventExecutionTest {
   private static final ObjectMapper JSON = new ObjectMapper();
 
   @Test
+  void coercePlannerActionUsesRecommendForCurrentPlaybackIntent() throws Exception {
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "coercePlannerAction",
+        String.class,
+        String.class,
+        int.class,
+        boolean.class);
+    method.setAccessible(true);
+
+    String action = (String) method.invoke(
+        null,
+        "play another similar song",
+        "recommend current-playback 1",
+        1,
+        true);
+
+    assertEquals("recommend current-playback 1", action);
+  }
+
+  @Test
+  void coercePlannerActionInfersCurrentPlaybackForAnotherSimilarSongPrompt() throws Exception {
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "coercePlannerAction",
+        String.class,
+        String.class,
+        int.class,
+        boolean.class);
+    method.setAccessible(true);
+
+    String action = (String) method.invoke(
+        null,
+        "play another simmilar song",
+        "none",
+        1,
+        true);
+
+    assertEquals("recommend current-playback 10", action);
+  }
+
+  @Test
+  void coercePlannerActionRewritesSuggestCurrentPlaybackToRecommend() throws Exception {
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "coercePlannerAction",
+        String.class,
+        String.class,
+        int.class,
+        boolean.class);
+    method.setAccessible(true);
+
+    String action = (String) method.invoke(
+        null,
+        "play another similar song",
+        "suggest current song 3",
+        1,
+        true);
+
+    assertEquals("recommend current-playback 3", action);
+  }
+
+  @Test
   void executeSpotifyInternalConsumesFinalStatusEvent() throws Exception {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     CommandContext parent = CommandContext.builder()

@@ -102,7 +102,7 @@ class AgentDJControlProtocolTest {
     JsonNode root = JSON.readTree(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8));
     assertEquals("unhandled_intent", root.path("outcome").asText());
     assertEquals("out_of_scope", root.path("payload").path("stopReason").asText());
-    assertEquals("agent_capability_mismatch", root.path("meta").path("errorCode").asText());
+    assertEquals("unsupported_operation", root.path("meta").path("errorCode").asText());
     assertFalse(root.path("terminal").isMissingNode());
   }
 

@@ -62,7 +62,7 @@ public class RouterAgentComponent {
           + "volver al router|regresar al router|reiniciar stickiness|resetear stickiness|salir del agente)\\b\\s*[:,-]?\\s*(.*)$",
       Pattern.CASE_INSENSITIVE);
   private static final Set<String> FAILURE_OUTCOMES = Set.of("unhandled_intent", "retry_by_router");
-  private static final Set<String> FAILURE_ERROR_CODES = Set.of("agent_capability_mismatch", "agent_missing_args");
+  private static final Set<String> FAILURE_ERROR_CODES = Set.of("agent_capability_mismatch", "agent_missing_args", "unsupported_operation");
 
   private final ObjectMapper mapper = new ObjectMapper();
   private final String openApiKey;

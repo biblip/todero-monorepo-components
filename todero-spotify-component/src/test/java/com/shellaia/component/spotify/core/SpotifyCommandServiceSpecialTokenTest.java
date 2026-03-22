@@ -1,0 +1,69 @@
+package com.shellaia.component.spotify.core;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.social100.todero.common.storage.Storage;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.junit.jupiter.api.Test;
+
+class SpotifyCommandServiceSpecialTokenTest {
+
+  @Test
+  void suggestRejectsCurrentPlaybackTokenClearly() {
+    SpotifyConfig config = SpotifyConfig.builder()
+        .clientId("test-client")
+        .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
+        .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
+        .build();
+    SpotifyCommandService service = new SpotifyCommandService(
+        new SpotifyPkceService(config, new InMemoryStorage()),
+        null);
+
+    String result = service.suggestByTheme("current-playback", 1);
+
+    assertTrue(result.contains("suggest failed [error_code=invalid_arguments]"));
+    assertTrue(result.contains("current-playback"));
+  }
+
+  private static final class InMemoryStorage implements Storage {
+    private final Map<String, byte[]> files = new ConcurrentHashMap<>();
+    private final Map<String, String> secrets = new ConcurrentHashMap<>();
+
+    @Override
+    public void writeFile(String relativePath, byte[] bytes) {
+      files.put(relativePath, bytes == null ? new byte[0] : bytes);
+    }
+
+    @Override
+    public byte[] readFile(String relativePath) {
+      return files.getOrDefault(relativePath, new byte[0]);
+    }
+
+    @Override
+    public void deleteFile(String relativePath) {
+      files.remove(relativePath);
+    }
+
+    @Override
+    public List<String> listFiles(String relativeDir) {
+      return List.copyOf(files.keySet());
+    }
+
+    @Override
+    public void putSecret(String key, String value) {
+      secrets.put(key, value);
+    }
+
+    @Override
+    public String getSecret(String key) {
+      return secrets.get(key);
+    }
+
+    @Override
+    public void deleteSecret(String key) {
+      secrets.remove(key);
+    }
+  }
+}

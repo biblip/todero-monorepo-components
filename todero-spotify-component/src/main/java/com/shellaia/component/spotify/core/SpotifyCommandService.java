@@ -1021,7 +1021,7 @@ public class SpotifyCommandService {
   public String recommendByTrackSeed(String seed, int limit) {
     return executeCommand("recommend", () -> {
       int capped = Math.max(1, Math.min(limit, 20));
-      String seedTrackId = resolveSeedTrackId(seed);
+      String seedTrackId = resolveRecommendationSeedTrackId(seed);
       if (seedTrackId == null || seedTrackId.isBlank()) {
         return "recommend failed [error_code=invalid_arguments]: could not resolve a seed track from input.";
       }
@@ -1051,6 +1051,9 @@ public class SpotifyCommandService {
       String theme = extractPlaceholderOrRaw(rawTheme == null ? "" : rawTheme).trim();
       if (theme.isBlank()) {
         throw new IllegalArgumentException("suggest requires a non-empty theme/query.");
+      }
+      if (isCurrentPlaybackToken(theme)) {
+        throw new IllegalArgumentException("special token 'current-playback' is only supported by recommend.");
       }
 
       // Build a few focused query variants to keep results relevant while resilient.
@@ -1333,6 +1336,30 @@ public class SpotifyCommandService {
       return null;
     }
     return hits[0].getId();
+  }
+
+  private String resolveRecommendationSeedTrackId(String seedInput) throws Exception {
+    String seed = extractPlaceholderOrRaw(seedInput == null ? "" : seedInput).trim();
+    if (isCurrentPlaybackToken(seed)) {
+      return resolveCurrentPlaybackTrackId();
+    }
+    return resolveSeedTrackId(seed);
+  }
+
+  private String resolveCurrentPlaybackTrackId() {
+    CurrentlyPlayingContext playback = safeGetPlayback();
+    if (playback == null || !(playback.getItem() instanceof Track track)) {
+      throw new IllegalArgumentException("recommend current-playback requires an active track playback.");
+    }
+    String trackId = track.getId();
+    if (trackId == null || trackId.isBlank()) {
+      throw new IllegalArgumentException("recommend current-playback could not resolve the active track id.");
+    }
+    return trackId;
+  }
+
+  private static boolean isCurrentPlaybackToken(String value) {
+    return "current-playback".equalsIgnoreCase(extractPlaceholderOrRaw(value == null ? "" : value).trim());
   }
 
   private static String formatPlaylistItem(IPlaylistItem item) {
