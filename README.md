@@ -1,126 +1,102 @@
-# Todero Spotify Component + Agent
+# Todero Monorepo Components
 
-This project contains the Spotify AIA component and a companion AI agent module
-used to call it via `todero-runner.jar`.
+This repository contains all runtime extension modules for Todero, grouped by role so their responsibility is obvious at a glance.
+
+## Repository layout
+
+```text
+todero-monorepo-components/
+  components/
+    <component-module>/
+  agents/
+    <agent-module>/
+  processors/
+    preprocessors/
+      <preprocessor-module>/
+    postprocessors/
+      <postprocessor-module>/
+  docs/
+  agents-playground/
+```
+
+Role meaning:
+- `components/`: user-facing runtime tools and integrations
+- `agents/`: orchestration and reasoning layers that call tools/components
+- `processors/preprocessors/`: request interceptors
+- `processors/postprocessors/`: response interceptors
+
+Runtime workspace layout does not change:
+
+```text
+<workspace>/
+  components/
+    <module-dir>/
+      <module-jar>
+  preprocessors/
+    <module-dir>/
+      <module-jar>
+  postprocessors/
+    <module-dir>/
+      <module-jar>
+```
 
 ## Build
 
+Build the whole monorepo:
+
 ```sh
-mvn -pl todero-spotify-component,todero-spotify-agent -am clean package
+mvn -f todero-monorepo-components/pom.xml clean package
 ```
 
-## Convenience scripts
+Build selected modules by role path:
 
-- `./runner.sh` builds (if needed), copies the JARs into the workspace layout,
-  and runs `todero-runner.jar` (supports extra runner flags after the body).
-- `./debug-runner.sh` builds (if needed), copies the JARs into the workspace layout,
-  and starts `todero-runner.jar` with JDWP on port 5005.
+```sh
+mvn -f todero-monorepo-components/pom.xml   -pl components/todero-spotify-component,agents/todero-spotify-agent -am clean package
+```
 
-## Install the component or agent
+Build processors:
 
-Copy the built JAR into a component-specific directory under your Todero
-workspace components / agent folder:
+```sh
+mvn -f todero-monorepo-components/pom.xml   -pl processors/preprocessors/auth-header-preprocessor,processors/postprocessors/response-header-postprocessor -am clean package
+```
+
+## Install artifacts into a workspace
+
+Copy built jars into the runtime workspace by runtime role, not source role:
 
 ```sh
 mkdir -p <workspace>/components/todero-spotify-component
-cp todero-spotify-component/target/spotify-component-0.1.0-SNAPSHOT.jar \
-  <workspace>/components/todero-spotify-component/
+cp components/todero-spotify-component/target/spotify-component-0.1.0-SNAPSHOT.jar   <workspace>/components/todero-spotify-component/
+
 mkdir -p <workspace>/components/todero-spotify-agent
-cp todero-spotify-agent/target/spotify-agent-0.1.0-SNAPSHOT.jar \
-  <workspace>/components/todero-spotify-agent/
+cp agents/todero-spotify-agent/target/spotify-agent-0.1.0-SNAPSHOT.jar   <workspace>/components/todero-spotify-agent/
+
+mkdir -p <workspace>/preprocessors/auth-header-preprocessor
+cp processors/preprocessors/auth-header-preprocessor/target/auth-header-preprocessor-0.1.0-SNAPSHOT.jar   <workspace>/preprocessors/auth-header-preprocessor/
+
+mkdir -p <workspace>/postprocessors/response-header-postprocessor
+cp processors/postprocessors/response-header-postprocessor/target/response-header-postprocessor-0.1.0-SNAPSHOT.jar   <workspace>/postprocessors/response-header-postprocessor/
 ```
 
-If you run the agent directly, copy the environment template from
-`todero-spotify-agent/env-spotify-agent` into the agent component storage directory as `.env`, and 
-`todero-spotify-component/env-spotify-component` into the component storage directory as `.env`.
+If you run the Spotify pair directly, copy environment templates from:
+- `agents/todero-spotify-agent/env-spotify-agent`
+- `components/todero-spotify-component/env-spotify-component`
 
-### Workspace layout
-
-```
-<workspace>/
-  components/
-    <component-dir>/
-      <component-jar>
-  preprocessors/
-    <preprocessor-dir>/
-      <preprocessor-jar>
-  postprocessors/
-    <postprocessor-dir>/
-      <postprocessor-jar>
-```
-
-### Run
+## Local runner
 
 Assumes `todero-runner.jar` is available at the project root.
 
 ```sh
-java -jar todero-runner.jar \
-  --workspace-dir <path> \
-  --component com.shellaia.agent.dj \
-  --command process \
-  --body "help" \
-  --header "X-Auth: my-token" \
-  --server-type AI \
-  --expose-all \
-  --no-preprocessors \
-  --no-preprocessors-fail-open \
-  --no-postprocessors \
-  --no-postprocessors-fail-open
+java -jar todero-runner.jar   --workspace-dir <path>   --server-type AI   --component com.shellaia.agent.dj   --command process   --body "help"   --no-preprocessors   --no-postprocessors
 ```
 
-### Arguments
+Behavior notes:
+- the runner loads jars from workspace `components/`, `preprocessors/`, and `postprocessors/`
+- components can call other components internally via `context.execute(...)`
+- preprocessors and postprocessors run only when present and enabled
+- responses and events are printed to stdout
 
-- `--workspace-dir` required, path containing `components/`
-- `--component` required, component name (controller name)
-- `--command` required, command name
-- `--body` optional, request payload
-- `--header` optional, repeatable header in `Name: value` format
-- `--server-type` optional, `AI` or `AIA` (default: `AI`)
-- `--expose-all` optional, enables hybrid mode (AI and AIA together, default: disabled)
-- `--no-preprocessors` optional, disables preprocessors (default: enabled)
-- `--no-preprocessors-fail-open` optional, disables fail-open (default: enabled)
-- `--no-postprocessors` optional, disables postprocessors (default: enabled)
-- `--no-postprocessors-fail-open` optional, disables fail-open (default: enabled)
+## IntelliJ remote debug
 
-### Behavior notes
-
-- The runner builds an `ACTION /<component>/<command>` request and sends it
-  through `CliCommandManager`.
-- When `--expose-all` is set, component resolution uses the full component
-  registry (AI and AIA together) instead of filtering by the runner `--server-type`.
-- `--expose-all` overrides `--server-type`; the runner prints a warning if both are set.
-- Components can call other components internally via `context.execute(...)`.
-- Preprocessors and postprocessors run when enabled and present under the
-  workspace directory.
-- Responses and events are printed to stdout.
-
-## Spotify production caveats
-
-- Playback control commands (`play`, `pause`, `skip`, `previous`, `queue-add`, `shuffle`, `repeat`) may require Spotify Premium and an active device.
-- Library, playlist, top-items, and recently-played commands depend on granted scopes; re-consent is required after scope expansion.
-- Spotify API rate limits can return `429`; component retries are bounded and may still return structured failures for sustained limits.
-- Some endpoints can intermittently fail with transport allocation issues; retrying after a short pause usually succeeds.
-- Recommendations and queue endpoints can return empty or unavailable data based on account region, market availability, and current playback state.
-
-## IntelliJ Remote Debug (runner JAR)
-
-Use the runner JAR with JDWP and attach IntelliJ.
-
-1) Start the runner in debug mode (from this project root):
-
-```sh
-java "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005" \
-  -jar ./todero-runner.jar \
-  --workspace-dir ./workspace \
-  --component com.shellaia.agent.dj \
-  --command process \
-  --body "help"
-```
-
-2) In IntelliJ, create a Remote JVM Debug configuration:
-   - Run > Edit Configurations > + > Remote JVM Debug
-   - Host: `localhost`
-   - Port: `5005`
-
-3) Set breakpoints in `todero-spotify-component/src/main/java/com/social100/todero/component/spotify/SpotifyComponent.java`
-   and click Debug to attach.
+Example breakpoint target:
+- `components/todero-spotify-component/src/main/java/com/shellaia/component/spotify/SpotifyComponent.java`

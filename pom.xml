@@ -6,20 +6,9 @@
   <packaging>pom</packaging>
   <name>shellaia-components</name>
   <modules>
-    <module>todero-spotify-component</module>
-    <module>todero-spotify-agent</module>
-    <module>agent-router</module>
-    <module>contacts-component</module>
-    <module>todero-contacts-agent</module>
-    <module>dashboard-planner-component</module>
-    <module>email-component</module>
-    <module>simple-component</module>
-    <module>ssh-component</module>
-    <module>vlc-component</module>
-    <module>aia-protocol-component</module>
-    <module>aia-admin-component</module>
-    <module>task-manager-component</module>
-    <module>task-manager-agent</module>
+    <module>components</module>
+    <module>agents</module>
+    <module>processors</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

@@ -2,6 +2,13 @@
 
 This document describes the current public API surface used by components in `todero-monorepo-components`.
 
+Repository role layout:
+- `components/` for ordinary components
+- `agents/` for agent modules
+- `processors/preprocessors/` for preprocessors
+- `processors/postprocessors/` for postprocessors
+
+
 Note: the protocol/runtime types come from `com.social100.todero:aiatp-io`. The main message model is:
 - runtime types: `AiatpRequest`, `AiatpResponse`, `AiatpEvent`
 - wire types: `AiatpWire.Request`, `AiatpWire.Response`, `AiatpWire.Event`
@@ -164,6 +171,10 @@ Nested types:
 - `void deleteSecret(String key)`
 
 ## Pre/Post Processors
+
+Processor source roots:
+- preprocessors live under `processors/preprocessors/`
+- postprocessors live under `processors/postprocessors/`
 
 ### `PreprocessorInterface`
 - `PreprocessorMeta meta()`

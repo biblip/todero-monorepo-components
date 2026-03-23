@@ -1,0 +1,24 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.shellaia</groupId>
+    <artifactId>shellaia-components</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+  <artifactId>shellaia-components-components</artifactId>
+  <packaging>pom</packaging>
+  <name>shellaia-components-components</name>
+  <modules>
+    <module>aia-admin-component</module>
+    <module>aia-protocol-component</module>
+    <module>contacts-component</module>
+    <module>dashboard-planner-component</module>
+    <module>email-component</module>
+    <module>simple-component</module>
+    <module>ssh-component</module>
+    <module>task-manager-component</module>
+    <module>todero-spotify-component</module>
+    <module>vlc-component</module>
+  </modules>
+</project>
