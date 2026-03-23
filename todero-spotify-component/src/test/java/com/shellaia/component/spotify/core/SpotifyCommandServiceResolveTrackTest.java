@@ -8,10 +8,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.Test;
 
-class SpotifyCommandServiceSpecialTokenTest {
+class SpotifyCommandServiceResolveTrackTest {
 
   @Test
-  void suggestRejectsCurrentPlaybackTokenClearly() {
+  void resolveTrackRejectsBlankQueryClearly() {
     SpotifyConfig config = SpotifyConfig.builder()
         .clientId("test-client")
         .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
@@ -21,10 +21,10 @@ class SpotifyCommandServiceSpecialTokenTest {
         new SpotifyPkceService(config, new InMemoryStorage()),
         null);
 
-    String result = service.suggestByTheme("current-playback", 1);
+    String result = service.resolveTrack("   ");
 
-    assertTrue(result.contains("suggest failed [error_code=invalid_arguments]"));
-    assertTrue(result.contains("current-playback"));
+    assertTrue(result.contains("resolve-track failed [error_code=invalid_arguments]"));
+    assertTrue(result.contains("non-empty query"));
   }
 
   private static final class InMemoryStorage implements Storage {

@@ -81,19 +81,16 @@ class AgentDJActionValidationTest {
   }
 
   @Test
-  void recommendRejectsOverLimit() throws Exception {
-    ValidationResult result = validate("recommend", "Celine Dion 100");
+  void resolveTrackRequiresQuery() throws Exception {
+    ValidationResult result = validate("resolve-track", "");
     assertEquals("invalid-arguments", result.errorCode);
   }
 
   @Test
-  void suggestAcceptsThemeWithValidLimit() throws Exception {
-    ValidationResult valid = validate("suggest", "happy lively party songs 10");
+  void resolveTrackAcceptsQuery() throws Exception {
+    ValidationResult valid = validate("resolve-track", "Caribbean Blue Enya");
     assertNull(valid.errorCode);
-    assertEquals("happy lively party songs 10", valid.args);
-
-    ValidationResult invalid = validate("suggest", "happy lively party songs 20");
-    assertEquals("invalid-arguments", invalid.errorCode);
+    assertEquals("Caribbean Blue Enya", valid.args);
   }
 
   @Test
@@ -210,15 +207,15 @@ class AgentDJActionValidationTest {
     boolean playCompletes = (boolean) method.invoke(null, "play", playResponse);
     assertTrue(playCompletes);
 
-    com.social100.todero.common.ai.action.CommandAgentResponse suggestResponse =
+    com.social100.todero.common.ai.action.CommandAgentResponse resolveTrackResponse =
         new com.social100.todero.common.ai.action.CommandAgentResponse(
-            "party songs",
-            "suggest party songs",
-            "Here are some songs.",
+            "verify track",
+            "resolve-track Caribbean Blue Enya",
+            "Resolved a candidate.",
             ""
         );
-    boolean suggestCompletes = (boolean) method.invoke(null, "suggest", suggestResponse);
-    assertFalse(suggestCompletes);
+    boolean resolveTrackCompletes = (boolean) method.invoke(null, "resolve-track", resolveTrackResponse);
+    assertFalse(resolveTrackCompletes);
   }
 
   private static Constructor<?> findToolStepConstructor() throws Exception {

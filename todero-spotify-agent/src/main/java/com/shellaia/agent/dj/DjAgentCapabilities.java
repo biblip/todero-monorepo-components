@@ -23,6 +23,7 @@ public final class DjAgentCapabilities implements AgentCapabilityProvider {
             command("pause", List.of()),
             command("stop", List.of()),
             command("status", List.of()),
+            command("resolve-track", List.of("<query>")),
             command("volume", List.of("<0-100>")),
             command("skip", List.of()),
             command("previous", List.of()),
@@ -30,8 +31,6 @@ public final class DjAgentCapabilities implements AgentCapabilityProvider {
             command("playlist-play", List.of("--id")),
             command("playlist-add", List.of("--id", "--track")),
             command("playlist-add-current", List.of("--id")),
-            command("suggest", List.of("<theme>")),
-            command("recommend", List.of("<theme>")),
             command("events", List.of("ON|OFF")),
             command("capabilities", List.of())
         ))

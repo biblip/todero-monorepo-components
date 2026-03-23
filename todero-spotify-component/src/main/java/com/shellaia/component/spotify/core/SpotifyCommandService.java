@@ -1018,98 +1018,34 @@ public class SpotifyCommandService {
     });
   }
 
-  public String recommendByTrackSeed(String seed, int limit) {
-    return executeCommand("recommend", () -> {
-      int capped = Math.max(1, Math.min(limit, 20));
-      String seedTrackId = resolveRecommendationSeedTrackId(seed);
-      if (seedTrackId == null || seedTrackId.isBlank()) {
-        return "recommend failed [error_code=invalid_arguments]: could not resolve a seed track from input.";
+  public String resolveTrack(String rawQuery) {
+    return executeCommand("resolve-track", () -> {
+      String query = extractPlaceholderOrRaw(rawQuery == null ? "" : rawQuery).trim();
+      if (query.isBlank()) {
+        throw new IllegalArgumentException("resolve-track requires a non-empty query.");
       }
-      Recommendations rec = callSpotifyApi("recommend", () -> spotifyPkceService.getSpotifyApi().getRecommendations()
-          .seed_tracks(seedTrackId)
-          .limit(capped)
+      Paging<Track> page = callSpotifyApi("resolve-track", () -> spotifyPkceService.getSpotifyApi()
+          .searchTracks(query)
+          .limit(5)
           .build()
           .execute());
-      Track[] tracks = rec == null ? null : rec.getTracks();
-      if (tracks == null || tracks.length == 0) {
-        return "No recommendations available.";
+      Track[] items = page == null ? null : page.getItems();
+      if (items == null || items.length == 0) {
+        return "resolve-track failed [error_code=no_results]: no Spotify track found for \"" + query + "\".";
       }
-      StringJoiner sj = new StringJoiner("\n");
-      sj.add("Recommendations:");
-      for (int i = 0; i < tracks.length; i++) {
-        Track t = tracks[i];
-        String artist = (t.getArtists() != null && t.getArtists().length > 0) ? t.getArtists()[0].getName() : "Unknown";
-        sj.add(String.format("%2d) %s — %s [uri=%s]", i + 1, t.getName(), artist, t.getUri()));
-      }
-      return sj.toString();
-    });
-  }
-
-  public String suggestByTheme(String rawTheme, int limit) {
-    return executeCommand("suggest", () -> {
-      int capped = Math.max(1, Math.min(limit, 12));
-      String theme = extractPlaceholderOrRaw(rawTheme == null ? "" : rawTheme).trim();
-      if (theme.isBlank()) {
-        throw new IllegalArgumentException("suggest requires a non-empty theme/query.");
-      }
-      if (isCurrentPlaybackToken(theme)) {
-        throw new IllegalArgumentException("special token 'current-playback' is only supported by recommend.");
-      }
-
-      // Build a few focused query variants to keep results relevant while resilient.
-      List<String> queries = List.of(
-          theme,
-          theme + " upbeat",
-          theme + " party"
-      );
-
-      Map<String, Track> bestByUri = new LinkedHashMap<>();
-      Map<String, Double> scoreByUri = new LinkedHashMap<>();
-
-      for (String q : queries) {
-        Paging<Track> page = callSpotifyApi("suggest", () -> spotifyPkceService.getSpotifyApi()
-            .searchTracks(q)
-            .limit(Math.max(5, Math.min(capped * 2, 20)))
-            .build()
-            .execute());
-        Track[] items = page == null ? null : page.getItems();
-        if (items == null) {
-          continue;
-        }
-        for (Track track : items) {
-          if (track == null || track.getUri() == null || track.getUri().isBlank()) {
-            continue;
-          }
-          String uri = track.getUri();
-          double score = scoreTrackAgainstQuery(track, theme);
-          if (!scoreByUri.containsKey(uri) || score > scoreByUri.get(uri)) {
-            scoreByUri.put(uri, score);
-            bestByUri.put(uri, track);
-          }
+      int bestIdx = 0;
+      double bestScore = -1.0;
+      for (int i = 0; i < items.length; i++) {
+        double score = scoreTrackAgainstQuery(items[i], query);
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = i;
         }
       }
-
-      if (bestByUri.isEmpty()) {
-        return "No suggestions found for \"" + theme + "\".";
-      }
-
-      List<Map.Entry<String, Track>> ranked = bestByUri.entrySet().stream()
-          .sorted((a, b) -> Double.compare(
-              scoreByUri.getOrDefault(b.getKey(), 0.0),
-              scoreByUri.getOrDefault(a.getKey(), 0.0)))
-          .limit(capped)
-          .toList();
-
-      StringJoiner sj = new StringJoiner("\n");
-      sj.add("Suggestions for \"" + theme + "\":");
-      for (int i = 0; i < ranked.size(); i++) {
-        Track t = ranked.get(i).getValue();
-        String artist = (t.getArtists() != null && t.getArtists().length > 0)
-            ? t.getArtists()[0].getName() : "Unknown";
-        sj.add(String.format("%2d) %s — %s [uri=%s]",
-            i + 1, t.getName(), artist, t.getUri()));
-      }
-      return sj.toString();
+      Track best = items[bestIdx];
+      String artist = (best.getArtists() != null && best.getArtists().length > 0)
+          ? best.getArtists()[0].getName() : "Unknown";
+      return "Resolved track: " + best.getName() + " — " + artist + " [uri=" + best.getUri() + "]";
     });
   }
 
@@ -1316,50 +1252,6 @@ public class SpotifyCommandService {
         .replaceAll("\\s+", " ")
         .trim();
     return normalized;
-  }
-
-  private String resolveSeedTrackId(String seedInput) throws Exception {
-    String seed = extractPlaceholderOrRaw(seedInput == null ? "" : seedInput);
-    if (seed.startsWith("spotify:track:")) {
-      return seed.substring("spotify:track:".length());
-    }
-    if (seed.matches("^[A-Za-z0-9]{22}$")) {
-      return seed;
-    }
-    Track[] hits = callSpotifyApi("recommend", () -> spotifyPkceService.getSpotifyApi()
-        .searchTracks(seed)
-        .limit(1)
-        .build()
-        .execute()
-        .getItems());
-    if (hits == null || hits.length == 0) {
-      return null;
-    }
-    return hits[0].getId();
-  }
-
-  private String resolveRecommendationSeedTrackId(String seedInput) throws Exception {
-    String seed = extractPlaceholderOrRaw(seedInput == null ? "" : seedInput).trim();
-    if (isCurrentPlaybackToken(seed)) {
-      return resolveCurrentPlaybackTrackId();
-    }
-    return resolveSeedTrackId(seed);
-  }
-
-  private String resolveCurrentPlaybackTrackId() {
-    CurrentlyPlayingContext playback = safeGetPlayback();
-    if (playback == null || !(playback.getItem() instanceof Track track)) {
-      throw new IllegalArgumentException("recommend current-playback requires an active track playback.");
-    }
-    String trackId = track.getId();
-    if (trackId == null || trackId.isBlank()) {
-      throw new IllegalArgumentException("recommend current-playback could not resolve the active track id.");
-    }
-    return trackId;
-  }
-
-  private static boolean isCurrentPlaybackToken(String value) {
-    return "current-playback".equalsIgnoreCase(extractPlaceholderOrRaw(value == null ? "" : value).trim());
   }
 
   private static String formatPlaylistItem(IPlaylistItem item) {

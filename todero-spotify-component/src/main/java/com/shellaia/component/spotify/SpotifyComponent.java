@@ -697,58 +697,15 @@ public class SpotifyComponent {
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
-      command = "recommend",
-      description = "Get recommendations using a seed track query/URI/id. Usage: recommend <seedTrackQueryOrUriOrId> [limit<=20]")
-  public Boolean recommendCommand(CommandContext context) {
+      command = "resolve-track",
+      description = "Resolve a search query to a concrete Spotify track. Usage: resolve-track <query>")
+  public Boolean resolveTrackCommand(CommandContext context) {
     String args = readArgs(context);
     String body = args;
     if (body.isEmpty()) {
-      return usage(context, args, "recommend", "recommend <seedTrackQueryOrUriOrId> [limit<=20]");
+      return usage(context, args, "resolve-track", "resolve-track <query>");
     }
-    String[] parts = body.split("\\s+");
-    int limit = 8;
-    int endExclusive = parts.length;
-    if (parts.length > 1 && parts[parts.length - 1].matches("^\\d+$")) {
-      limit = Integer.parseInt(parts[parts.length - 1]);
-      endExclusive = parts.length - 1;
-    }
-    StringBuilder seed = new StringBuilder();
-    for (int i = 0; i < endExclusive; i++) {
-      if (i > 0) seed.append(' ');
-      seed.append(parts[i]);
-    }
-    if (seed.toString().isBlank()) {
-      return usage(context, args, "recommend", "recommend <seedTrackQueryOrUriOrId> [limit<=20]");
-    }
-    return respond(context, "recommend", body, commandService().recommendByTrackSeed(seed.toString(), limit));
-  }
-
-  @Action(group = SpotifyCommandService.MAIN_GROUP,
-      command = "suggest",
-      description = "Suggest songs for a mood/theme using resilient Spotify search. Usage: suggest <themeOrQuery> [limit<=12]")
-  public Boolean suggestCommand(CommandContext context) {
-    String args = readArgs(context);
-    String body = args;
-    if (body.isEmpty()) {
-      return usage(context, args, "suggest", "suggest <themeOrQuery> [limit<=12]");
-    }
-
-    String[] parts = body.split("\\s+");
-    int limit = 8;
-    int endExclusive = parts.length;
-    if (parts.length > 1 && parts[parts.length - 1].matches("^\\d+$")) {
-      limit = Integer.parseInt(parts[parts.length - 1]);
-      endExclusive = parts.length - 1;
-    }
-    StringBuilder theme = new StringBuilder();
-    for (int i = 0; i < endExclusive; i++) {
-      if (i > 0) theme.append(' ');
-      theme.append(parts[i]);
-    }
-    if (theme.toString().isBlank()) {
-      return usage(context, args, "suggest", "suggest <themeOrQuery> [limit<=12]");
-    }
-    return respond(context, "suggest", body, commandService().suggestByTheme(theme.toString(), limit));
+    return respond(context, "resolve-track", body, commandService().resolveTrack(body));
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
@@ -1280,16 +1237,6 @@ public class SpotifyComponent {
       context.emitError(safeMessage);
       return true;
     }
-    if ("suggest".equalsIgnoreCase(command == null ? "" : command.trim())) {
-      context.emitStatus(safeMessage, "progress");
-      String html = buildSuggestHtml(safeMessage);
-      if (html == null || html.isBlank()) {
-        context.emitChat(safeMessage, "final");
-      } else {
-        context.emitHtml(html, "final", "html", true);
-      }
-      return true;
-    }
     context.emitChat(safeMessage, "final");
     return true;
   }
@@ -1319,63 +1266,6 @@ public class SpotifyComponent {
       return "agent_capability_mismatch";
     }
     return normalized;
-  }
-
-  private static String buildSuggestHtml(String message) {
-    if (message == null || message.isBlank()) {
-      return null;
-    }
-    String[] lines = message.split("\\R");
-    Pattern itemPattern;
-    try {
-      itemPattern = Pattern.compile("^\\s*\\d+\\)\\s+(.+?)\\s+\\[uri=(spotify:track:[A-Za-z0-9]+)]\\s*$");
-    } catch (PatternSyntaxException e) {
-      return null;
-    }
-
-    String title = "Suggestions";
-    List<String[]> items = new ArrayList<>();
-    for (String raw : lines) {
-      String line = raw == null ? "" : raw.trim();
-      if (line.isEmpty()) {
-        continue;
-      }
-      if (line.toLowerCase().startsWith("suggestions for")) {
-        title = line;
-      }
-      Matcher m = itemPattern.matcher(line);
-      if (m.matches()) {
-        items.add(new String[]{m.group(1).trim(), m.group(2).trim()});
-      }
-    }
-    if (items.isEmpty()) {
-      return null;
-    }
-
-    StringBuilder rows = new StringBuilder();
-    for (String[] item : items) {
-      String label = escapeHtml(item[0]);
-      String action = escapeHtml("play " + item[1]);
-      rows.append("<li style=\"margin-bottom:10px;\">")
-          .append("<div style=\"font-size:14px; margin-bottom:6px;\">").append(label).append("</div>")
-          .append("<button style=\"background:#1db954;color:#04110a;border:none;border-radius:8px;padding:8px 10px;font-weight:700;\" ")
-          .append("onclick=\"Android.runAction('").append(action).append("')\">Play</button>")
-          .append("</li>");
-    }
-
-    return "<html>"
-        + "<body style=\"font-family: sans-serif; padding: 12px; margin: 0; background: #0d1117; color: #e6edf3;\">"
-        + "<div style=\"border:1px solid #30363d; border-radius:10px; padding:12px; background:#161b22;\">"
-        + "<div style=\"font-size:12px; color:#8b949e; margin-bottom:6px;\">Spotify</div>"
-        + "<div style=\"font-size:18px; font-weight:700; margin-bottom:10px;\">"
-        + escapeHtml(title)
-        + "</div>"
-        + "<ol style=\"padding-left:18px; margin:0;\">"
-        + rows
-        + "</ol>"
-        + "</div>"
-        + "</body>"
-        + "</html>";
   }
 
   private static String escapeHtml(String value) {

@@ -70,17 +70,23 @@ public class AgentDJComponent {
   private static final String UPSTREAM_CONTROL_HEADER = "X-AIATP-Upstream-Control";
   private static final int MAX_STEPS = 4;
   private static final long REQUEST_TIMEOUT_SECONDS = 120;
+  private static final int PLANNER_RECENT_STEP_LIMIT = 4;
   private static final int LEDGER_SUMMARY_MAX_ENTRIES = 12;
   private static final int LEDGER_SUMMARY_MAX_CHARS = 1400;
   private static final String LEDGER_OWNER_ID = "com.shellaia.agent.dj";
   private static final Pattern TRACK_URI_PATTERN = Pattern.compile("spotify:track:[A-Za-z0-9]+");
+  private static final Pattern RESOLVED_TRACK_PATTERN = Pattern.compile("^Resolved track:\\s+(.+?)\\s+—\\s+(.+?)\\s+\\[uri=(spotify:track:[A-Za-z0-9]+)]\\s*$", Pattern.MULTILINE);
+  private static final Pattern PLAYING_PATTERN = Pattern.compile("(?im)^Playing:\\s*(true|false)\\s*$");
+  private static final Pattern TRACK_TITLE_PATTERN = Pattern.compile("(?im)^Track:\\s*(.+?)\\s*$");
+  private static final Pattern DEVICE_PATTERN = Pattern.compile("(?im)^Device:\\s*(.+?)\\s*$");
+  private static final Pattern POSITION_PATTERN = Pattern.compile("(?im)^Position:\\s*(.+?)\\s*$");
   private static final Pattern PLAYLIST_ROW_PATTERN = Pattern.compile("^\\s*\\d+\\)\\s*(.+?)\\s*\\[id=([^,\\]]+).*$");
   private static final Pattern ADD_QUOTED_SONG_PATTERN = Pattern.compile("(?i)\\badd\\s+[\"']([^\"']+)[\"']");
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final Set<String> SUPPORTED_COMMANDS = Set.of(
       "play", "pause", "stop", "volume", "volume-up", "volume-down", "mute",
       "move", "skip", "previous", "status", "queue", "playlist-play", "recently-played",
-      "top-tracks", "top-artists", "recommend", "suggest", "events",
+      "top-tracks", "top-artists", "resolve-track", "events",
       "playlist-next", "playlist-remove", "playlists", "playlist-list", "playlist-add", "playlist-add-current",
       "playlist-create", "playlist-reorder", "playlist-remove-pos"
   );
@@ -282,9 +288,9 @@ public class AgentDJComponent {
     System.out.println("[DJ-AGENT][LOOP] start source=" + safeTrim(source)
         + " interactive=" + interactiveRequest + " correlationId=" + safeTrim(correlationId));
     long startedAtNs = System.nanoTime();
-    AgentContext agentContext = new AgentContext();
-    parentContext.bindAgentLlmRegistry(agentContext);
-    LLMClient llm = agentContext.systemLlm()
+    AgentContext llmContext = new AgentContext();
+    parentContext.bindAgentLlmRegistry(llmContext);
+    LLMClient llm = llmContext.systemLlm()
         .map(instance -> instance.client())
         .orElseThrow(() -> new IllegalStateException(
             "No system-wide LLM available in registry for agent " + LEDGER_OWNER_ID));
@@ -300,17 +306,50 @@ public class AgentDJComponent {
       return runAuthCompletionFlow(parentContext, completionIntent, initialPrompt, source, correlationId, rootWorkId);
     }
 
-    String workingPrompt = injectLedgerSummary(initialPrompt, rootWorkId);
+    GoalIntent goalIntent = normalizeGoalIntent(llm, initialPrompt, source, correlationId, interactiveRequest, rootWorkId);
+    System.out.println("[DJ-AGENT] normalized goal correlationId=" + correlationId
+        + " intent=" + goalIntent.intent()
+        + " targetScope=" + goalIntent.targetScope()
+        + " wantsPlayback=" + goalIntent.wantsPlayback()
+        + " referencesCurrentPlayback=" + goalIntent.referencesCurrentPlayback());
+    if (goalIntent.isRecommendationFlow()) {
+      return runRecommendationFlow(parentContext, llm, initialPrompt, source, correlationId, rootWorkId, goalIntent);
+    }
+
     CommandAgentResponse lastResponse = null;
     List<ToolStep> toolSteps = new ArrayList<>();
     StopReason stopReason = StopReason.MAX_STEPS_REACHED;
 
     for (int step = 1; step <= MAX_STEPS; step++) {
+      AgentContext plannerContext = new AgentContext();
+      parentContext.bindAgentLlmRegistry(plannerContext);
+      populatePlannerContext(
+          plannerContext,
+          initialPrompt,
+          source,
+          correlationId,
+          interactiveRequest,
+          step,
+          goalIntent,
+          toolSteps,
+          lastResponse
+      );
+      String plannerPrompt = buildPlannerPrompt(
+          initialPrompt,
+          source,
+          correlationId,
+          interactiveRequest,
+          step,
+          goalIntent,
+          toolSteps,
+          lastResponse,
+          rootWorkId
+      );
       long stepStartedAtNs = System.nanoTime();
       CommandAgentResponse response;
       long planStartedAtNs = System.nanoTime();
       try {
-        response = planNextAction(llm, new AgentPrompt(workingPrompt), agentContext);
+        response = planNextAction(llm, new AgentPrompt(plannerPrompt), plannerContext);
       } catch (Exception e) {
         long plannerDurationMs = elapsedMs(planStartedAtNs);
         long stepDurationMs = elapsedMs(stepStartedAtNs);
@@ -333,7 +372,7 @@ public class AgentDJComponent {
       lastResponse = response;
 
       String action = safeTrim(response.getAction());
-      action = coercePlannerAction(initialPrompt, action, step, interactiveRequest);
+      action = coercePlannerAction(initialPrompt, goalIntent, action, step, interactiveRequest);
       action = coerceCurrentPlaylistSongAddAction(action, currentPlaylistSongTitle, step, interactiveRequest);
       action = coercePlaylistAddAction(action, toolSteps, playlistAddIntent, step, interactiveRequest);
       appendLedgerAction(rootWorkId, WorkActionType.PLAN,
@@ -437,7 +476,6 @@ public class AgentDJComponent {
         break;
       }
 
-      workingPrompt = buildFollowupPrompt(initialPrompt, response, tool, step, rootWorkId);
       if (step == MAX_STEPS) {
         stopReason = StopReason.MAX_STEPS_REACHED;
       }
@@ -824,6 +862,179 @@ public class AgentDJComponent {
     return new CommandAgentResponse(request, action, user, html);
   }
 
+  private GoalIntent normalizeGoalIntent(LLMClient llm,
+                                         String initialPrompt,
+                                         String source,
+                                         String correlationId,
+                                         boolean interactiveRequest,
+                                         String rootWorkId) {
+    GoalIntent fallback = fallbackGoalIntent(initialPrompt);
+    try {
+      Map<String, Object> context = new LinkedHashMap<>();
+      context.put("source", safeTrim(source));
+      context.put("correlationId", safeTrim(correlationId));
+      context.put("interactive", interactiveRequest);
+      String raw = llm.chat(
+          loadSystemPrompt("prompts/intent-normalizer-prompt.md"),
+          safeTrim(initialPrompt),
+          mapper.writeValueAsString(context)
+      );
+      JsonNode root = extractFirstJsonBlockLocal(raw);
+      String intent = firstNonBlank(
+          safeTrim(readPath(root, "intent")),
+          fallback.intent()
+      );
+      String targetScope = firstNonBlank(
+          safeTrim(readPath(root, "target_scope")),
+          safeTrim(readPath(root, "targetScope")),
+          fallback.targetScope()
+      );
+      String seedHint = firstNonBlank(
+          safeTrim(readPath(root, "seed_hint")),
+          safeTrim(readPath(root, "seedHint")),
+          fallback.seedHint()
+      );
+      boolean wantsPlayback = readBoolean(root, fallback.wantsPlayback(), "wants_playback", "wantsPlayback");
+      boolean referencesCurrentPlayback = readBoolean(root, fallback.referencesCurrentPlayback(),
+          "references_current_playback", "referencesCurrentPlayback");
+      boolean needsDiscovery = readBoolean(root, fallback.needsDiscovery(), "needs_discovery", "needsDiscovery");
+      double confidence = readDouble(root, fallback.confidence(), "confidence");
+      String reason = firstNonBlank(
+          safeTrim(readPath(root, "reason")),
+          fallback.reason()
+      );
+      GoalIntent normalized = new GoalIntent(
+          intent,
+          targetScope,
+          seedHint,
+          wantsPlayback,
+          referencesCurrentPlayback,
+          needsDiscovery,
+          confidence,
+          reason
+      ).normalized();
+      appendLedgerAction(rootWorkId, WorkActionType.NOTE,
+          "goal_normalized intent=" + normalized.intent()
+              + " targetScope=" + normalized.targetScope()
+              + " wantsPlayback=" + normalized.wantsPlayback()
+              + " referencesCurrentPlayback=" + normalized.referencesCurrentPlayback(),
+          null, null, null, null, null, null);
+      return normalized;
+    } catch (Exception e) {
+      appendLedgerAction(rootWorkId, WorkActionType.NOTE,
+          "goal_normalization_fallback message=" + safeTrim(e.getMessage()),
+          null, null, null, null, null, null);
+      return fallback;
+    }
+  }
+
+  private LoopResult runRecommendationFlow(CommandContext parentContext,
+                                           LLMClient llm,
+                                           String initialPrompt,
+                                           String source,
+                                           String correlationId,
+                                           String rootWorkId,
+                                           GoalIntent goalIntent) {
+    long startedAtNs = System.nanoTime();
+    List<ToolStep> toolSteps = new ArrayList<>();
+    StopReason stopReason = StopReason.ACTION_NONE;
+    CommandAgentResponse finalResponse;
+    int step = 1;
+    PlaybackFacts playback = PlaybackFacts.empty();
+
+    if (goalIntent.referencesCurrentPlayback()) {
+      long stepStartedAtNs = System.nanoTime();
+      ToolExecution status = executeSpotifyInternal(parentContext, "status", "all");
+      long toolDurationMs = elapsedMs(stepStartedAtNs);
+      toolSteps.add(new ToolStep(step++, "status all", status.command, status.args, status.rawOutput(), 0, toolDurationMs, toolDurationMs));
+      recordToolStepSafely(rootWorkId, status, toolDurationMs);
+      if (!status.executed) {
+        stopReason = StopReason.TOOL_EXECUTION_FAILED;
+        finalResponse = failureResponse(initialPrompt, stopReason, status.command, correlationId, status.output);
+        finalizeLedgerWork(rootWorkId, stopReason, finalResponse, toolSteps);
+        return new LoopResult(initialPrompt, finalResponse, toolSteps, stopReason, elapsedMs(startedAtNs), source, correlationId);
+      }
+      playback = extractPlaybackFacts(toolSteps);
+      if (safeTrim(playback.trackTitle()).isEmpty()) {
+        stopReason = StopReason.TOOL_EXECUTION_FAILED;
+        finalResponse = failureResponse(initialPrompt, stopReason, "status", correlationId,
+            "Could not resolve the current playback track for recommendation.");
+        finalizeLedgerWork(rootWorkId, stopReason, finalResponse, toolSteps);
+        return new LoopResult(initialPrompt, finalResponse, toolSteps, stopReason, elapsedMs(startedAtNs), source, correlationId);
+      }
+    }
+
+    RecommendationCandidates candidateBatch = generateRecommendationCandidates(llm, initialPrompt, goalIntent, playback, rootWorkId);
+    if (candidateBatch.candidates().isEmpty()) {
+      stopReason = StopReason.PLANNER_EXCEPTION;
+      finalResponse = failureResponse(initialPrompt, stopReason, "recommendation-candidates", correlationId,
+          "Could not generate recommendation candidates.");
+      finalizeLedgerWork(rootWorkId, stopReason, finalResponse, toolSteps);
+      return new LoopResult(initialPrompt, finalResponse, toolSteps, stopReason, elapsedMs(startedAtNs), source, correlationId);
+    }
+
+    List<VerifiedTrack> verified = new ArrayList<>();
+    for (RecommendationCandidate candidate : candidateBatch.candidates()) {
+      long stepStartedAtNs = System.nanoTime();
+      ToolExecution resolved = executeSpotifyInternal(parentContext, "resolve-track", candidate.query());
+      long toolDurationMs = elapsedMs(stepStartedAtNs);
+      toolSteps.add(new ToolStep(step++, "resolve-track " + candidate.query(), resolved.command, resolved.args, resolved.rawOutput(), 0, toolDurationMs, toolDurationMs));
+      recordToolStepSafely(rootWorkId, resolved, toolDurationMs);
+      if (!resolved.executed) {
+        continue;
+      }
+      VerifiedTrack track = parseVerifiedTrack(resolved.rawOutput(), candidate.reason());
+      if (track == null) {
+        continue;
+      }
+      if (verified.stream().noneMatch(existing -> existing.uri().equalsIgnoreCase(track.uri()))) {
+        verified.add(track);
+      }
+      if (verified.size() >= 3) {
+        break;
+      }
+    }
+
+    if (verified.isEmpty()) {
+      stopReason = StopReason.TOOL_EXECUTION_FAILED;
+      finalResponse = failureResponse(initialPrompt, stopReason, "resolve-track", correlationId,
+          "Could not verify any Spotify tracks for this recommendation request.");
+      finalizeLedgerWork(rootWorkId, stopReason, finalResponse, toolSteps);
+      return new LoopResult(initialPrompt, finalResponse, toolSteps, stopReason, elapsedMs(startedAtNs), source, correlationId);
+    }
+
+    if (goalIntent.wantsPlayback()) {
+      VerifiedTrack selected = verified.get(0);
+      long stepStartedAtNs = System.nanoTime();
+      ToolExecution play = executeSpotifyInternal(parentContext, "play", selected.uri());
+      long toolDurationMs = elapsedMs(stepStartedAtNs);
+      toolSteps.add(new ToolStep(step, "play " + selected.uri(), play.command, play.args, play.rawOutput(), 0, toolDurationMs, toolDurationMs));
+      recordToolStepSafely(rootWorkId, play, toolDurationMs);
+      if (!play.executed) {
+        stopReason = StopReason.TOOL_EXECUTION_FAILED;
+        finalResponse = failureResponse(initialPrompt, stopReason, play.command, correlationId, play.output);
+        finalizeLedgerWork(rootWorkId, stopReason, finalResponse, toolSteps);
+        return new LoopResult(initialPrompt, finalResponse, toolSteps, stopReason, elapsedMs(startedAtNs), source, correlationId);
+      }
+      finalResponse = new CommandAgentResponse(
+          initialPrompt,
+          "none",
+          "Playing a verified similar track: " + selected.title() + " — " + selected.artist() + ".",
+          buildRecommendationHtml(playback, verified)
+      );
+    } else {
+      finalResponse = new CommandAgentResponse(
+          initialPrompt,
+          "none",
+          buildRecommendationSummary(playback, verified),
+          buildRecommendationHtml(playback, verified)
+      );
+    }
+
+    finalizeLedgerWork(rootWorkId, stopReason, finalResponse, toolSteps);
+    return new LoopResult(initialPrompt, finalResponse, toolSteps, stopReason, elapsedMs(startedAtNs), source, correlationId);
+  }
+
   private JsonNode extractFirstJsonBlockLocal(String raw) {
     String s = safeTrim(raw);
     if (s.isEmpty()) {
@@ -1102,17 +1313,9 @@ public class AgentDJComponent {
         }
         return ValidatedAction.ok(command, normalized);
       }
-      case "recommend", "suggest" -> {
+      case "resolve-track" -> {
         if (args.isEmpty()) {
-          return ValidatedAction.error(command, args, "invalid-arguments", command + " requires a theme/query.");
-        }
-        String[] tokens = args.split("\\s+");
-        if (tokens.length > 1 && tokens[tokens.length - 1].matches("^\\d+$")) {
-          int limit = Integer.parseInt(tokens[tokens.length - 1]);
-          int max = "suggest".equals(command) ? 12 : 20;
-          if (limit < 1 || limit > max) {
-            return ValidatedAction.error(command, args, "invalid-arguments", command + " limit must be between 1 and " + max + ".");
-          }
+          return ValidatedAction.error(command, args, "invalid-arguments", "resolve-track requires a non-empty query.");
         }
         return ValidatedAction.ok(command, args);
       }
@@ -1269,25 +1472,18 @@ public class AgentDJComponent {
   }
 
   private static String coercePlannerAction(String initialPrompt,
+                                            GoalIntent goalIntent,
                                             String plannerAction,
                                             int step,
                                             boolean interactiveRequest) {
     String action = safeTrim(plannerAction);
-    action = normalizeRecommendationAction(initialPrompt, action);
     if (!interactiveRequest || step != 1) {
       return action;
     }
 
-    String prompt = safeTrim(initialPrompt).toLowerCase();
     boolean actionNone = action.isEmpty() || "none".equalsIgnoreCase(action);
 
-    if (isRecommendationIntent(prompt) && actionNone) {
-      String seed = inferRecommendationSeed(initialPrompt);
-      if (!seed.isEmpty()) {
-        return "recommend " + seed + " 10";
-      }
-    }
-
+    String prompt = safeTrim(initialPrompt).toLowerCase();
     if (isTrackEventsIntent(prompt)) {
       if (actionNone) {
         return "events ON 1500 output=typed filter=track";
@@ -1307,37 +1503,6 @@ public class AgentDJComponent {
       }
     }
     return action;
-  }
-
-  private static String normalizeRecommendationAction(String initialPrompt, String plannerAction) {
-    String action = safeTrim(plannerAction);
-    if (action.isEmpty() || "none".equalsIgnoreCase(action)) {
-      return action;
-    }
-    LineParserUtil.ParsedLine parsed = LineParserUtil.parse(action);
-    if (parsed == null || safeTrim(parsed.first).isEmpty()) {
-      return action;
-    }
-    String command = safeTrim(parsed.first).toLowerCase(Locale.ROOT);
-    String args = joinArgs(parsed.second, parsed.remaining);
-    String specialSeed = normalizeCurrentPlaybackReference(args, initialPrompt);
-    if ("recommend".equals(command) && !specialSeed.isEmpty()) {
-      return rebuildAction("recommend", specialSeed, args);
-    }
-    if ("suggest".equals(command) && !specialSeed.isEmpty()) {
-      return rebuildAction("recommend", specialSeed, args);
-    }
-    return action;
-  }
-
-  private static String rebuildAction(String command, String seed, String originalArgs) {
-    String args = safeTrim(originalArgs);
-    String[] tokens = args.isEmpty() ? new String[0] : args.split("\\s+");
-    String suffix = "";
-    if (tokens.length > 1 && tokens[tokens.length - 1].matches("^\\d+$")) {
-      suffix = " " + tokens[tokens.length - 1];
-    }
-    return command + " " + seed + suffix;
   }
 
   private static String coerceCurrentPlaylistSongAddAction(String plannerAction,
@@ -1511,6 +1676,8 @@ public class AgentDJComponent {
         || prompt.contains("similar to")
         || prompt.contains("similar song")
         || prompt.contains("similar songs")
+        || prompt.contains("simmilar song")
+        || prompt.contains("simmilar songs")
         || prompt.contains("similar track")
         || prompt.contains("similar tracks")
         || prompt.contains("another similar song")
@@ -1527,44 +1694,15 @@ public class AgentDJComponent {
     return monitor && track;
   }
 
-  private static String inferRecommendationSeed(String prompt) {
-    String original = safeTrim(prompt);
-    if (referencesCurrentPlayback(original)) {
-      return "current-playback";
-    }
-    String lower = original.toLowerCase();
-    int idx = lower.indexOf("similar to");
-    String seed;
-    if (idx >= 0) {
-      seed = original.substring(idx + "similar to".length()).trim();
-    } else {
-      seed = original.replaceAll("(?i)^recommend( songs?)?( similar)?( to)?", "").trim();
-    }
-    seed = seed.replaceAll("[\\p{Punct}\\s]+$", "").trim();
-    String normalized = normalizeCurrentPlaybackReference(seed, original);
-    if (!normalized.isEmpty()) {
-      return normalized;
-    }
-    return seed;
-  }
-
-  private static String normalizeCurrentPlaybackReference(String raw, String promptContext) {
-    String value = safeTrim(raw);
-    if ("current-playback".equalsIgnoreCase(value)) {
-      return "current-playback";
-    }
-    if (referencesCurrentPlayback(value) || referencesCurrentPlayback(promptContext)) {
-      return "current-playback";
-    }
-    return "";
-  }
-
-  private static boolean referencesCurrentPlayback(String value) {
-    String normalized = safeTrim(value).toLowerCase(Locale.ROOT);
-    if (normalized.isEmpty()) {
-      return false;
-    }
-    return normalized.contains("current-playback")
+  private static GoalIntent fallbackGoalIntent(String prompt) {
+    String normalized = safeTrim(prompt).toLowerCase(Locale.ROOT);
+    String intent = "general_spotify_control";
+    String targetScope = "explicit_request";
+    boolean wantsPlayback = normalized.contains("play ")
+        || normalized.startsWith("play")
+        || normalized.contains("put on")
+        || normalized.contains("start ");
+    boolean referencesCurrentPlayback = normalized.contains("current-playback")
         || normalized.contains("currently playing")
         || normalized.contains("current song")
         || normalized.contains("current track")
@@ -1575,21 +1713,493 @@ public class AgentDJComponent {
         || normalized.contains("what's on now")
         || normalized.contains("what is on now")
         || normalized.contains("playing now")
-        || normalized.contains("another similar song")
-        || normalized.contains("another simmilar song")
-        || normalized.contains("similar song")
-        || normalized.contains("similar track")
         || normalized.contains("on now");
+    String seedHint = "";
+    if (isRecommendationIntent(normalized) || referencesCurrentPlayback) {
+      intent = wantsPlayback ? "recommendation_playback" : "recommendation_info";
+      targetScope = referencesCurrentPlayback ? "current_playback" : "explicit_seed";
+      seedHint = referencesCurrentPlayback ? "current-playback" : safeTrim(prompt);
+    } else if (normalized.contains("playlist")) {
+      intent = "playlist_management";
+    } else if (normalized.contains("status") || normalized.contains("what is playing") || normalized.contains("what's playing")) {
+      intent = "playback_status";
+    }
+    return new GoalIntent(
+        intent,
+        targetScope,
+        seedHint,
+        wantsPlayback,
+        referencesCurrentPlayback,
+        referencesCurrentPlayback,
+        0.35d,
+        "heuristic_fallback"
+    ).normalized();
   }
 
-  private String buildFollowupPrompt(String initialPrompt, CommandAgentResponse response, ToolExecution tool, int step, String rootWorkId) {
-    String prompt = "Continue solving the user's goal with tool feedback.\n" +
-        "Original goal:\n" + initialPrompt + "\n\n" +
-        "Step: " + step + "\n" +
-        "Planned action: " + safeTrim(response.getAction()) + "\n" +
-        "Tool output:\n" + tool.output + "\n\n" +
-        "If goal is satisfied, return action=none. Otherwise plan one next command.";
-    return injectLedgerSummary(prompt, rootWorkId);
+  private RecommendationCandidates generateRecommendationCandidates(LLMClient llm,
+                                                                    String initialPrompt,
+                                                                    GoalIntent goalIntent,
+                                                                    PlaybackFacts playback,
+                                                                    String rootWorkId) {
+    try {
+      Map<String, Object> context = new LinkedHashMap<>();
+      context.put("goal", safeTrim(initialPrompt));
+      context.put("normalized_goal", Map.of(
+          "intent", goalIntent.intent(),
+          "target_scope", goalIntent.targetScope(),
+          "seed_hint", goalIntent.seedHint(),
+          "wants_playback", goalIntent.wantsPlayback(),
+          "references_current_playback", goalIntent.referencesCurrentPlayback()
+      ));
+      context.put("known_facts", Map.of(
+          "current_track", safeTrim(playback.trackTitle()),
+          "current_track_uri", safeTrim(playback.trackUri()),
+          "playback_active", playback.playing()
+      ));
+      String raw = llm.chat(
+          loadSystemPrompt("prompts/recommendation-candidates-prompt.md"),
+          safeTrim(initialPrompt),
+          mapper.writeValueAsString(context)
+      );
+      JsonNode root = extractFirstJsonBlockLocal(raw);
+      List<RecommendationCandidate> candidates = new ArrayList<>();
+      JsonNode nodes = root.path("candidates");
+      if (nodes.isArray()) {
+        for (JsonNode node : nodes) {
+          String query = firstNonBlank(
+              safeTrim(readPath(node, "query")),
+              joinCandidateQuery(safeTrim(readPath(node, "title")), safeTrim(readPath(node, "artist")))
+          );
+          if (query.isEmpty()) {
+            continue;
+          }
+          candidates.add(new RecommendationCandidate(
+              safeTrim(readPath(node, "title")),
+              safeTrim(readPath(node, "artist")),
+              query,
+              safeTrim(readPath(node, "reason"))
+          ));
+          if (candidates.size() >= 5) {
+            break;
+          }
+        }
+      }
+      appendLedgerAction(rootWorkId, WorkActionType.NOTE,
+          "recommendation_candidates count=" + candidates.size(),
+          null, null, null, null, null, null);
+      return new RecommendationCandidates(candidates);
+    } catch (Exception e) {
+      appendLedgerAction(rootWorkId, WorkActionType.NOTE,
+          "recommendation_candidates_failed message=" + safeTrim(e.getMessage()),
+          null, null, null, null, null, null);
+      return new RecommendationCandidates(List.of());
+    }
+  }
+
+  private static String joinCandidateQuery(String title, String artist) {
+    String safeTitle = safeTrim(title);
+    String safeArtist = safeTrim(artist);
+    if (safeTitle.isEmpty()) {
+      return "";
+    }
+    return safeArtist.isEmpty() ? safeTitle : safeTitle + " " + safeArtist;
+  }
+
+  private static VerifiedTrack parseVerifiedTrack(String toolOutput, String fallbackReason) {
+    String text = extractToolText(toolOutput);
+    if (text.isEmpty()) {
+      return null;
+    }
+    Matcher matcher = RESOLVED_TRACK_PATTERN.matcher(text);
+    if (!matcher.find()) {
+      return null;
+    }
+    return new VerifiedTrack(
+        safeTrim(matcher.group(1)),
+        safeTrim(matcher.group(2)),
+        safeTrim(matcher.group(3)),
+        safeTrim(fallbackReason)
+    );
+  }
+
+  private static String buildRecommendationSummary(PlaybackFacts playback, List<VerifiedTrack> verified) {
+    String anchor = safeTrim(playback.trackTitle()).isEmpty()
+        ? "your request"
+        : "the current track " + playback.trackTitle();
+    StringBuilder message = new StringBuilder("Here are verified similar tracks for ").append(anchor).append(':');
+    for (int i = 0; i < verified.size(); i++) {
+      VerifiedTrack track = verified.get(i);
+      message.append("\n")
+          .append(i + 1)
+          .append(") ")
+          .append(track.title())
+          .append(" — ")
+          .append(track.artist());
+    }
+    return message.toString();
+  }
+
+  private static String buildRecommendationHtml(PlaybackFacts playback, List<VerifiedTrack> verified) {
+    if (verified == null || verified.isEmpty()) {
+      return "";
+    }
+    String title = safeTrim(playback.trackTitle()).isEmpty()
+        ? "Verified recommendations"
+        : "Verified tracks related to " + playback.trackTitle();
+    StringBuilder rows = new StringBuilder();
+    for (VerifiedTrack track : verified) {
+      rows.append("<li style=\"margin-bottom:10px;\">")
+          .append("<div style=\"font-size:14px; margin-bottom:4px;\">")
+          .append(escapeHtml(track.title())).append(" — ").append(escapeHtml(track.artist()))
+          .append("</div>");
+      if (!safeTrim(track.reason()).isEmpty()) {
+        rows.append("<div style=\"font-size:12px; color:#8b949e; margin-bottom:6px;\">")
+            .append(escapeHtml(track.reason()))
+            .append("</div>");
+      }
+      rows.append("<div style=\"font-size:12px; color:#8b949e;\">")
+          .append(escapeHtml(track.uri()))
+          .append("</div>")
+          .append("</li>");
+    }
+    return "<html><body style=\"font-family:sans-serif;padding:12px;margin:0;background:#0d1117;color:#e6edf3;\">"
+        + "<div style=\"border:1px solid #30363d;border-radius:10px;padding:12px;background:#161b22;\">"
+        + "<div style=\"font-size:18px;font-weight:700;margin-bottom:10px;\">" + escapeHtml(title) + "</div>"
+        + "<ol style=\"padding-left:18px;margin:0;\">" + rows + "</ol>"
+        + "</div></body></html>";
+  }
+
+  private static String inferPlanState(GoalIntent goalIntent, List<ToolStep> toolSteps) {
+    if (toolSteps == null || toolSteps.isEmpty()) {
+      return goalIntent.isRecommendationFlow() ? "need_candidate_verification" : "planning";
+    }
+    PlaybackFacts playback = extractPlaybackFacts(toolSteps);
+    if (hasFailedTool(toolSteps)) {
+      return "tool_failed";
+    }
+    if (hasSuccessfulTool(toolSteps, "auth-begin")) {
+      return "awaiting_auth";
+    }
+    if (goalIntent.isRecommendationFlow() && safeTrim(playback.trackUri()).isEmpty()) {
+      return "need_current_playback";
+    }
+    if (hasSuccessfulTool(toolSteps, "resolve-track")) {
+      return goalIntent.wantsPlayback() ? "need_playback_action" : "have_verified_recommendations";
+    }
+    if (goalIntent.isRecommendationFlow() && !safeTrim(playback.trackUri()).isEmpty()) {
+      return "need_candidate_verification";
+    }
+    return "planning";
+  }
+
+  private void appendKnownFacts(StringBuilder prompt,
+                                PlaybackFacts playback,
+                                List<ToolStep> toolSteps,
+                                CommandAgentResponse lastResponse) {
+    if (!safeTrim(playback.device()).isEmpty()) {
+      prompt.append("- device: ").append(playback.device()).append('\n');
+    }
+    if (!safeTrim(playback.trackTitle()).isEmpty()) {
+      prompt.append("- current_track: ").append(playback.trackTitle()).append('\n');
+    }
+    if (!safeTrim(playback.trackUri()).isEmpty()) {
+      prompt.append("- current_track_uri: ").append(playback.trackUri()).append('\n');
+    }
+    prompt.append("- playback_active: ").append(playback.playing()).append('\n');
+    if (!safeTrim(playback.position()).isEmpty()) {
+      prompt.append("- position: ").append(playback.position()).append('\n');
+    }
+    ToolStep lastToolStep = findLastToolStep(toolSteps);
+    if (lastToolStep != null) {
+      prompt.append("- last_tool: ").append(safeTrim(lastToolStep.toolCommand));
+      String error = extractToolErrorCode(lastToolStep);
+      if (!error.isEmpty()) {
+        prompt.append(" (error=").append(error).append(')');
+      }
+      prompt.append('\n');
+    }
+    if (lastResponse != null && !safeTrim(lastResponse.getAction()).isEmpty()) {
+      prompt.append("- last_planner_action: ").append(safeTrim(lastResponse.getAction())).append('\n');
+    }
+  }
+
+  private void appendRecentSteps(StringBuilder prompt, List<ToolStep> toolSteps) {
+    if (toolSteps == null || toolSteps.isEmpty()) {
+      prompt.append("- none yet\n");
+      return;
+    }
+    int from = Math.max(0, toolSteps.size() - PLANNER_RECENT_STEP_LIMIT);
+    for (int i = from; i < toolSteps.size(); i++) {
+      ToolStep step = toolSteps.get(i);
+      prompt.append("- step ").append(step.step())
+          .append(": planned=").append(safeTrim(step.agentAction()))
+          .append(", tool=").append(safeTrim(step.toolCommand()));
+      if (!safeTrim(step.toolArgs()).isEmpty()) {
+        prompt.append(' ').append(safeTrim(step.toolArgs()));
+      }
+      String excerpt = summarizeToolOutput(step.toolOutput());
+      if (!excerpt.isEmpty()) {
+        prompt.append(", result=").append(excerpt);
+      }
+      prompt.append('\n');
+    }
+  }
+
+  private Map<String, Object> buildKnownFactsMap(PlaybackFacts playback,
+                                                 List<ToolStep> toolSteps,
+                                                 CommandAgentResponse lastResponse) {
+    Map<String, Object> facts = new LinkedHashMap<>();
+    if (!safeTrim(playback.device()).isEmpty()) {
+      facts.put("device", playback.device());
+    }
+    facts.put("playback_active", playback.playing());
+    if (!safeTrim(playback.trackTitle()).isEmpty()) {
+      facts.put("current_track", playback.trackTitle());
+    }
+    if (!safeTrim(playback.trackUri()).isEmpty()) {
+      facts.put("current_track_uri", playback.trackUri());
+    }
+    if (!safeTrim(playback.position()).isEmpty()) {
+      facts.put("position", playback.position());
+    }
+    ToolStep last = findLastToolStep(toolSteps);
+    if (last != null) {
+      facts.put("last_tool_command", safeTrim(last.toolCommand()));
+      String errorCode = extractToolErrorCode(last);
+      if (!errorCode.isEmpty()) {
+        facts.put("last_tool_error", errorCode);
+      }
+    }
+    if (lastResponse != null && !safeTrim(lastResponse.getAction()).isEmpty()) {
+      facts.put("last_planner_action", safeTrim(lastResponse.getAction()));
+    }
+    return facts;
+  }
+
+  private List<Map<String, Object>> buildRecentStepsContext(List<ToolStep> toolSteps) {
+    List<Map<String, Object>> recent = new ArrayList<>();
+    if (toolSteps == null || toolSteps.isEmpty()) {
+      return recent;
+    }
+    int from = Math.max(0, toolSteps.size() - PLANNER_RECENT_STEP_LIMIT);
+    for (int i = from; i < toolSteps.size(); i++) {
+      ToolStep step = toolSteps.get(i);
+      Map<String, Object> item = new LinkedHashMap<>();
+      item.put("step", step.step());
+      item.put("planned_action", safeTrim(step.agentAction()));
+      item.put("tool_command", safeTrim(step.toolCommand()));
+      item.put("tool_args", safeTrim(step.toolArgs()));
+      item.put("tool_output_excerpt", summarizeToolOutput(step.toolOutput()));
+      String errorCode = extractToolErrorCode(step);
+      if (!errorCode.isEmpty()) {
+        item.put("error_code", errorCode);
+      }
+      recent.add(item);
+    }
+    return recent;
+  }
+
+  private static PlaybackFacts extractPlaybackFacts(List<ToolStep> toolSteps) {
+    if (toolSteps == null) {
+      return PlaybackFacts.empty();
+    }
+    for (int i = toolSteps.size() - 1; i >= 0; i--) {
+      ToolStep step = toolSteps.get(i);
+      if (!"status".equalsIgnoreCase(safeTrim(step.toolCommand()))) {
+        continue;
+      }
+      String output = extractToolText(step.toolOutput());
+      if (output.isEmpty()) {
+        continue;
+      }
+      String device = matchFirst(DEVICE_PATTERN, output);
+      String track = matchFirst(TRACK_TITLE_PATTERN, output);
+      String uri = matchFirst(TRACK_URI_PATTERN, output);
+      String playingRaw = matchFirst(PLAYING_PATTERN, output);
+      String position = matchFirst(POSITION_PATTERN, output);
+      boolean playing = "true".equalsIgnoreCase(safeTrim(playingRaw));
+      return new PlaybackFacts(device, track, uri, position, playing);
+    }
+    return PlaybackFacts.empty();
+  }
+
+  private static String summarizeToolOutput(String toolOutput) {
+    String text = extractToolText(toolOutput);
+    if (text.isEmpty()) {
+      return "";
+    }
+    String firstLine = text.split("\\R", 2)[0].trim();
+    return firstLine.length() > 180 ? firstLine.substring(0, 177) + "..." : firstLine;
+  }
+
+  private static boolean hasSuccessfulTool(List<ToolStep> toolSteps, String command) {
+    if (toolSteps == null || safeTrim(command).isEmpty()) {
+      return false;
+    }
+    for (int i = toolSteps.size() - 1; i >= 0; i--) {
+      ToolStep step = toolSteps.get(i);
+      if (!command.equalsIgnoreCase(safeTrim(step.toolCommand()))) {
+        continue;
+      }
+      if (extractToolErrorCode(step).isEmpty()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasFailedTool(List<ToolStep> toolSteps) {
+    if (toolSteps == null) {
+      return false;
+    }
+    for (int i = toolSteps.size() - 1; i >= 0; i--) {
+      if (!extractToolErrorCode(toolSteps.get(i)).isEmpty()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static String extractToolErrorCode(ToolStep step) {
+    if (step == null) {
+      return "";
+    }
+    String output = safeTrim(step.toolOutput());
+    if (output.isEmpty()) {
+      return "";
+    }
+    try {
+      JsonNode root = JSON.readTree(output);
+      return firstNonBlank(
+          safeTrim(readPath(root, "errorCode")),
+          safeTrim(readPath(root, "auth.errorCode"))
+      );
+    } catch (Exception ignored) {
+      return "";
+    }
+  }
+
+  private static String matchFirst(Pattern pattern, String value) {
+    if (pattern == null || value == null) {
+      return "";
+    }
+    Matcher matcher = pattern.matcher(value);
+    if (!matcher.find()) {
+      return "";
+    }
+    if (matcher.groupCount() >= 1) {
+      return safeTrim(matcher.group(1));
+    }
+    return safeTrim(matcher.group());
+  }
+
+  private static String extractToolText(String toolOutput) {
+    String text = safeTrim(toolOutput);
+    if (text.isEmpty()) {
+      return "";
+    }
+    try {
+      JsonNode root = JSON.readTree(text);
+      return firstNonBlank(
+          safeTrim(readPath(root, "message")),
+          safeTrim(readPath(root, "channels.chat.message")),
+          safeTrim(readPath(root, "channels.status.message")),
+          text
+      );
+    } catch (Exception ignored) {
+      return text;
+    }
+  }
+
+  private String buildPlannerPrompt(String initialPrompt,
+                                    String source,
+                                    String correlationId,
+                                    boolean interactiveRequest,
+                                    int step,
+                                    GoalIntent goalIntent,
+                                    List<ToolStep> toolSteps,
+                                    CommandAgentResponse lastResponse,
+                                    String rootWorkId) {
+    PlaybackFacts playback = extractPlaybackFacts(toolSteps);
+    StringBuilder prompt = new StringBuilder(1024);
+    prompt.append("Continue solving the active Spotify goal.\n\n");
+    prompt.append("Original goal:\n").append(safeTrim(initialPrompt)).append("\n\n");
+    prompt.append("Request state:\n");
+    prompt.append("- source: ").append(safeTrim(source)).append('\n');
+    prompt.append("- correlationId: ").append(safeTrim(correlationId)).append('\n');
+    prompt.append("- interactive: ").append(interactiveRequest).append('\n');
+    prompt.append("- next step: ").append(step).append('\n');
+    prompt.append("- normalized intent: ").append(goalIntent.intent()).append('\n');
+    prompt.append("- target scope: ").append(goalIntent.targetScope()).append('\n');
+    prompt.append("- wants playback: ").append(goalIntent.wantsPlayback()).append('\n');
+    prompt.append("- references current playback: ").append(goalIntent.referencesCurrentPlayback()).append('\n');
+    prompt.append("- plan state: ").append(inferPlanState(goalIntent, toolSteps)).append("\n\n");
+    prompt.append("Known facts:\n");
+    appendKnownFacts(prompt, playback, toolSteps, lastResponse);
+    prompt.append("\nRecent steps:\n");
+    appendRecentSteps(prompt, toolSteps);
+    prompt.append("\nDecision rules:\n");
+    prompt.append("- Do not forget the original goal.\n");
+    prompt.append("- Do not repeat a successful tool step unless a required fact is still missing.\n");
+    if (goalIntent.isRecommendationFlow()) {
+      prompt.append("- This is a recommendation/similar-song flow.\n");
+      if (!safeTrim(playback.trackUri()).isEmpty()) {
+        prompt.append("- Current playback is already known. Do not call `status all` again.\n");
+        prompt.append("- Use concrete verification or playback actions only.\n");
+      } else {
+        prompt.append("- If current playback facts are missing, `status all` is the correct discovery step.\n");
+      }
+      if (hasSuccessfulTool(toolSteps, "resolve-track") && goalIntent.wantsPlayback()) {
+        prompt.append("- Verified candidates already exist. Prefer a play-capable next step instead of more verification.\n");
+      }
+    }
+    prompt.append("- Keep the plan moving with exactly one next command, or return `none` only if the goal is satisfied.\n");
+    return injectLedgerSummary(prompt.toString(), rootWorkId);
+  }
+
+  private void populatePlannerContext(AgentContext context,
+                                      String initialPrompt,
+                                      String source,
+                                      String correlationId,
+                                      boolean interactiveRequest,
+                                      int step,
+                                      GoalIntent goalIntent,
+                                      List<ToolStep> toolSteps,
+                                      CommandAgentResponse lastResponse) {
+    if (context == null) {
+      return;
+    }
+    PlaybackFacts playback = extractPlaybackFacts(toolSteps);
+    context.set("goal", Map.of(
+        "original", safeTrim(initialPrompt),
+        "intent", goalIntent.intent(),
+        "interactive", interactiveRequest
+    ));
+    context.set("request", Map.of(
+        "source", safeTrim(source),
+        "correlationId", safeTrim(correlationId),
+        "nextStep", step
+    ));
+    context.set("normalized_goal", Map.of(
+        "intent", goalIntent.intent(),
+        "target_scope", goalIntent.targetScope(),
+        "seed_hint", goalIntent.seedHint(),
+        "wants_playback", goalIntent.wantsPlayback(),
+        "references_current_playback", goalIntent.referencesCurrentPlayback(),
+        "needs_discovery", goalIntent.needsDiscovery(),
+        "confidence", goalIntent.confidence(),
+        "reason", goalIntent.reason()
+    ));
+    context.set("plan_state", inferPlanState(goalIntent, toolSteps));
+    context.set("known_facts", buildKnownFactsMap(playback, toolSteps, lastResponse));
+    context.set("recent_steps", buildRecentStepsContext(toolSteps));
+    if (lastResponse != null) {
+      context.set("last_planner_response", Map.of(
+          "request", safeTrim(lastResponse.getRequest()),
+          "action", safeTrim(lastResponse.getAction()),
+          "user", safeTrim(lastResponse.getUser())
+      ));
+    }
   }
 
   private LoopResult runAuthCompletionFlow(CommandContext parentContext,
@@ -1998,11 +2608,6 @@ public class AgentDJComponent {
     if (!safeTrim(html).isEmpty()) {
       htmlMode = "html";
       htmlReplace = true;
-    } else if ("suggest".equalsIgnoreCase(safeTrim(lastToolStep == null ? null : lastToolStep.toolCommand))
-        && toolChannels.html != null && !toolChannels.html.isBlank()) {
-      html = toolChannels.html;
-      htmlMode = safeTrim(toolChannels.webviewMode).isEmpty() ? "html" : safeTrim(toolChannels.webviewMode);
-      htmlReplace = toolChannels.webviewReplace == null || toolChannels.webviewReplace;
     }
 
     String outcome = "success";
@@ -2225,6 +2830,40 @@ public class AgentDJComponent {
     return extractAuthDirective(authJson).valid();
   }
 
+  private static boolean readBoolean(JsonNode root, boolean fallback, String... paths) {
+    if (root == null || paths == null) {
+      return fallback;
+    }
+    for (String path : paths) {
+      String value = safeTrim(readPath(root, path));
+      if ("true".equalsIgnoreCase(value)) {
+        return true;
+      }
+      if ("false".equalsIgnoreCase(value)) {
+        return false;
+      }
+    }
+    return fallback;
+  }
+
+  private static double readDouble(JsonNode root, double fallback, String... paths) {
+    if (root == null || paths == null) {
+      return fallback;
+    }
+    for (String path : paths) {
+      String value = safeTrim(readPath(root, path));
+      if (value.isEmpty()) {
+        continue;
+      }
+      try {
+        return Double.parseDouble(value);
+      } catch (NumberFormatException ignored) {
+        // ignore invalid values and keep fallback
+      }
+    }
+    return fallback;
+  }
+
   private static String firstNonBlank(String... values) {
     if (values == null) {
       return "";
@@ -2251,14 +2890,7 @@ public class AgentDJComponent {
     if (selectedHtml.isEmpty() && authBeginHtml) {
       selectedHtml = safeTrim(toolChannels.html);
     }
-    if ("suggest".equals(command)
-        && toolChannels.html != null
-        && !toolChannels.html.isBlank()
-        && toolChannels.html.contains("Android.runAction(")) {
-      selectedHtml = toolChannels.html;
-    }
     boolean hasHtml = selectedHtml != null && !selectedHtml.isBlank();
-    boolean suggestMode = "suggest".equals(command) && !hasHtml;
     String mode;
     boolean replace;
     if (hasHtml) {
@@ -2269,9 +2901,6 @@ public class AgentDJComponent {
         mode = "html";
         replace = true;
       }
-    } else if (suggestMode) {
-      mode = "suggestions_from_toolsteps";
-      replace = true;
     } else {
       mode = "none";
       replace = false;
@@ -2760,15 +3389,19 @@ public class AgentDJComponent {
     if (summary.isEmpty()) {
       summary = stopReason.message;
     }
-    if (isFailureStopReason(stopReason)) {
-      String details = lastToolOutput(toolSteps);
-      ownerLedger().markFailed(rootWorkId, new FailureRequest(stopReason.code, details, summary));
-      appendLedgerAction(rootWorkId, WorkActionType.FAIL, "finalize_failed stopReason=" + stopReason.code,
-          null, null, details, null, stopReason.code, summary);
-    } else {
-      ownerLedger().markDone(rootWorkId, new CompletionRequest(summary, 1.0));
-      appendLedgerAction(rootWorkId, WorkActionType.COMPLETE, "finalize_done stopReason=" + stopReason.code,
-          null, null, null, null, null);
+    try {
+      if (isFailureStopReason(stopReason)) {
+        String details = lastToolOutput(toolSteps);
+        ownerLedger().markFailed(rootWorkId, new FailureRequest(stopReason.code, details, summary));
+        appendLedgerAction(rootWorkId, WorkActionType.FAIL, "finalize_failed stopReason=" + stopReason.code,
+            null, null, details, null, stopReason.code, summary);
+      } else {
+        ownerLedger().markDone(rootWorkId, new CompletionRequest(summary, 1.0));
+        appendLedgerAction(rootWorkId, WorkActionType.COMPLETE, "finalize_done stopReason=" + stopReason.code,
+            null, null, null, null, null);
+      }
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT] ledger finalize skipped workId=" + rootWorkId + " error=" + safeTrim(e.getMessage()));
     }
   }
 
@@ -2791,6 +3424,15 @@ public class AgentDJComponent {
       return Path.of(custom.trim());
     }
     return Path.of(System.getProperty("user.home"), ".todero", "data", "state", "agent-work-ledger", "dj-agent");
+  }
+
+  private void recordToolStepSafely(String rootWorkId, ToolExecution tool, long toolDurationMs) {
+    try {
+      ownerLedger().recordToolStep(rootWorkId, tool.command, tool.args, redactedForLogs(safeTrim(tool.rawOutput())),
+          toolDurationMs, safeTrim(tool.errorCode), safeTrim(tool.executed ? null : tool.output));
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT] ledger tool-step skipped workId=" + rootWorkId + " error=" + safeTrim(e.getMessage()));
+    }
   }
 
   private void ensureOwnerLedger(CommandContext context) {
@@ -2968,6 +3610,31 @@ public class AgentDJComponent {
   private record SpotifyEnvelope(boolean recognized, boolean ok, String errorCode, String message) {
   }
 
+  private record PlaybackFacts(String device,
+                               String trackTitle,
+                               String trackUri,
+                               String position,
+                               boolean playing) {
+    private static PlaybackFacts empty() {
+      return new PlaybackFacts("", "", "", "", false);
+    }
+  }
+
+  private record RecommendationCandidate(String title,
+                                         String artist,
+                                         String query,
+                                         String reason) {
+  }
+
+  private record RecommendationCandidates(List<RecommendationCandidate> candidates) {
+  }
+
+  private record VerifiedTrack(String title,
+                               String artist,
+                               String uri,
+                               String reason) {
+  }
+
   private record ToolStep(int step,
                           String agentAction,
                           String toolCommand,
@@ -3024,6 +3691,39 @@ public class AgentDJComponent {
                                String authJson) {
     private static AuthDirective invalid() {
       return new AuthDirective(false, "", "", "", "", false, "");
+    }
+  }
+
+  private record GoalIntent(String intent,
+                            String targetScope,
+                            String seedHint,
+                            boolean wantsPlayback,
+                            boolean referencesCurrentPlayback,
+                            boolean needsDiscovery,
+                            double confidence,
+                            String reason) {
+    GoalIntent normalized() {
+      String normalizedIntent = safeTrim(intent).isEmpty() ? "general_spotify_control" : safeTrim(intent);
+      String normalizedTargetScope = safeTrim(targetScope).isEmpty() ? "explicit_request" : safeTrim(targetScope);
+      String normalizedSeedHint = safeTrim(seedHint);
+      String normalizedReason = safeTrim(reason);
+      boolean currentPlayback = referencesCurrentPlayback
+          || "current_playback".equalsIgnoreCase(normalizedTargetScope)
+          || "current-playback".equalsIgnoreCase(normalizedSeedHint);
+      return new GoalIntent(
+          normalizedIntent,
+          normalizedTargetScope,
+          currentPlayback && normalizedSeedHint.isEmpty() ? "current-playback" : normalizedSeedHint,
+          wantsPlayback,
+          currentPlayback,
+          needsDiscovery || currentPlayback,
+          confidence,
+          normalizedReason
+      );
+    }
+
+    boolean isRecommendationFlow() {
+      return safeTrim(intent).toLowerCase(Locale.ROOT).contains("recommend");
     }
   }
 

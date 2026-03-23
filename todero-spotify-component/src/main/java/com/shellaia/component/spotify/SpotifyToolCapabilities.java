@@ -12,7 +12,7 @@ public final class SpotifyToolCapabilities implements ToolCapabilityProvider {
     return ToolCapabilityManifest.builder()
         .contractVersion(1)
         .componentName("com.shellaia.spotify")
-        .toolSummary("Spotify playback, device, queue, recommendation, playlist, and delegated authorization tool.")
+        .toolSummary("Spotify playback, device, queue, search resolution, playlist, and delegated authorization tool.")
         .commands(List.of(
             cmd("events", "Manage playback event streaming and optional DJ notifications."),
             cmd("auth-status", "Inspect delegated Spotify authorization state."),
@@ -38,11 +38,10 @@ public final class SpotifyToolCapabilities implements ToolCapabilityProvider {
             cmd("queue-add", "Add an item to the queue."),
             cmd("queue", "Inspect current queue."),
             cmd("previous", "Go to previous track."),
+            cmd("resolve-track", "Resolve a search query to a concrete Spotify track."),
             cmd("recently-played", "List recently played tracks."),
             cmd("top-tracks", "List top tracks."),
             cmd("top-artists", "List top artists."),
-            cmd("recommend", "Get recommendations."),
-            cmd("suggest", "Suggest tracks from a prompt."),
             cmd("shuffle", "Control shuffle mode."),
             cmd("repeat", "Control repeat mode."),
             cmd("like", "Save the current track."),
