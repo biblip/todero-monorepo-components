@@ -33,8 +33,8 @@ public class SimpleComponent {
   public Boolean pingCommand(CommandContext context) {
 
     final String commandArgs = requestBody(context);
-    context.emitCustom(SimpleEvent.SIMPLE_EVENT.name(), SimpleEvent.SIMPLE_EVENT.name(), "text/plain; charset=utf-8", "No va a salir".getBytes(StandardCharsets.UTF_8), "final");
-    context.completeText(200, "Ping Ok" + (!commandArgs.isEmpty() ? " : " + commandArgs : ""));
+    context.emitCustom(SimpleEvent.SIMPLE_EVENT.name(), SimpleEvent.SIMPLE_EVENT.name(), "text/plain; charset=utf-8", "No va a salir".getBytes(StandardCharsets.UTF_8), "progress");
+    respondText(context, 200, "Ping Ok" + (!commandArgs.isEmpty() ? " : " + commandArgs : ""));
     return true;
   }
 
@@ -48,8 +48,8 @@ public class SimpleComponent {
         "args", commandArgs,
         "metadata", Map.of("key1", "value1", "key2", "value2")
     );
-    context.emitCustom(SimpleEvent.OTHER_EVENT.name(), SimpleEvent.OTHER_EVENT.name(), "text/plain; charset=utf-8", "Aja, aqui va!".getBytes(StandardCharsets.UTF_8), "final");
-    context.completeText(200, mm.toString());
+    context.emitCustom(SimpleEvent.OTHER_EVENT.name(), SimpleEvent.OTHER_EVENT.name(), "text/plain; charset=utf-8", "Aja, aqui va!".getBytes(StandardCharsets.UTF_8), "progress");
+    respondText(context, 200, mm.toString());
     return true;
   }
 
@@ -69,8 +69,8 @@ public class SimpleComponent {
         "args", commandArgs,
         "metadata", Map.of("key1", "value1", "key2", "value2")
     );
-    context.emitCustom(SimpleEvent.OTHER_EVENT.name(), SimpleEvent.OTHER_EVENT.name(), "text/plain; charset=utf-8", "Aja, aqui va!".getBytes(StandardCharsets.UTF_8), "final");
-    context.completeText(200, mm.toString());
+    context.emitCustom(SimpleEvent.OTHER_EVENT.name(), SimpleEvent.OTHER_EVENT.name(), "text/plain; charset=utf-8", "Aja, aqui va!".getBytes(StandardCharsets.UTF_8), "progress");
+    respondText(context, 200, mm.toString());
     return true;
   }
 
@@ -80,7 +80,7 @@ public class SimpleComponent {
   public Boolean eventsCommand(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, context.getInstance().getAvailableEvents().toString());
+      respondText(context, 200, context.getInstance().getAvailableEvents().toString());
     } else {
       boolean eventsOn = "on".equalsIgnoreCase(commandArgs);
       if (eventsOn) {
@@ -90,18 +90,18 @@ public class SimpleComponent {
           backgroundTaskRunner.start(() -> {
             context.emitCustom(SimpleEvent.SIMPLE_EVENT.name(), SimpleEvent.SIMPLE_EVENT.name(), "text/plain; charset=utf-8", "yeyeyey".getBytes(StandardCharsets.UTF_8), "progress");
           });
-          context.completeText(200, "events are now ON");
+          respondText(context, 200, "events are now ON");
         } else {
-          context.completeText(200, "events are already ON");
+          respondText(context, 200, "events are already ON");
         }
       } else {
         if (backgroundTaskRunner != null) {
           backgroundTaskRunner.stop();
           backgroundTaskRunner = null;
-          context.completeText(200, "events are now OFF");
+          respondText(context, 200, "events are now OFF");
           this.globalContext = null;
         } else {
-          context.completeText(200, "events are already OFF");
+          respondText(context, 200, "events are already OFF");
         }
       }
     }
@@ -131,5 +131,47 @@ public class SimpleComponent {
     }
     String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
     return body == null ? "" : body;
+  }
+
+  private static void respondText(CommandContext context, int status, String message) {
+    String safeMessage = message == null ? "" : message;
+    context.completeJson(status, "{"
+        + "\"ok\":" + (status < 400) + ","
+        + "\"message\":" + quoteJson(safeMessage) + ","
+        + "\"channels\":{"
+        + "\"chat\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"status\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+        + "}"
+        + "}");
+  }
+
+  private static String quoteJson(String value) {
+    if (value == null) {
+      return "null";
+    }
+    StringBuilder out = new StringBuilder(value.length() + 2);
+    out.append('"');
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      switch (c) {
+        case '"' -> out.append("\\\"");
+        case '\\' -> out.append("\\\\");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            out.append(String.format("\\u%04x", (int) c));
+          } else {
+            out.append(c);
+          }
+        }
+      }
+    }
+    out.append('"');
+    return out.toString();
   }
 }

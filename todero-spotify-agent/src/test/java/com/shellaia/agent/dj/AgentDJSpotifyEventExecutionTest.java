@@ -140,15 +140,15 @@ class AgentDJSpotifyEventExecutionTest {
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
           if ("status".equals(cmd)) {
-            ctx.emitChat("Device: Arturo’s Mac mini\nPlaying: false\nTrack: You're The One That I Want - From “Grease” — John Travolta\nURI: spotify:track:0B9x2BRHqj3Qer7biM3pU3", "final");
+            ctx.completeJson(200, "{\"ok\":true,\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: You're The One That I Want - From \\u201cGrease\\u201d \\u2014 John Travolta\\nURI: spotify:track:0B9x2BRHqj3Qer7biM3pU3\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: You're The One That I Want - From \\u201cGrease\\u201d \\u2014 John Travolta\\nURI: spotify:track:0B9x2BRHqj3Qer7biM3pU3\"},\"status\":{\"message\":\"Playback status ready.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
             return;
           }
           if ("resolve-track".equals(cmd)) {
-            ctx.emitChat("Resolved track: Caribbean Blue — Enya [uri=spotify:track:1234567890ABCDEabcde1]", "final");
+            ctx.completeJson(200, "{\"ok\":true,\"message\":\"Resolved track: Caribbean Blue \\u2014 Enya [uri=spotify:track:1234567890ABCDEabcde1]\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Resolved track: Caribbean Blue \\u2014 Enya [uri=spotify:track:1234567890ABCDEabcde1]\"},\"status\":{\"message\":\"Track resolved.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
             return;
           }
           if ("play".equals(cmd)) {
-            ctx.emitStatus("Playing: spotify:track:1234567890ABCDEabcde1", "final");
+            ctx.completeJson(200, "{\"ok\":true,\"message\":\"Playing: spotify:track:1234567890ABCDEabcde1\",\"response\":{\"outcome\":\"goal_completed\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Playing: spotify:track:1234567890ABCDEabcde1\"},\"status\":{\"message\":\"Playing: spotify:track:1234567890ABCDEabcde1\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
           }
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
@@ -177,7 +177,7 @@ class AgentDJSpotifyEventExecutionTest {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
-        .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.emitStatus("Playing search for Enya.", "final")))
+        .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.completeJson(200, "{\"ok\":true,\"message\":\"Playing search for Enya.\",\"response\":{\"outcome\":\"goal_completed\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Playing search for Enya.\"},\"status\":{\"message\":\"Playing search for Enya.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}")))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
             AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
         .build();
@@ -195,7 +195,7 @@ class AgentDJSpotifyEventExecutionTest {
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) ->
-            ctx.emitAuthJson("{\"ok\":false,\"errorCode\":\"auth_required\",\"message\":\"Login required\"}", "final")))
+            ctx.completeJson(500, "{\"ok\":false,\"errorCode\":\"auth_required\",\"message\":\"Login required\",\"response\":{\"outcome\":\"failure\",\"completed\":true},\"auth\":{\"required\":true,\"provider\":\"spotify\"},\"channels\":{\"chat\":{\"message\":\"Login required\"},\"status\":{\"message\":\"Login required\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}")))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
             AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
         .build();
@@ -213,7 +213,7 @@ class AgentDJSpotifyEventExecutionTest {
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
           ctx.emitStatus("Open the Spotify link.", "progress");
-          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"}}", "final");
+          ctx.completeJson(200, "{\"ok\":true,\"message\":\"Authorization required.\",\"response\":{\"outcome\":\"await_external_completion\",\"completed\":true},\"auth\":{\"session\":{\"sessionId\":\"sess-1\"}},\"channels\":{\"chat\":{\"message\":\"Authorization required.\"},\"status\":{\"message\":\"Open the Spotify link.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
             AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8)))
@@ -222,7 +222,7 @@ class AgentDJSpotifyEventExecutionTest {
     Object result = invokeExecuteSpotifyInternal(component, parent, "auth-begin", "");
 
     assertTrue((Boolean) accessor(result, "executed"));
-    assertEquals("Open the Spotify link.", accessor(result, "output"));
+    assertEquals("Authorization required.", accessor(result, "output"));
     JsonNode root = JSON.readTree((String) accessor(result, "rawOutput"));
     assertEquals("sess-1", root.path("auth").path("session").path("sessionId").asText());
   }
@@ -254,7 +254,7 @@ class AgentDJSpotifyEventExecutionTest {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
-        .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.emitError("No devices available.")))
+        .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.completeJson(500, "{\"ok\":false,\"errorCode\":\"tool-execution-failed\",\"message\":\"No devices available.\",\"response\":{\"outcome\":\"failure\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"No devices available.\"},\"status\":{\"message\":\"No devices available.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}")))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
             AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
         .build();

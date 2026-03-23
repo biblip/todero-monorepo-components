@@ -8,7 +8,7 @@ import com.social100.todero.common.ai.llm.LLMProviderDefinition;
 import com.social100.todero.common.ai.llm.LLMRegistry;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
-import com.social100.todero.common.aiatpio.AiatpTerminalResult;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
@@ -35,11 +35,11 @@ class AgentDJCapabilitiesTest {
   @Test
   void capabilitiesReturnsChannelsAndSkillSummary() throws Exception {
     AgentDJComponent component = new AgentDJComponent(new EmptyStorage());
-    AtomicReference<AiatpTerminalResult> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
     CommandContext context = CommandContext.builder()
         .sourceId("dj-cap-test")
         .componentManager(new FakeComponentManager())
-        .terminalConsumer(out::set)
+        .responseConsumer(out::set)
         .llmRegistry(fakeRegistry())
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/capabilities",
             AiatpIO.Body.ofString("", StandardCharsets.UTF_8)))

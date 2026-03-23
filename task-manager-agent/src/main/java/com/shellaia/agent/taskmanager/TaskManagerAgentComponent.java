@@ -489,15 +489,15 @@ public class TaskManagerAgentComponent {
   }
   private ToolCallResult executeTaskManager(CommandContext context, String command, String args) {
     String normalizedArgs = ensureJsonFormat(args);
-    CompletableFuture<com.social100.todero.common.aiatpio.AiatpTerminalResult> outFuture = new CompletableFuture<>();
+    CompletableFuture<com.social100.todero.common.aiatpio.AiatpResponse> outFuture = new CompletableFuture<>();
     CommandContext internalContext = CommandContext.builder()
         .aiatpRequest(com.social100.todero.common.aiatpio.AiatpRuntimeAdapter.request("ACTION", "/" + TASK_MANAGER_COMPONENT + "/" + command, AiatpIO.Body.ofString(normalizedArgs, StandardCharsets.UTF_8)))
-        .terminalConsumer(outFuture::complete)
+        .responseConsumer(outFuture::complete)
         .build();
 
     try {
       context.execute(TASK_MANAGER_COMPONENT, command, internalContext);
-      com.social100.todero.common.aiatpio.AiatpTerminalResult response = outFuture.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      com.social100.todero.common.aiatpio.AiatpResponse response = outFuture.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       String body = response == null || response.getBody() == null ? "" : AiatpIO.bodyToString(response.getBody(), StandardCharsets.UTF_8);
       int status = response != null && "failure".equalsIgnoreCase(safe(response.getOutcome())) ? 500 : 200;
       return parseToolEnvelope(command, normalizedArgs, status, body);

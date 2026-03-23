@@ -554,7 +554,16 @@ public class TaskManagerComponent {
       int status = httpStatus(result);
       logActionResult(command, format, result, status);
       if ("text".equals(format)) {
-        context.completeText(status, renderText(command, result));
+        String text = renderText(command, result);
+        context.completeJson(status, "{\"ok\":"
+            + (status < 400)
+            + ",\"message\":"
+            + quoteJson(text)
+            + ",\"channels\":{\"chat\":{\"message\":"
+            + quoteJson(text)
+            + "},\"status\":{\"message\":"
+            + quoteJson(text)
+            + "},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
       Map<String, Object> payload = new LinkedHashMap<>();
@@ -572,6 +581,35 @@ public class TaskManagerComponent {
       logActionException(command, e);
       context.completeJson(500, "{\"ok\":false,\"errorCode\":\"internal_error\",\"message\":\"Failed to encode response.\"}");
     }
+  }
+
+  private static String quoteJson(String value) {
+    if (value == null) {
+      return "null";
+    }
+    StringBuilder out = new StringBuilder(value.length() + 2);
+    out.append('"');
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      switch (c) {
+        case '"' -> out.append("\\\"");
+        case '\\' -> out.append("\\\\");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            out.append(String.format("\\u%04x", (int) c));
+          } else {
+            out.append(c);
+          }
+        }
+      }
+    }
+    out.append('"');
+    return out.toString();
   }
 
   private int httpStatus(TaskServiceResult<?> result) {

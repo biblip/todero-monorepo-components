@@ -2,6 +2,7 @@ package com.shellaia.agent.router;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
@@ -27,7 +28,7 @@ class RouterAgentPreDispatchRequiredArgsTest {
   void doesNotBlockPositionalRequiredArgsInNaturalLanguagePrompt() {
     StubManager manager = new StubManager();
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<AiatpIORequestWrapper> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
 
     String prompt = "play music";
     CommandContext context = CommandContext.builder()
@@ -35,13 +36,13 @@ class RouterAgentPreDispatchRequiredArgsTest {
         .componentManager(manager)
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8)))
-        .eventConsumer(out::set)
+        .responseConsumer(out::set)
         .build();
 
     router.process(context);
 
-    assertEquals("chat", out.get().getAiatpEvent().getChannel());
-    assertEquals("ok", AiatpIO.bodyToString(out.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    String responseBody = AiatpIO.bodyToString(out.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(responseBody.contains("\"chat\":{\"message\":\"ok\"}"));
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
   }
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
@@ -32,24 +33,24 @@ class RouterAgentDelegatedAuthE2ETest {
     StubManager manager = new StubManager();
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
 
-    AtomicReference<AiatpIORequestWrapper> firstResponse = new AtomicReference<>();
+    AtomicReference<AiatpResponse> firstResponse = new AtomicReference<>();
     CommandContext firstContext = baseContext(manager, "android-sess-1", "play caribbean blue by enya", firstResponse);
     router.process(firstContext);
 
-    assertEquals("auth", firstResponse.get().getAiatpEvent().getChannel());
-    JsonNode firstJson = MAPPER.readTree(AiatpIO.bodyToString(firstResponse.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
-    assertTrue(firstJson.path("required").asBoolean(false));
-    assertEquals("spotify", firstJson.path("provider").asText());
+    JsonNode firstJson = MAPPER.readTree(AiatpIO.bodyToString(firstResponse.get().getBody(), StandardCharsets.UTF_8));
+    JsonNode auth = firstJson.path("auth");
+    assertTrue(auth.path("required").asBoolean(false));
+    assertEquals("spotify", auth.path("provider").asText());
 
     String callbackPrompt = "auth-complete session-id=sess-1 state=st1 code=code1 "
         + "secureEnvelope={\"opaquePayload\":\"xyz\",\"integrity\":\"sig\"}";
 
-    AtomicReference<AiatpIORequestWrapper> secondResponse = new AtomicReference<>();
+    AtomicReference<AiatpResponse> secondResponse = new AtomicReference<>();
     CommandContext secondContext = baseContext(manager, "android-sess-1", callbackPrompt, secondResponse);
     router.process(secondContext);
 
-    assertEquals("chat", secondResponse.get().getAiatpEvent().getChannel());
-    assertEquals("Authorization completed.", AiatpIO.bodyToString(secondResponse.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    String secondResponseBody = AiatpIO.bodyToString(secondResponse.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(secondResponseBody.contains("\"chat\":{\"message\":\"Authorization completed.\"}"));
     assertEquals(callbackPrompt, manager.lastDelegatedPrompt.get());
   }
 
@@ -61,25 +62,25 @@ class RouterAgentDelegatedAuthE2ETest {
     String callbackPrompt = "auth-complete session-id=sess-1 state=st1 code=code1 "
         + "secureEnvelope={\"opaquePayload\":\"xyz\",\"integrity\":\"sig\"}";
 
-    AtomicReference<AiatpIORequestWrapper> response = new AtomicReference<>();
+    AtomicReference<AiatpResponse> response = new AtomicReference<>();
     CommandContext context = baseContext(manager, "console-sess-1", callbackPrompt, response);
     router.process(context);
 
-    assertEquals("chat", response.get().getAiatpEvent().getChannel());
-    assertEquals("Authorization completed.", AiatpIO.bodyToString(response.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    String responseBody = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(responseBody.contains("\"chat\":{\"message\":\"Authorization completed.\"}"));
     assertEquals(callbackPrompt, manager.lastDelegatedPrompt.get());
   }
 
   private static CommandContext baseContext(StubManager manager,
                                             String sourceId,
                                             String prompt,
-                                            AtomicReference<AiatpIORequestWrapper> out) {
+                                            AtomicReference<AiatpResponse> out) {
     return CommandContext.builder()
         .sourceId(sourceId)
         .componentManager(manager)
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8)))
-        .eventConsumer(out::set)
+        .responseConsumer(out::set)
         .build();
   }
 

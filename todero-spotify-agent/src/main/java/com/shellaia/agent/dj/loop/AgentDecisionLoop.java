@@ -139,8 +139,8 @@ public final class AgentDecisionLoop {
   public record Channels(String chat,
                          String status,
                          String html,
-                         String webviewMode,
-                         boolean webviewReplace,
+                         String htmlMode,
+                         boolean htmlReplace,
                          String authJson) {
   }
 
@@ -631,8 +631,8 @@ public final class AgentDecisionLoop {
     String chat = plan == null ? "" : safe(plan.user());
     String status = "";
     String html = plan == null ? "" : safe(plan.html());
-    String webviewMode = html.isBlank() ? "none" : "html";
-    boolean webviewReplace = !html.isBlank();
+    String htmlMode = html.isBlank() ? "none" : "html";
+    boolean htmlReplace = !html.isBlank();
     String authJson = "";
 
     if (tool != null && tool.aggregate() != null) {
@@ -645,8 +645,8 @@ public final class AgentDecisionLoop {
       }
       if (!safe(agg.lastHtml()).isBlank()) {
         html = agg.lastHtml();
-        webviewMode = safe(agg.lastHtmlMode()).isBlank() ? "html" : safe(agg.lastHtmlMode());
-        webviewReplace = agg.lastHtmlReplace();
+        htmlMode = safe(agg.lastHtmlMode()).isBlank() ? "html" : safe(agg.lastHtmlMode());
+        htmlReplace = agg.lastHtmlReplace();
       }
       if (!safe(agg.lastAuthJson()).isBlank()) {
         authJson = agg.lastAuthJson();
@@ -667,7 +667,7 @@ public final class AgentDecisionLoop {
     if (status.isBlank()) {
       status = chat.isBlank() ? "completed" : chat;
     }
-    return new Channels(chat, status, html, webviewMode, webviewReplace, authJson);
+    return new Channels(chat, status, html, htmlMode, htmlReplace, authJson);
   }
 
   private static boolean isFailureStop(StopReason stopReason) {

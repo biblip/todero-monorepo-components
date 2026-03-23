@@ -2,7 +2,7 @@ package com.shellaia.component.spotify;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
-import com.social100.todero.common.aiatpio.AiatpTerminalResult;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.component.testkit.TestStorage;
 import com.social100.todero.generated.SpotifyComponentImpl;
@@ -28,7 +28,7 @@ class SpotifyComponentLifecycleContractTest {
   void generatedWrapperRegistersDescriptorAndReturnsNotReadyErrorWhenEnvIsMissing() {
     SpotifyComponentImpl component = new SpotifyComponentImpl((eventName, wrapper) -> {
     }, new TestStorage());
-    AtomicReference<AiatpTerminalResult> seen = new AtomicReference<>();
+    AtomicReference<AiatpResponse> seen = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("spotify-lifecycle")
@@ -36,7 +36,7 @@ class SpotifyComponentLifecycleContractTest {
             "ACTION",
             "/com.shellaia.spotify/play",
             AiatpIO.Body.ofString("enya caribbean blue", StandardCharsets.UTF_8)))
-        .terminalConsumer(seen::set)
+        .responseConsumer(seen::set)
         .build();
 
     assertEquals("com.shellaia.spotify", component.getComponentDescriptor().getName());

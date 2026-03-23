@@ -27,7 +27,7 @@ public class TemplateComponent {
 
   @Action(group = "template", command = "ping", description = "Respond with pong.")
   public Boolean ping(CommandContext context) {
-    context.completeText(200, "pong");
+    respondText(context, 200, "pong");
     return Boolean.TRUE;
   }
 
@@ -35,7 +35,7 @@ public class TemplateComponent {
   public Boolean echo(CommandContext context) {
     AiatpRequest request = context.getAiatpRequest();
     String body = request == null ? "" : bodyToString(request);
-    context.completeText(200, body);
+    respondText(context, 200, body);
     return Boolean.TRUE;
   }
 
@@ -43,15 +43,15 @@ public class TemplateComponent {
   public Boolean headers(CommandContext context) {
     AiatpRequest request = context.getAiatpRequest();
     Map<String, String> headers = request == null ? Map.of() : headersToMap(request);
-    context.completeText(200, toJsonLike(headers));
+    respondText(context, 200, toJsonLike(headers));
     return Boolean.TRUE;
   }
 
   @Action(group = "template", command = "event", description = "Emit an event and respond.")
   public Boolean event(CommandContext context) {
     context.emitCustom(TemplateEvents.TEMPLATE_EVENT.name(), TemplateEvents.TEMPLATE_EVENT.name(),
-        "text/plain; charset=utf-8", "event fired".getBytes(AiatpIO.UTF_8), "final");
-    context.completeText(200, "event emitted");
+        "text/plain; charset=utf-8", "event fired".getBytes(AiatpIO.UTF_8), "progress");
+    respondText(context, 200, "event emitted");
     return Boolean.TRUE;
   }
 
@@ -97,5 +97,30 @@ public class TemplateComponent {
       return "";
     }
     return value.replace("\\", "\\\\").replace("\"", "\\\"");
+  }
+
+  private void respondText(CommandContext context, int status, String message) {
+    String safeMessage = message == null ? "" : message;
+    context.completeJson(status, "{"
+        + "\"ok\":" + (status < 400) + ","
+        + "\"message\":" + quoteJson(safeMessage) + ","
+        + "\"channels\":{"
+        + "\"chat\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"status\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+        + "}"
+        + "}");
+  }
+
+  private String quoteJson(String value) {
+    if (value == null) {
+      return "null";
+    }
+    return "\"" + escape(value)
+        .replace("\b", "\\b")
+        .replace("\f", "\\f")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t") + "\"";
   }
 }

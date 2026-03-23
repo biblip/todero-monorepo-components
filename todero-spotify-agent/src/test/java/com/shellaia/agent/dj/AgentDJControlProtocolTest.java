@@ -54,7 +54,7 @@ class AgentDJControlProtocolTest {
     AiatpIORequestWrapper wrapper = seen.get();
     assertNotNull(wrapper);
     assertEquals("control", wrapper.getAiatpEvent().getChannel());
-    assertTrue(wrapper.getAiatpEvent().isTerminal());
+    assertEquals("final", wrapper.getAiatpEvent().getPhase());
 
     JsonNode root = JSON.readTree(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8));
     assertEquals("failure", root.path("outcome").asText());
@@ -242,7 +242,8 @@ class AgentDJControlProtocolTest {
         "",
         """
         {"ok":true,"message":"Authorization required.","channels":{"status":{"message":"Open authorization URL."},"chat":{"message":"Authorization required."},"html":{"html":null,"mode":"none","replace":false}},"auth":{"required":true,"provider":"spotify","session":{"sessionId":"sess-5"},"authorizeUrl":"https://accounts.spotify.com/authorize?x=5"}}
-        """
+        """,
+        "AWAIT_EXTERNAL_COMPLETION"
     );
     Method emitToolProgress = declaredMethod(AgentDJComponent.class, "emitToolProgress", CommandContext.class, tool.getClass(), String.class, int.class);
     emitToolProgress.invoke(component, context, tool, "corr-5", 1);
@@ -307,11 +308,14 @@ class AgentDJControlProtocolTest {
                                          String args,
                                          String output,
                                          String errorCode,
-                                         String rawOutput) throws Exception {
+                                         String rawOutput,
+                                         String responseOutcomeName) throws Exception {
+    Class<?> outcomeClass = Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolResponseOutcome");
+    Object outcome = Enum.valueOf((Class<Enum>) outcomeClass.asSubclass(Enum.class), responseOutcomeName);
     Class<?> clazz = Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolExecution");
-    Constructor<?> ctor = clazz.getDeclaredConstructor(boolean.class, String.class, String.class, String.class, String.class, String.class);
+    Constructor<?> ctor = clazz.getDeclaredConstructor(boolean.class, String.class, String.class, String.class, String.class, String.class, outcomeClass);
     ctor.setAccessible(true);
-    return ctor.newInstance(executed, command, args, output, errorCode, rawOutput);
+    return ctor.newInstance(executed, command, args, output, errorCode, rawOutput, outcome);
   }
 
   private static final class InMemoryStorage implements Storage {

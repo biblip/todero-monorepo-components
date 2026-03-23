@@ -1,5 +1,6 @@
 package com.shellaia.component.spotify;
 
+import com.social100.todero.component.testkit.TestStorage;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -24,6 +25,29 @@ class SpotifyComponentResponseInferenceTest {
     assertEquals("invalid_arguments", inferErrorCode("Usage: skip <+/-seconds>"));
   }
 
+  @Test
+  void classifyOutcomeMarksIntermediateAndAwaitingCommands() throws Exception {
+    assertEquals("goal_completed", classifyOutcome("play", true));
+    assertEquals("intermediate_result", classifyOutcome("status", true));
+    assertEquals("await_external_completion", classifyOutcome("auth-begin", true));
+    assertEquals("failure", classifyOutcome("play", false));
+  }
+
+  @Test
+  void responseJsonIncludesResponseOutcomeAndChannels() throws Exception {
+    SpotifyComponent component = newComponent();
+    Method method = SpotifyComponent.class.getDeclaredMethod(
+        "responseJson",
+        String.class, String.class, String.class, boolean.class, String.class,
+        String.class, String.class, Object.class, String.class, String.class, boolean.class);
+    method.setAccessible(true);
+    String json = (String) method.invoke(component, "events", "ON", "Events started.", true, null,
+        "goal_completed", null, null, null, "none", false);
+    assertTrue(json.contains("\"response\""));
+    assertTrue(json.contains("\"outcome\":\"goal_completed\""));
+    assertTrue(json.contains("\"channels\""));
+  }
+
   private static boolean inferSuccess(String message) throws Exception {
     Method method = SpotifyComponent.class.getDeclaredMethod("inferSuccess", String.class);
     method.setAccessible(true);
@@ -34,5 +58,15 @@ class SpotifyComponentResponseInferenceTest {
     Method method = SpotifyComponent.class.getDeclaredMethod("inferErrorCode", String.class);
     method.setAccessible(true);
     return (String) method.invoke(null, message);
+  }
+
+  private static String classifyOutcome(String command, boolean ok) throws Exception {
+    Method method = SpotifyComponent.class.getDeclaredMethod("classifyOutcome", String.class, boolean.class);
+    method.setAccessible(true);
+    return (String) method.invoke(null, command, ok);
+  }
+
+  private static SpotifyComponent newComponent() {
+    return new SpotifyComponent(new TestStorage());
   }
 }

@@ -2,6 +2,7 @@ package com.shellaia.agent.router;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
@@ -31,6 +32,7 @@ class RouterAgentEventNativeDelegationTest {
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
     AtomicReference<AiatpIORequestWrapper> last = new AtomicReference<>();
     List<AiatpIORequestWrapper> seen = new CopyOnWriteArrayList<>();
+    AtomicReference<AiatpResponse> response = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-event-native")
@@ -41,14 +43,16 @@ class RouterAgentEventNativeDelegationTest {
           seen.add(wrapper);
           last.set(wrapper);
         })
+        .responseConsumer(response::set)
         .build();
 
     router.process(context);
 
     assertTrue(manager.processSawProgress.get());
-    assertEquals("chat", last.get().getAiatpEvent().getChannel());
-    assertEquals("done", AiatpIO.bodyToString(last.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    assertEquals("status", last.get().getAiatpEvent().getChannel());
     assertTrue(seen.stream().anyMatch(wrapper -> "status".equals(wrapper.getAiatpEvent().getChannel())));
+    assertEquals("chat", response.get().getChannel());
+    assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("\"done\""));
   }
 
   @Test
@@ -56,6 +60,7 @@ class RouterAgentEventNativeDelegationTest {
     EventNativeManager manager = new EventNativeManager(false);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
     AtomicReference<AiatpIORequestWrapper> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> response = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-capabilities-event")
@@ -63,13 +68,15 @@ class RouterAgentEventNativeDelegationTest {
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString("play music", StandardCharsets.UTF_8)))
         .eventConsumer(out::set)
+        .responseConsumer(response::set)
         .build();
 
     router.process(context);
 
     assertTrue(manager.capabilitiesSawProgress.get());
-    assertEquals("chat", out.get().getAiatpEvent().getChannel());
-    assertEquals("done", AiatpIO.bodyToString(out.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    assertEquals("status", out.get().getAiatpEvent().getChannel());
+    assertEquals("chat", response.get().getChannel());
+    assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("\"done\""));
   }
 
   @Test
@@ -102,6 +109,7 @@ class RouterAgentEventNativeDelegationTest {
     ControlEventManager manager = new ControlEventManager();
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
     List<AiatpIORequestWrapper> seen = new CopyOnWriteArrayList<>();
+    AtomicReference<AiatpResponse> response = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-control-forward")
@@ -109,16 +117,15 @@ class RouterAgentEventNativeDelegationTest {
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString("suggest lions", StandardCharsets.UTF_8)))
         .eventConsumer(seen::add)
+        .responseConsumer(response::set)
         .build();
 
     router.process(context);
 
     assertTrue(manager.sawUpstreamControl.get());
     assertTrue(seen.stream().anyMatch(wrapper -> "status".equals(wrapper.getAiatpEvent().getChannel())));
-    assertTrue(seen.stream().anyMatch(wrapper -> "html".equals(wrapper.getAiatpEvent().getChannel())));
-    AiatpIORequestWrapper terminal = seen.get(seen.size() - 1);
-    assertEquals("html", terminal.getAiatpEvent().getChannel());
-    assertEquals("<html>done</html>", AiatpIO.bodyToString(terminal.getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    String responseBody = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(responseBody.contains("<html>done</html>"));
   }
 
   @Test
@@ -126,6 +133,7 @@ class RouterAgentEventNativeDelegationTest {
     OutOfScopeControlManager manager = new OutOfScopeControlManager(false);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
     List<AiatpIORequestWrapper> seen = new CopyOnWriteArrayList<>();
+    AtomicReference<AiatpResponse> response = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-out-of-scope")
@@ -133,6 +141,7 @@ class RouterAgentEventNativeDelegationTest {
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString("send an email to june", StandardCharsets.UTF_8)))
         .eventConsumer(seen::add)
+        .responseConsumer(response::set)
         .build();
 
     router.process(context);
@@ -141,9 +150,7 @@ class RouterAgentEventNativeDelegationTest {
     assertTrue(seen.stream().noneMatch(wrapper ->
         "status".equals(wrapper.getAiatpEvent().getChannel())
             && "Rerouting to another agent.".equals(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8))));
-    assertTrue(seen.stream().anyMatch(wrapper ->
-        "chat".equals(wrapper.getAiatpEvent().getChannel())
-            && AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8).contains("can't send emails")));
+    assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("can't send emails"));
   }
 
   @Test
@@ -151,6 +158,7 @@ class RouterAgentEventNativeDelegationTest {
     OutOfScopeControlManager manager = new OutOfScopeControlManager(true);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
     List<AiatpIORequestWrapper> seen = new CopyOnWriteArrayList<>();
+    AtomicReference<AiatpResponse> response = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-out-of-scope-alt")
@@ -158,6 +166,7 @@ class RouterAgentEventNativeDelegationTest {
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString("send an email to june", StandardCharsets.UTF_8)))
         .eventConsumer(seen::add)
+        .responseConsumer(response::set)
         .build();
 
     router.process(context);
@@ -167,9 +176,7 @@ class RouterAgentEventNativeDelegationTest {
     assertTrue(seen.stream().anyMatch(wrapper ->
         "status".equals(wrapper.getAiatpEvent().getChannel())
             && "Rerouting to another agent.".equals(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8))));
-    assertTrue(seen.stream().anyMatch(wrapper ->
-        "chat".equals(wrapper.getAiatpEvent().getChannel())
-            && AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8).contains("handled by alternate agent")));
+    assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("handled by alternate agent"));
   }
 
   private static final class EventNativeManager implements ComponentManagerInterface {
@@ -227,13 +234,13 @@ class RouterAgentEventNativeDelegationTest {
       if ("capabilities".equals(command)) {
         capabilitiesSawProgress.set(true);
         context.emitStatus("probing", "progress");
-        context.emitChat("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.agent.dj\",\"routingHints\":{\"skillSummary\":\"Handles music playback requests and playlist control.\"},\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", "final");
+        context.completeJson(200, "{\"channels\":{\"chat\":{\"message\":\"capabilities ready\"},\"status\":{\"message\":\"capabilities ready\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.agent.dj\",\"routingHints\":{\"skillSummary\":\"Handles music playback requests and playlist control.\"},\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}");
         return;
       }
       if ("process".equals(command)) {
         processSawProgress.set(true);
         context.emitStatus("delegated-working", "progress");
-        context.emitChat("{\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}", "final");
+        context.completeJson(200, "{\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
       context.emitError("not_found");
@@ -327,13 +334,10 @@ class RouterAgentEventNativeDelegationTest {
               + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
           "progress",
           "delegate_progress");
-      context.emitControlJson(
-          "{\"kind\":\"terminal\",\"outcome\":\"success\",\"terminal\":true,"
-              + "\"meta\":{\"outcome\":\"success\"},"
+      context.completeJson(200,
+          "{\"response\":{\"outcome\":\"goal_completed\",\"completed\":true},"
               + "\"channels\":{\"status\":{\"message\":\"done\"},\"chat\":{\"message\":\"done\"},"
-              + "\"html\":{\"html\":\"<html>done</html>\",\"mode\":\"html\",\"replace\":true}}}",
-          "final",
-          "delegate_terminal");
+              + "\"html\":{\"html\":\"<html>done</html>\",\"mode\":\"html\",\"replace\":true}}}");
     }
   }
 
@@ -389,43 +393,35 @@ class RouterAgentEventNativeDelegationTest {
         String skillSummary = "com.shellaia.agent.dj".equals(componentName)
             ? "Handles music playback requests and playlist control."
             : "Handles alternate communication workflows.";
-        context.emitChat("{\"manifest\":{\"contractVersion\":1,\"agentName\":\"" + agentName + "\",\"routingHints\":{\"skillSummary\":\"" + skillSummary + "\"},\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}", "final");
+        context.completeJson(200, "{\"channels\":{\"chat\":{\"message\":\"capabilities ready\"},\"status\":{\"message\":\"capabilities ready\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"manifest\":{\"contractVersion\":1,\"agentName\":\"" + agentName + "\",\"routingHints\":{\"skillSummary\":\"" + skillSummary + "\"},\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}");
         return;
       }
       if ("com.shellaia.agent.dj".equals(componentName)) {
         processExecuteCount++;
         djProcessExecuteCount++;
-        context.emitControlJson(
-            "{\"kind\":\"terminal\",\"outcome\":\"unhandled_intent\",\"terminal\":true,"
-                + "\"payload\":{\"stopReason\":\"out_of_scope\",\"message\":\"I can't send emails.\"},"
+        context.completeJson(500,
+            "{\"response\":{\"outcome\":\"unsupported_operation\",\"completed\":true},"
                 + "\"meta\":{\"outcome\":\"unhandled_intent\",\"errorCode\":\"unsupported_operation\"},"
                 + "\"channels\":{\"status\":{\"message\":\"I can't send emails. I can help with Spotify music playback.\"},"
                 + "\"chat\":{\"message\":\"I can't send emails. I can help with Spotify music playback.\"},"
-                + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
-            "final",
-            "delegate_terminal");
+                + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
       if ("com.shellaia.agent.zzzalt".equals(componentName)) {
         altProcessExecuteCount++;
-        context.emitControlJson(
-            "{\"kind\":\"terminal\",\"outcome\":\"success\",\"terminal\":true,"
-                + "\"payload\":{\"stopReason\":\"completed\",\"message\":\"Handled by alternate agent.\"},"
+        context.completeJson(200,
+            "{\"response\":{\"outcome\":\"goal_completed\",\"completed\":true},"
                 + "\"meta\":{\"outcome\":\"success\"},"
                 + "\"channels\":{\"status\":{\"message\":\"handled by alternate agent\"},"
                 + "\"chat\":{\"message\":\"handled by alternate agent\"},"
-                + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
-            "final",
-            "delegate_terminal");
+                + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
-      context.emitControlJson(
-          "{\"kind\":\"terminal\",\"outcome\":\"failure\",\"terminal\":true,"
+      context.completeJson(500,
+          "{\"response\":{\"outcome\":\"failure\",\"completed\":true},"
               + "\"meta\":{\"outcome\":\"failure\",\"errorCode\":\"not_found\"},"
               + "\"channels\":{\"status\":{\"message\":\"not found\"},\"chat\":{\"message\":\"not found\"},"
-              + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
-          "error",
-          "delegate_terminal");
+              + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
     }
   }
 

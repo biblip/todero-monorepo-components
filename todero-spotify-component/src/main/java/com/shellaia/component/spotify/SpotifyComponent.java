@@ -28,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.PatternSyntaxException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -244,7 +245,7 @@ public class SpotifyComponent {
           );
           CommandContext internal = CommandContext.builder()
               .aiatpRequest(internalRequest)
-              .terminalConsumer(ignored -> {})
+              .responseConsumer(ignored -> {})
               .build();
           context.execute(DJ_AGENT, "react", internal);
           System.out.println("[SPOTIFY] notify-agent execute sent to DJ agent");
@@ -317,7 +318,19 @@ public class SpotifyComponent {
       authPayload.put("relayPolicy", relayPolicyMap(result.relayPolicy()));
       authPayload.put("openExternally", true);
       authPayload.put("ctaLabel", "Authorize Spotify");
-      context.emitAuthJson(GSON.toJson(authPayload), "final");
+      context.completeJson(200, responseJson(
+          "auth-begin",
+          args,
+          result.message(),
+          true,
+          null,
+          "await_external_completion",
+          null,
+          authPayload,
+          result.ctaHtml(),
+          result.ctaHtml() != null && !result.ctaHtml().isBlank() ? "html" : "none",
+          result.ctaHtml() != null && !result.ctaHtml().isBlank()
+      ));
       return true;
     } catch (ComponentNotReadyException e) {
       throw e;
@@ -334,11 +347,19 @@ public class SpotifyComponent {
     try {
       SpotifyPkceService.AuthCompleteRequest request = parseAuthCompleteRequest(args);
       SpotifyPkceService.AuthCompleteResult result = pkceService().authComplete(request);
-      if (result.ok()) {
-        context.emitStatus(result.message(), "final");
-      } else {
-        context.emitError(result.message());
-      }
+      context.completeJson(200, responseJson(
+          "auth-complete",
+          args,
+          result.message(),
+          result.ok(),
+          result.ok() ? null : "execution_failed",
+          result.ok() ? "goal_completed" : "failure",
+          null,
+          null,
+          null,
+          "none",
+          false
+      ));
       return true;
     } catch (ComponentNotReadyException e) {
       throw e;
@@ -355,11 +376,19 @@ public class SpotifyComponent {
     Map<String, String> argMap = parseArgMap(args);
     String sessionId = value(argMap, "session-id", "sessionId");
     SpotifyPkceService.AuthSessionResult result = pkceService().authSession(sessionId);
-    if (result.ok()) {
-      context.emitStatus(result.message(), "final");
-    } else {
-      context.emitError(result.message());
-    }
+    context.completeJson(result.ok() ? 200 : 500, responseJson(
+        "auth-session",
+        args,
+        result.message(),
+        result.ok(),
+        result.ok() ? null : "execution_failed",
+        result.ok() ? "intermediate_result" : "failure",
+        null,
+        null,
+        null,
+        "none",
+        false
+    ));
     return true;
   }
 
@@ -371,11 +400,19 @@ public class SpotifyComponent {
     Map<String, String> argMap = parseArgMap(args);
     String sessionId = value(argMap, "session-id", "sessionId");
     SpotifyPkceService.AuthSessionResult result = pkceService().authCancel(sessionId);
-    if (result.ok()) {
-      context.emitStatus(result.message(), "final");
-    } else {
-      context.emitError(result.message());
-    }
+    context.completeJson(result.ok() ? 200 : 500, responseJson(
+        "auth-cancel",
+        args,
+        result.message(),
+        result.ok(),
+        result.ok() ? null : "execution_failed",
+        result.ok() ? "goal_completed" : "failure",
+        null,
+        null,
+        null,
+        "none",
+        false
+    ));
     return true;
   }
 
@@ -1232,13 +1269,84 @@ public class SpotifyComponent {
                           String message,
                           boolean ok,
                           String errorCode) {
-    String safeMessage = message == null ? "" : message;
-    if (!ok) {
-      context.emitError(safeMessage);
-      return true;
-    }
-    context.emitChat(safeMessage, "final");
+    context.completeJson(200, responseJson(
+        command,
+        args,
+        message,
+        ok,
+        errorCode,
+        classifyOutcome(command, ok),
+        null,
+        null,
+        null,
+        "none",
+        false
+    ));
     return true;
+  }
+
+  private String responseJson(String command,
+                              String args,
+                              String message,
+                              boolean ok,
+                              String errorCode,
+                              String responseOutcome,
+                              String statusMessage,
+                              Object authPayload,
+                              String html,
+                              String htmlMode,
+                              boolean htmlReplace) {
+    Map<String, Object> root = new LinkedHashMap<>();
+    String safeMessage = message == null ? "" : message;
+    String safeStatus = statusMessage == null || statusMessage.isBlank() ? safeMessage : statusMessage;
+    root.put("ok", ok);
+    root.put("message", safeMessage);
+    if (errorCode != null && !errorCode.isBlank()) {
+      root.put("errorCode", errorCode);
+    }
+
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("outcome", responseOutcome == null || responseOutcome.isBlank() ? "goal_completed" : responseOutcome);
+    response.put("command", command == null ? "" : command);
+    response.put("args", args == null ? "" : args);
+    response.put("completed", true);
+    root.put("response", response);
+
+    Map<String, Object> channels = new LinkedHashMap<>();
+    channels.put("chat", Map.of("message", safeMessage));
+    channels.put("status", Map.of("message", safeStatus));
+    Map<String, Object> htmlChannel = new LinkedHashMap<>();
+    htmlChannel.put("html", html == null || html.isBlank() ? null : html);
+    htmlChannel.put("mode", htmlMode == null || htmlMode.isBlank() ? "none" : htmlMode);
+    htmlChannel.put("replace", htmlReplace);
+    channels.put("html", htmlChannel);
+    root.put("channels", channels);
+
+    if (authPayload != null) {
+      root.put("auth", authPayload);
+    }
+
+    Map<String, Object> meta = new LinkedHashMap<>();
+    meta.put("outcome", response.get("outcome"));
+    if (errorCode != null && !errorCode.isBlank()) {
+      meta.put("errorCode", errorCode);
+    }
+    root.put("meta", meta);
+    return GSON.toJson(root);
+  }
+
+  private static String classifyOutcome(String command, boolean ok) {
+    if (!ok) {
+      return "failure";
+    }
+    String normalized = command == null ? "" : command.trim().toLowerCase(Locale.ROOT);
+    if ("auth-begin".equals(normalized)) {
+      return "await_external_completion";
+    }
+    if (INTERMEDIATE_RESULT_COMMANDS.contains(normalized)) {
+      return "intermediate_result";
+    }
+    return "goal_completed";
   }
 
   private static boolean shouldEmitFailureMeta(String message) {
@@ -1296,6 +1404,19 @@ public class SpotifyComponent {
     }
     return !text.matches("(?i)^[a-z0-9-]+ failed(?:\\s+\\[error_code=[a-z0-9_\\-]+])?:.*");
   }
+
+  private static final Set<String> INTERMEDIATE_RESULT_COMMANDS = Set.of(
+      "status",
+      "auth-status",
+      "auth-session",
+      "devices",
+      "playlists",
+      "playlist-list",
+      "recently-played",
+      "top-tracks",
+      "top-artists",
+      "resolve-track"
+  );
 
   private static String inferErrorCode(String message) {
     String text = message == null ? "" : message.trim();

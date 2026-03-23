@@ -34,12 +34,12 @@ public class SshComponent {
   public Boolean open(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Usage: open <id> <host> <user> <pemPath>");
+      respondText(context, 200, "Usage: open <id> <host> <user> <pemPath>");
       return false;
     }
     String[] args = commandArgs.split(" ", 3);
     controller.openConnectionWithKey(args[0], args[1], args[2], args[3]);
-    context.completeText(200, "Connection opened.");
+    respondText(context, 200, "Connection opened.");
     return true;
   }
 
@@ -49,7 +49,7 @@ public class SshComponent {
   public Boolean openWithPassword(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Usage: open-pass <id> <host> <user> <passwordFilePath>");
+      respondText(context, 200, "Usage: open-pass <id> <host> <user> <passwordFilePath>");
       return false;
     }
     try {
@@ -63,10 +63,10 @@ public class SshComponent {
 
       String password = Files.readString(Path.of(passwordFile)).strip();
       controller.openConnectionWithPassword(args[0], args[1], args[2], password);
-      context.completeText(200, "Connection opened with password. id:" + args[0]);
+      respondText(context, 200, "Connection opened with password. id:" + args[0]);
       return true;
     } catch (IOException e) {
-      context.completeText(200, "Failed to read password file: " + e.getMessage());
+      respondText(context, 200, "Failed to read password file: " + e.getMessage());
       return false;
     }
   }
@@ -77,16 +77,16 @@ public class SshComponent {
   public Boolean run(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Usage: run <id> <command>");
+      respondText(context, 200, "Usage: run <id> <command>");
       return false;
     }
     String[] args = commandArgs.split(" ", 2);
     controller.executeCommand(args[0],
         args[1],
         Duration.ofSeconds(60),
-        output -> context.completeText(200, output),
-        output -> context.completeText(200, output));
-    context.completeText(200, "Command executed.");
+        output -> respondText(context, 200, output),
+        output -> respondText(context, 200, output));
+    respondText(context, 200, "Command executed.");
     return true;
   }
 
@@ -96,12 +96,12 @@ public class SshComponent {
   public Boolean upload(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Usage: upload <id> <localPath> <remotePath>");
+      respondText(context, 200, "Usage: upload <id> <localPath> <remotePath>");
       return false;
     }
     String[] args = commandArgs.split(" ", 3);
     controller.uploadScript(args[0], args[1], args[2]);
-    context.completeText(200, "Upload complete.");
+    respondText(context, 200, "Upload complete.");
     return true;
   }
 
@@ -111,12 +111,12 @@ public class SshComponent {
   public Boolean delete(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Usage: delete <id> <remotePath>");
+      respondText(context, 200, "Usage: delete <id> <remotePath>");
       return false;
     }
     String[] args = commandArgs.split(" ", 2);
     controller.deleteRemoteFile(args[0], args[1]);
-    context.completeText(200, "Remote file deleted.");
+    respondText(context, 200, "Remote file deleted.");
     return true;
   }
 
@@ -126,14 +126,56 @@ public class SshComponent {
   public Boolean close(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Usage: close <id>");
+      respondText(context, 200, "Usage: close <id>");
       return false;
     }
     controller.closeConnection(commandArgs);
-    context.completeText(200, "Connection closed.");
+    respondText(context, 200, "Connection closed.");
     return true;
   }
 
+
+  private static void respondText(CommandContext context, int status, String message) {
+    String safeMessage = message == null ? "" : message;
+    context.completeJson(status, "{"
+        + "\"ok\":" + (status < 400) + ","
+        + "\"message\":" + quoteJson(safeMessage) + ","
+        + "\"channels\":{"
+        + "\"chat\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"status\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+        + "}"
+        + "}");
+  }
+
+  private static String quoteJson(String value) {
+    if (value == null) {
+      return "null";
+    }
+    StringBuilder out = new StringBuilder(value.length() + 2);
+    out.append('"');
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      switch (c) {
+        case '"' -> out.append("\\\"");
+        case '\\' -> out.append("\\\\");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            out.append(String.format("\\u%04x", (int) c));
+          } else {
+            out.append(c);
+          }
+        }
+      }
+    }
+    out.append('"');
+    return out.toString();
+  }
 
   private static String requestBody(CommandContext context) {
     if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {

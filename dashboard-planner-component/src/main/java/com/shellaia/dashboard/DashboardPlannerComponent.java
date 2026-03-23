@@ -184,7 +184,7 @@ public class DashboardPlannerComponent {
         String[] commandArgs = arguments.toArray(new String[0]);
 
         CommandContext internalContext = CommandContext.builder()
-            .terminalConsumer(context::complete)
+            .responseConsumer(context::complete)
             .build();
 
         //context.execute("com.shellaia.vlc", command, internalContext);

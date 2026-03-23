@@ -2,6 +2,7 @@ package com.shellaia.agent.router;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
@@ -54,21 +55,21 @@ class RouterAgentOpaqueRelayTest {
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<AiatpIORequestWrapper> responseRef = new AtomicReference<>();
+    AtomicReference<AiatpResponse> responseRef = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-opaque")
         .componentManager(manager)
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8)))
-        .eventConsumer(responseRef::set)
+        .responseConsumer(responseRef::set)
         .build();
 
     router.process(context);
 
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
-    assertEquals("auth", responseRef.get().getAiatpEvent().getChannel());
-    assertEquals("{\"required\":false}", AiatpIO.bodyToString(responseRef.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    String responseBody = AiatpIO.bodyToString(responseRef.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(responseBody.contains("\"auth\":{\"required\":false}"));
   }
 
   @Test
@@ -79,21 +80,21 @@ class RouterAgentOpaqueRelayTest {
 
     StubManager manager = new StubManager(delegatedBody);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<AiatpIORequestWrapper> responseRef = new AtomicReference<>();
+    AtomicReference<AiatpResponse> responseRef = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-opaque-malformed")
         .componentManager(manager)
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString(prompt, StandardCharsets.UTF_8)))
-        .eventConsumer(responseRef::set)
+        .responseConsumer(responseRef::set)
         .build();
 
     router.process(context);
 
     assertEquals(prompt, manager.lastDelegatedPrompt.get());
-    assertEquals("chat", responseRef.get().getAiatpEvent().getChannel());
-    assertEquals("done", AiatpIO.bodyToString(responseRef.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    String responseBody = AiatpIO.bodyToString(responseRef.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(responseBody.contains("\"chat\":{\"message\":\"done\"}"));
   }
 
   private static final class StubManager implements ComponentManagerInterface {

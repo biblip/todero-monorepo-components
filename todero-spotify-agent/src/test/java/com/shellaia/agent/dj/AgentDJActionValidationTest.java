@@ -189,33 +189,23 @@ class AgentDJActionValidationTest {
   }
 
   @Test
-  void marksTerminalInteractiveCommandsAsCompletionCandidates() throws Exception {
+  void classifiesToolResponseDispositionFromOutcome() throws Exception {
     Method method = AgentDJComponent.class.getDeclaredMethod(
-        "shouldCompleteAfterSuccessfulTool",
-        String.class,
-        com.social100.todero.common.ai.action.CommandAgentResponse.class
+        "responseDispositionForSuccessfulTool",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolExecution")
     );
     method.setAccessible(true);
 
-    com.social100.todero.common.ai.action.CommandAgentResponse playResponse =
-        new com.social100.todero.common.ai.action.CommandAgentResponse(
-            "play enya",
-            "play ${Enya Caribbean Blue}",
-            "Playing now.",
-            ""
-        );
-    boolean playCompletes = (boolean) method.invoke(null, "play", playResponse);
-    assertTrue(playCompletes);
+    Object playTool = newToolExecution(true, "play", "spotify:track:1", "Playing now.", "", "",
+        "GOAL_COMPLETED");
+    Object resolveTrackTool = newToolExecution(true, "resolve-track", "Caribbean Blue Enya", "Resolved a candidate.", "", "",
+        "INTERMEDIATE_RESULT");
+    Object authBeginTool = newToolExecution(true, "auth-begin", "", "Open the Spotify link.", "", "",
+        "AWAIT_EXTERNAL_COMPLETION");
 
-    com.social100.todero.common.ai.action.CommandAgentResponse resolveTrackResponse =
-        new com.social100.todero.common.ai.action.CommandAgentResponse(
-            "verify track",
-            "resolve-track Caribbean Blue Enya",
-            "Resolved a candidate.",
-            ""
-        );
-    boolean resolveTrackCompletes = (boolean) method.invoke(null, "resolve-track", resolveTrackResponse);
-    assertFalse(resolveTrackCompletes);
+    assertEquals("GOAL_COMPLETED", String.valueOf(method.invoke(null, playTool)));
+    assertEquals("CONTINUE", String.valueOf(method.invoke(null, resolveTrackTool)));
+    assertEquals("AWAIT_EXTERNAL_COMPLETION", String.valueOf(method.invoke(null, authBeginTool)));
   }
 
   private static Constructor<?> findToolStepConstructor() throws Exception {
@@ -253,6 +243,22 @@ class AgentDJActionValidationTest {
     Method method = target.getClass().getDeclaredMethod(methodName);
     method.setAccessible(true);
     return (String) method.invoke(target);
+  }
+
+  private static Object newToolExecution(boolean executed,
+                                         String command,
+                                         String args,
+                                         String output,
+                                         String errorCode,
+                                         String rawOutput,
+                                         String responseOutcomeName) throws Exception {
+    Class<?> outcomeClass = Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolResponseOutcome");
+    Object outcome = Enum.valueOf((Class<Enum>) outcomeClass.asSubclass(Enum.class), responseOutcomeName);
+    Class<?> toolClass = Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolExecution");
+    Constructor<?> ctor = toolClass.getDeclaredConstructor(
+        boolean.class, String.class, String.class, String.class, String.class, String.class, outcomeClass);
+    ctor.setAccessible(true);
+    return ctor.newInstance(executed, command, args, output, errorCode, rawOutput, outcome);
   }
 
   private record ValidationResult(String command, String args, String errorCode, String error) {

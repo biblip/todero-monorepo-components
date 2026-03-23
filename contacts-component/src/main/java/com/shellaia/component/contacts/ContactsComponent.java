@@ -254,11 +254,11 @@ public class ContactsComponent {
     Map<String, Object> channels = new LinkedHashMap<>();
     channels.put("chat", Map.of("message", chatMessage == null ? "" : chatMessage));
     channels.put("status", Map.of("message", statusMessage == null ? "" : statusMessage));
-    Map<String, Object> webview = new LinkedHashMap<>();
-    webview.put("html", webviewHtml);
-    webview.put("mode", webviewHtml == null || webviewHtml.isBlank() ? "none" : "html");
-    webview.put("replace", replace);
-    channels.put("html", webview);
+    Map<String, Object> htmlChannel = new LinkedHashMap<>();
+    htmlChannel.put("html", webviewHtml);
+    htmlChannel.put("mode", webviewHtml == null || webviewHtml.isBlank() ? "none" : "html");
+    htmlChannel.put("replace", replace);
+    channels.put("html", htmlChannel);
     payload.put("channels", channels);
 
     payload.put("auth", null);

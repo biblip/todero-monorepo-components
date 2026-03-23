@@ -47,14 +47,14 @@ public class VlcComponent {
   public Boolean eventsCommand(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, context.getInstance().getAvailableEvents().toString());
+      respondText(context, 200, context.getInstance().getAvailableEvents().toString());
     } else {
       boolean eventsOn = "on".equalsIgnoreCase(commandArgs);
       if (eventsOn) {
         this.globalContext = context;
-        context.completeText(200, "events are now ON");
+        respondText(context, 200, "events are now ON");
       } else {
-        context.completeText(200, "events are now OFF");
+        respondText(context, 200, "events are now OFF");
         this.globalContext = null;
       }
     }
@@ -67,10 +67,10 @@ public class VlcComponent {
   public Boolean moveCommand(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Error: Please specify the time to move to. Usage: move <time>");
+      respondText(context, 200, "Error: Please specify the time to move to. Usage: move <time>");
       return true;
     }
-    context.completeText(200, this.vlcService.moveCommand(commandArgs));
+    respondText(context, 200, this.vlcService.moveCommand(commandArgs));
     return true;
   }
 
@@ -78,7 +78,7 @@ public class VlcComponent {
       command = "mute",
       description = "Toggles the mute state of the playback if valid media is loaded.")
   public Boolean muteCommand(CommandContext context) {
-    context.completeText(200, this.vlcService.muteCommand());
+    respondText(context, 200, this.vlcService.muteCommand());
     return true;
   }
 
@@ -86,7 +86,7 @@ public class VlcComponent {
       command = "pause",
       description = "Pauses the playback if it is currently playing.")
   public Boolean pauseCommand(CommandContext context) {
-    context.completeText(200, this.vlcService.pauseCommand());
+    respondText(context, 200, this.vlcService.pauseCommand());
     return true;
   }
 
@@ -96,10 +96,10 @@ public class VlcComponent {
   public Boolean playCommand(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Error: Please specify the song to play");
+      respondText(context, 200, "Error: Please specify the song to play");
       return true;
     }
-    context.completeText(200, this.vlcService.playCommand(commandArgs));
+    respondText(context, 200, this.vlcService.playCommand(commandArgs));
     return true;
   }
 
@@ -109,11 +109,11 @@ public class VlcComponent {
   public Boolean skipCommand(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "Error: Please specify the number of seconds to skip. Usage: skip <+/-seconds>");
+      respondText(context, 200, "Error: Please specify the number of seconds to skip. Usage: skip <+/-seconds>");
       return true;
     }
     long skipTime = Long.parseLong(commandArgs);
-    context.completeText(200, this.vlcService.skipCommand(skipTime));
+    respondText(context, 200, this.vlcService.skipCommand(skipTime));
     return true;
   }
 
@@ -123,7 +123,7 @@ public class VlcComponent {
   public Boolean statusCommand(CommandContext context) {
     final String commandArgs = requestBody(context);
     boolean all = (commandArgs != null && !commandArgs.isEmpty() && "all".equalsIgnoreCase(commandArgs));
-    context.completeText(200, this.vlcService.statusCommand(all));
+    respondText(context, 200, this.vlcService.statusCommand(all));
     return true;
   }
 
@@ -131,7 +131,7 @@ public class VlcComponent {
       command = "stop",
       description = "Stops the playback if it is currently active.")
   public Boolean stopCommand(CommandContext context) {
-    context.completeText(200, this.vlcService.stopCommand());
+    respondText(context, 200, this.vlcService.stopCommand());
     return true;
   }
 
@@ -141,11 +141,11 @@ public class VlcComponent {
   public Boolean volumeCommand(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "No volume level provided. Please specify a volume level between 0 and 150.");
+      respondText(context, 200, "No volume level provided. Please specify a volume level between 0 and 150.");
       return true;
     }
     int volume = Integer.parseInt(commandArgs);
-    context.completeText(200, this.vlcService.volumeCommand(volume));
+    respondText(context, 200, this.vlcService.volumeCommand(volume));
     return true;
   }
 
@@ -153,7 +153,7 @@ public class VlcComponent {
       command = "volume-down",
       description = "Decreases the volume by 5 units.")
   public Boolean volumeDownCommand(CommandContext context) {
-    context.completeText(200, this.vlcService.volumeDownCommand());
+    respondText(context, 200, this.vlcService.volumeDownCommand());
     return true;
   }
 
@@ -161,7 +161,7 @@ public class VlcComponent {
       command = "volume-up",
       description = "Increases the volume by 5 units.")
   public Boolean volumeUpCommand(CommandContext context) {
-    context.completeText(200, this.vlcService.volumeUpCommand());
+    respondText(context, 200, this.vlcService.volumeUpCommand());
     return true;
   }
 
@@ -171,10 +171,10 @@ public class VlcComponent {
   public Boolean playlistAdd(CommandContext context) {
     final String commandArgs = requestBody(context);
     if (commandArgs == null || commandArgs.isEmpty()) {
-      context.completeText(200, "No song to add.");
+      respondText(context, 200, "No song to add.");
       return true;
     }
-    context.completeText(200, this.vlcService.playlistAdd(commandArgs));
+    respondText(context, 200, this.vlcService.playlistAdd(commandArgs));
     return true;
   }
 
@@ -182,7 +182,7 @@ public class VlcComponent {
       command = "playlist-remove",
       description = "Remove current paying media from the playlist Usage: playlist-remove, if there is no current media playing then does nothing")
   public Boolean playlistRemove(CommandContext context) {
-    context.completeText(200, this.vlcService.playlistRemove());
+    respondText(context, 200, this.vlcService.playlistRemove());
     return true;
   }
 
@@ -190,7 +190,7 @@ public class VlcComponent {
       command = "playlist-next",
       description = "Play the next media in the playlist. Usage: playlist-next")
   public Boolean playlistNext(CommandContext context) {
-    context.completeText(200, this.vlcService.playlistNext());
+    respondText(context, 200, this.vlcService.playlistNext());
     return true;
   }
 
@@ -198,7 +198,7 @@ public class VlcComponent {
       command = "playlist-list",
       description = "Inform the user of the playlist items and which is the current item. Usage: playlist-list")
   public Boolean playlistList(CommandContext context) {
-    context.completeText(200, this.vlcService.playlistList());
+    respondText(context, 200, this.vlcService.playlistList());
     return true;
   }
 
@@ -209,5 +209,47 @@ public class VlcComponent {
     }
     String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
     return body == null ? "" : body;
+  }
+
+  private static void respondText(CommandContext context, int status, String message) {
+    String safeMessage = message == null ? "" : message;
+    context.completeJson(status, "{"
+        + "\"ok\":" + (status < 400) + ","
+        + "\"message\":" + quoteJson(safeMessage) + ","
+        + "\"channels\":{"
+        + "\"chat\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"status\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+        + "}"
+        + "}");
+  }
+
+  private static String quoteJson(String value) {
+    if (value == null) {
+      return "null";
+    }
+    StringBuilder out = new StringBuilder(value.length() + 2);
+    out.append('"');
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      switch (c) {
+        case '"' -> out.append("\\\"");
+        case '\\' -> out.append("\\\\");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            out.append(String.format("\\u%04x", (int) c));
+          } else {
+            out.append(c);
+          }
+        }
+      }
+    }
+    out.append('"');
+    return out.toString();
   }
 }

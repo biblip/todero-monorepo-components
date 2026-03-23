@@ -1,49 +1,38 @@
 # Todero Component API Reference
 
-This document describes the public API surface of the `todero-component-api`
-module. Types are organized by package, with key methods and behaviors.
+This document describes the current public API surface used by components in `todero-monorepo-components`.
 
-Note: This module depends on `com.social100.todero:aiatp-io`. Types such as
-`AiatpIO`, `AiatpIO.HttpRequest`, `AiatpIO.HttpResponse`, and
-`AiatpIORequestWrapper` are defined in that module and used throughout the API.
+Note: the protocol/runtime types come from `com.social100.todero:aiatp-io`. The main message model is:
+- runtime types: `AiatpRequest`, `AiatpResponse`, `AiatpEvent`
+- wire types: `AiatpWire.Request`, `AiatpWire.Response`, `AiatpWire.Event`
+- wrapper/container: `AiatpIORequestWrapper`
 
-## com.social100.todero.componentapi
+## Annotations
 
-### ComponentApiVersion
-- `public static final String VERSION`
-  - Declares the SDK API version string.
-
-## com.social100.processor (Annotations)
-
-### AIAController
-Annotation for component classes.
+### `@AIAController`
+Declares the component and its public namespace.
 - `String name()`
 - `ServerType type()`
 - `boolean visible()`
 - `String description()`
 - `Class<? extends EventDefinition> events() default NoEvents.class`
 
-### Action
-Annotation for command methods.
+### `@Action`
+Exposes a method as a command.
 - `String group()`
 - `String command()`
 - `String description()`
-Notes:
-- All fields are required by the processor (no defaults assumed).
-- Action methods must return `Boolean` for generated registries.
-- Action methods must take **only** `CommandContext` as a parameter. Additional
-  parameters are not supported by the processor and will fail compilation.
 
-### EventDefinition
-Event declaration contract for @AIAController events.
-Notes:
-- The processor expects an enum so it can call `values()`.
+Rules:
+- action methods must return `Boolean`
+- action methods must accept only `CommandContext`
+- additional parameters are not supported by the processor
 
-## Component Build Requirements (Processor)
+### `EventDefinition`
+Event declaration contract for `@AIAController(events = ...)`.
+- use an enum so the processor can call `values()`
 
-To compile `@AIAController` / `@Action` annotations into runtime registries,
-each component module must include the processor dependency and annotation
-processing configuration:
+## Build Requirements
 
 ### Maven dependencies
 ```xml
@@ -80,24 +69,24 @@ processing configuration:
 ```
 
 ### Required constructor
-The generated component wrapper injects `Storage` into the component. Your
-component must expose a matching constructor:
 ```java
 public ComponentName(Storage storage) { }
 ```
 
 ### Command arguments
-Since `@Action` methods accept only `CommandContext`, parse arguments from the
-request body (for example JSON):
+Parse arguments from the AIATP request body:
 ```java
-String body = AiatpIO.bodyToString(context.getHttpRequest().body(), UTF_8).trim();
-// parse JSON to map or domain object
+String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), AiatpIO.UTF_8).trim();
 ```
 
-### Response contract (mandatory)
-Every response must include top-level `channels` metadata:
+## Response Contract
+
+Every actionable response must include top-level `channels` metadata. `channels.html` is the canonical UI-content key.
+
 ```json
 {
+  "ok": true,
+  "message": "...",
   "channels": {
     "chat": { "message": "..." },
     "status": { "message": "..." },
@@ -106,79 +95,66 @@ Every response must include top-level `channels` metadata:
 }
 ```
 
-## com.social100.processor.beans (Minimal DI)
+## `CommandContext`
 
-### Service
-Class-level annotation for DI registration.
-- `Scope scope() default Scope.SINGLETON`
+`CommandContext` is the immutable request context passed to component actions.
 
-### Inject
-Field-level annotation for DI injection.
+Key fields:
+- `componentManager`
+- `agents`
+- `tools`
+- `storage`
+- `aiatpRequest`
+- `instance`
+- `responseConsumer`
+- `eventConsumer`
 
-### Scope
-Enum: `SINGLETON`, `PROTOTYPE`.
+### Completion helpers
+- `void complete(AiatpResponse result)`
+- `void completeText(int status, String text)`
+- `void completeJson(int status, String json)`
+- `void completeBytes(int status, byte[] bytes, String contentType)`
 
-### BeanFactory
-Simple static DI container.
-- `static void registerBeanClass(Class<?> clazz)`
-- `static void registerBeanClasses(Collection<Class<?>> classes)`
-- `static <T> T getBean(Class<T> type)`
+### Event helpers
+- `void emitChat(String message, String phase)`
+- `void emitStatus(String message, String phase)`
+- `void emitThought(String message, String phase)`
+- `void emitHtml(String html, String phase, String mode, boolean replace)`
+- `void emitAuthJson(String json, String phase)`
+- `void emitError(String message)`
+- `void emitControlJson(String json, String phase, String semanticType)`
+- `void emitCustom(String eventName, String channelName, String contentType, byte[] bytes, String phase)`
+- `AiatpEvent emitEvent(AiatpEvent event)`
 
-## com.social100.todero.common.command
-
-### CommandContext
-Immutable request context passed to component actions. Built via Lombok builder.
-Key fields (getters generated by Lombok): `id`, `componentManager`, `agents`,
-`tools`, `storage`, `httpRequest`, `instance` (event channel).
-
-Response helpers:
-- `void response(String message)`
-- `void response(AiatpIO.HttpResponse response)`
-- `AiatpIO.HttpResponse.Builder response(int status)`
-- `void responseText(int status, String text)`
-- `void responseJson(int status, String json)`
-- `void responseBytes(int status, byte[] bytes, String contentType)`
-
-Event helpers:
-- `void event(String eventName, AiatpIO.HttpResponse response)`
-- `void event(String eventName, String message)`
-
-Component invocation:
+### Component invocation
 - `void execute(String componentName, String command, CommandContext context)`
 - `String getHelp(String componentName, String commandName, OutputType outputType)`
 
-Immutability helpers:
-- `CommandContextBuilder cloneBuilder()`
-- `CommandContext withInstance(DynamicEventChannel newInstance)`
-- `CommandContext withConsumer(Consumer<AiatpIO.HttpResponse> newConsumer)`
+### Immutability helpers
+- `CommandContextBuilder toBuilder()`
+- `CommandContext withEventConsumer(Consumer<AiatpIORequestWrapper> newEventConsumer)`
 - `CommandContext withStorage(Storage newStorage)`
+- `CommandContext withLlmRegistry(LLMRegistry registry)`
 
-## com.social100.todero.common.base
+## Channels / Events
 
-### ComponentManagerInterface
-Interaction surface for component execution and help.
+### `EventChannel`
+- `void registerEvent(String eventName, String description)`
+- `boolean isEventRegistered(String eventName)`
+- `void subscribeToEvent(String eventName, EventListener listener)`
+- `void triggerEvent(String eventName, AiatpIORequestWrapper wrapper)`
+- `Map<String, String> getAvailableEvents()`
+
+Nested types:
+- `EventChannel.ReservedEvent`: `START`, `STOP`, `RESTART`, `RESPONSE`
+- `EventChannel.EventListener#onEvent(String eventName, AiatpIORequestWrapper wrapper)`
+
+## Component Manager Interface
 - `List<String> generateAutocompleteStrings()`
 - `String getHelp(String componentName, String commandName, OutputType outputType)`
 - `void execute(String componentName, String command, CommandContext context, boolean useComponentsAll)`
 
-## com.social100.todero.common.model.component
-
-### ComponentInterface
-- `ComponentDescriptor getComponentDescriptor()`
-- `Boolean execute(String componentName, String command, CommandContext context)`
-
-### ComponentDescriptor
-Lombok data class.
-- Fields: `name`, `description`, `type`, `visible`, `commands`
-
-### CommandDescriptor
-Lombok data class.
-- Fields: `group`, `command`, `description`, `method`, `isStatic`
-
-## com.social100.todero.common.storage
-
-### Storage
-File and secret storage abstraction.
+## Storage
 - `void writeFile(String relativePath, byte[] bytes)`
 - `byte[] readFile(String relativePath)`
 - `void deleteFile(String relativePath)`
@@ -187,248 +163,24 @@ File and secret storage abstraction.
 - `String getSecret(String key)`
 - `void deleteSecret(String key)`
 
-## com.social100.todero.common.channels
+## Pre/Post Processors
 
-### EventChannel
-Dynamic event registration and dispatch.
-- `void registerEvent(String eventName, String description)`
-- `boolean isEventRegistered(String eventName)`
-- `void subscribeToEvent(String eventName, EventListener listener)`
-- `void triggerEvent(String eventName, AiatpIORequestWrapper wrapper)`
-- `Map<String, String> getAvailableEvents()`
-
-Nested types:
-- `EventChannel.ReservedEvent` enum: `START`, `STOP`, `RESTART`, `RESPONSE`
-- `EventChannel.EventListener#onEvent(String eventName, AiatpIORequestWrapper wrapper)`
-
-### DynamicEventChannel
-Concrete `EventChannel` implementation with dynamic event registry.
-- Inherits all `EventChannel` methods.
-
-### ReservedEventRegistry
-Static listener registry for reserved events.
-- `static void subscribe(EventChannel.ReservedEvent event, EventListener listener)`
-- `static void trigger(EventChannel.ReservedEvent event, AiatpIORequestWrapper wrapper)`
-
-### ComponentEventListenerSupport
-- `void addComponentEventListener(EventChannel.EventListener listener)`
-
-## com.social100.todero.common.preprocessor
-
-### PreprocessorInterface
-Preprocessing hook for requests.
+### `PreprocessorInterface`
 - `PreprocessorMeta meta()`
-- `PreprocessResult before(CommandContext context, AiatpIO.HttpRequest request, PreprocessTarget target)`
+- `PreprocessResult before(CommandContext context, AiatpRequest request, PreprocessTarget target)`
 
-### PreprocessTarget
-Target component/command for preprocessing.
-- `String component()`
-- `String command()`
-- `PreprocessTarget withComponent(String nextComponent)`
-- `PreprocessTarget withCommand(String nextCommand)`
-
-### PreprocessorMeta
-Metadata for ordering and description.
-- `static PreprocessorMeta of(String id, int priority)`
-- `String id()`
-- `String description()`
-- `int priority()`
-
-### PreprocessResult
-Preprocessor outcome.
-- `static PreprocessResult continueWith(AiatpIO.HttpRequest request, PreprocessTarget target)`
+### `PreprocessResult`
+- `static PreprocessResult continueWith(AiatpRequest request, PreprocessTarget target)`
 - `static PreprocessResult continueWithTarget(PreprocessTarget target)`
-- `static PreprocessResult continueWithRequest(AiatpIO.HttpRequest request)`
-- `static PreprocessResult block(AiatpIO.HttpResponse response)`
+- `static PreprocessResult continueWithRequest(AiatpRequest request)`
+- `static PreprocessResult block(AiatpResponse response)`
 - `static PreprocessResult error(String message)`
-- Accessors: `action()`, `request()`, `target()`, `response()`, `message()`
 
-## com.social100.todero.common.postprocessor
-
-### PostprocessorInterface
-Postprocessing hook for responses.
+### `PostprocessorInterface`
 - `PostprocessorMeta meta()`
-- `PostprocessResult after(CommandContext context, AiatpIO.HttpRequest request,
-  AiatpIO.HttpResponse response, PostprocessTarget target, PostprocessInfo info)`
+- `PostprocessResult after(CommandContext context, AiatpRequest request, AiatpResponse response, PostprocessTarget target, PostprocessInfo info)`
 
-### PostprocessTarget
-Target component/command for postprocessing.
-- `String component()`
-- `String command()`
-
-### PostprocessInfo
-Context about the response source.
-- `boolean success()`
-- `PostprocessSource source()`
-
-### PostprocessSource
-Enum: `COMPONENT`, `PREPROCESSOR_BLOCK`, `INTERNAL_COMMAND`, `INTERNAL_ERROR`
-
-### PostprocessorMeta
-Metadata for ordering and description.
-- `static PostprocessorMeta of(String id, int priority)`
-- `String id()`
-- `String description()`
-- `int priority()`
-
-### PostprocessResult
-Postprocessor outcome.
-- `static PostprocessResult continueWith(AiatpIO.HttpResponse response)`
-- `static PostprocessResult continueNoChange()`
+### `PostprocessResult`
+- `static PostprocessResult continueWith(AiatpResponse response)`
+- `static PostprocessResult passthrough()`
 - `static PostprocessResult error(String message)`
-- Accessors: `action()`, `response()`, `message()`
-
-## com.social100.todero.common.config
-
-### ServerType
-Enum: `AI`, `AIA` with port metadata.
-- `Integer getPort()`
-- `static ServerType fromString(String value)`
-- `static ServerType fromSchema(byte schema)`
-- `static byte schema(ServerType serverType)`
-
-## com.social100.todero.console.base
-
-### OutputType
-Enum: `JSON`, `YAML`, `TEXT`, `XML`
-
-## com.social100.todero.common.lineparser
-
-### LineParserUtil
-Parses a command line into parts.
-- `static ParsedLine parse(String line)`
-
-### LineParserUtil.ParsedLine
-Data holder with fields:
-- `String first`, `String second`, `String remaining`
-- `boolean firstValid`, `boolean isDottedFormat`, `boolean secondValid`
-
-## com.social100.todero.util
-
-### ArgumentParser
-Command-line parsing utility.
-- `void addRule(String argumentName, Rule rule, String defaultValue)`
-- `void addFlag(String flagName)`
-- `boolean parse(String line)`
-- `boolean parse(String[] args)`
-- `String getArgument(String key)`
-- `boolean getFlag(String key)`
-- `String errorMessage()`
-- `List<String> tokenizeCommandLine(String line)`
-
-### ArgumentParser.Rule
-Functional interface: `boolean validate(String value)`
-
-### PlaceholderUtils
-Placeholder extraction and replacement.
-- `static String extractPlaceholder(String text)`
-- `static String replacePlaceholder(String text, String newValue)`
-
-## com.social100.todero.scheduler
-
-### TaskScheduler
-Simple periodic scheduler.
-- `void scheduleTask(Runnable task, long interval)`
-- `void stop()`
-
-## com.social100.todero.common.ai.action
-
-### AgentAction
-Executable action interface.
-- `void execute()`
-
-### CommandAction
-Wraps a command reference.
-- `Optional<String> getCommand()`
-- `void execute()` (no-op)
-
-### PrintAction
-Prints a message when executed.
-- `void execute()`
-
-### FunctionCallAction
-Wraps a `Runnable`.
-- `void execute()`
-
-## com.social100.todero.common.ai.agent
-
-### AgentInterface
-Agent contract.
-- `AgentAction process(LLMClient llm, AgentPrompt prompt, AgentContext context)`
-
-### Agent
-Default agent implementation.
-- Constructor: `Agent(AgentDefinition definition)`
-- `AgentAction process(...)`
-
-### ChainedAgent
-Sequentially executes multiple agents.
-- Constructor: `ChainedAgent(List<AgentInterface> agents)`
-- `AgentAction process(...)`
-
-### AgentDefinition
-Agent metadata and prompt configuration (Lombok builder).
-- Fields: `name`, `role`, `description`, `model`, `systemPrompt`, `metadata`
-- `static String loadSystemPromptFromResource(String path)`
-- `void setMetadata(String key, Object value)`
-- `Object getMetadata(String key)`
-
-### AgentContext
-Key-value context.
-- `void set(String key, Object value)`
-- `Object get(String key)`
-- `String getAsString(String key)`
-- `Map<String, Object> getAll()`
-
-### AgentPrompt
-Simple prompt wrapper.
-- `String getMessage()`
-
-## com.social100.todero.common.ai.llm
-
-### LLMClient
-LLM client contract.
-- `String chat(String systemPrompt, String userPrompt, String contextJson)`
-
-### OpenAiLLM
-OpenAI-backed `LLMClient`.
-- Constructor: `OpenAiLLM(String apiKey, String model)`
-- `String chat(...)`
-
-### OllamaLLM
-Ollama-backed `LLMClient`.
-- Constructors:
-  - `OllamaLLM(String baseUrl, String model)`
-  - `OllamaLLM(String baseUrl, String model, int connectTimeoutSeconds, int readTimeoutSeconds, int writeTimeoutSeconds)`
-- `String chat(...)`
-
-## com.social100.todero.common.ai.util
-
-### JsonUtils
-JSON parsing helpers.
-- `static JsonNode parse(String json)`
-- `static Optional<String> getValue(JsonNode root, String path)`
-- `static JsonNode extractFirstJsonBlock(String responseText)`
-
-## com.social100.todero.common.ai.timer
-
-### BackgroundTaskRunner
-Scheduling helper with periodic and one-shot modes.
-- `BackgroundTaskRunner()` (manual timing)
-- `BackgroundTaskRunner(Duration initialDelay, Duration period, boolean fixedRate)`
-- `BackgroundTaskRunner(Duration initialDelay, Duration period, boolean fixedRate, ScheduledExecutorService scheduler)`
-- `void start(Runnable routine)`
-- `void start(Runnable routine, Duration initialDelay, Duration period, boolean fixedRate)`
-- `void startOnce(Runnable routine, Duration delay)`
-- `void stop()`
-- `boolean isRunning()`
-
-## com.social100.todero.processor
-
-### EventDefinition
-Event definition contract.
-- `String name()`
-- `String getDescription()`
-
-### NoEvents
-Enum placeholder when no events are exposed.

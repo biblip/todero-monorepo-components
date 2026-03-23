@@ -65,15 +65,17 @@ class AgentDJAuthFlowUtilitiesTest {
   @Test
   void isAuthRequiredToolResultDetectsAuthByCodeAndMessage() throws Exception {
     Class<?> toolExecClass = Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolExecution");
+    Class<?> outcomeClass = Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolResponseOutcome");
+    Object unspecified = Enum.valueOf((Class<Enum>) outcomeClass.asSubclass(Enum.class), "UNSPECIFIED");
     Constructor<?> ctor = toolExecClass.getDeclaredConstructor(
-        boolean.class, String.class, String.class, String.class, String.class, String.class
+        boolean.class, String.class, String.class, String.class, String.class, String.class, outcomeClass
     );
     ctor.setAccessible(true);
     Method method = AgentDJComponent.class.getDeclaredMethod("isAuthRequiredToolResult", toolExecClass);
     method.setAccessible(true);
 
     Object byCode = ctor.newInstance(
-        false, "play", "x", "failed", "auth_required", "{\"ok\":false,\"errorCode\":\"auth_required\"}"
+        false, "play", "x", "failed", "auth_required", "{\"ok\":false,\"errorCode\":\"auth_required\"}", unspecified
     );
     assertEquals(true, method.invoke(null, byCode));
 
@@ -81,12 +83,13 @@ class AgentDJAuthFlowUtilitiesTest {
         true, "play", "x",
         "com.shellaia.component.spotify.core.SpotifyAuthorizationRequiredException: Spotify authorization is required. Run auth-begin then auth-complete.",
         "",
-        "{\"ok\":true,\"message\":\"Spotify authorization is required\"}"
+        "{\"ok\":true,\"message\":\"Spotify authorization is required\"}",
+        unspecified
     );
     assertEquals(true, method.invoke(null, byMessage));
 
     Object nonAuth = ctor.newInstance(
-        true, "status", "all", "No active playback.", "", "{\"ok\":true,\"message\":\"No active playback.\"}"
+        true, "status", "all", "No active playback.", "", "{\"ok\":true,\"message\":\"No active playback.\"}", unspecified
     );
     assertEquals(false, method.invoke(null, nonAuth));
   }

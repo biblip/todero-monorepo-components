@@ -12,7 +12,7 @@ import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.ai.llm.OpenAiLLM;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
-import com.social100.todero.common.aiatpio.AiatpTerminalResult;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.lineparser.LineParserUtil;
@@ -118,16 +118,16 @@ public class AgentContactsComponent {
         return true;
       }
 
-      CompletableFuture<AiatpTerminalResult> outFuture = new CompletableFuture<>();
+      CompletableFuture<AiatpResponse> outFuture = new CompletableFuture<>();
       CommandContext internalContext = CommandContext.builder()
           .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/" + CONTACTS_COMPONENT + "/" + command,
               AiatpIO.Body.ofString(args, StandardCharsets.UTF_8)))
-          .terminalConsumer(outFuture::complete)
+          .responseConsumer(outFuture::complete)
           .build();
       context.execute(CONTACTS_COMPONENT, command, internalContext);
 
-      AiatpTerminalResult toolResponse = outFuture.get(25, TimeUnit.SECONDS);
-      String toolBody = terminalBody(toolResponse);
+      AiatpResponse toolResponse = outFuture.get(25, TimeUnit.SECONDS);
+      String toolBody = responseBody(toolResponse);
 
       JsonNode root = parseJsonOrNull(toolBody);
       if (root != null && root.path("channels").isObject()) {
@@ -206,7 +206,7 @@ public class AgentContactsComponent {
     return body == null ? "" : body.trim();
   }
 
-  private static String terminalBody(AiatpTerminalResult result) {
+  private static String responseBody(AiatpResponse result) {
     if (result == null || result.getBody() == null) {
       return "";
     }
@@ -241,15 +241,15 @@ public class AgentContactsComponent {
     ObjectNode channels = root.putObject("channels");
     channels.putObject("chat").put("message", safeTrim(chatMessage));
     channels.putObject("status").put("message", safeTrim(statusMessage));
-    ObjectNode webview = channels.putObject("html");
+    ObjectNode htmlChannel = channels.putObject("html");
     if (html == null || html.isBlank()) {
-      webview.putNull("html");
-      webview.put("mode", "none");
+      htmlChannel.putNull("html");
+      htmlChannel.put("mode", "none");
     } else {
-      webview.put("html", html);
-      webview.put("mode", "html");
+      htmlChannel.put("html", html);
+      htmlChannel.put("mode", "html");
     }
-    webview.put("replace", false);
+    htmlChannel.put("replace", false);
     if (!safeTrim(errorCode).isEmpty()) {
       ObjectNode meta = root.putObject("meta");
       meta.put("errorCode", safeTrim(errorCode));

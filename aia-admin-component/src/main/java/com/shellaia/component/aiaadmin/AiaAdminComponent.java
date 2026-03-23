@@ -62,14 +62,14 @@ public class AiaAdminComponent {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageInstall(), List.of("coord"))) return false;
     if (args.tokens.isEmpty()) {
-      context.completeText(200, usageInstall());
+      respondText(context, 200, usageInstall());
       return false;
     }
     if (!args.positional.isEmpty()) return invalidArgs(context, usageInstall(), args.positional);
 
     List<String> coords = args.multi("coord");
     if (coords.isEmpty()) {
-      context.completeText(200, "At least one --coord is required\\n" + usageInstall());
+      respondText(context, 200, "At least one --coord is required\\n" + usageInstall());
       return false;
     }
 
@@ -94,14 +94,14 @@ public class AiaAdminComponent {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageUninstall(), List.of("coord"))) return false;
     if (args.tokens.isEmpty()) {
-      context.completeText(200, usageUninstall());
+      respondText(context, 200, usageUninstall());
       return false;
     }
     if (!args.positional.isEmpty()) return invalidArgs(context, usageUninstall(), args.positional);
 
     List<String> coords = args.multi("coord");
     if (coords.isEmpty()) {
-      context.completeText(200, "At least one --coord is required\\n" + usageUninstall());
+      respondText(context, 200, "At least one --coord is required\\n" + usageUninstall());
       return false;
     }
 
@@ -147,7 +147,7 @@ public class AiaAdminComponent {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageCheckout(), List.of("latest", "previous", "restore-state", "force"))) return false;
     if (args.tokens.isEmpty()) {
-      context.completeText(200, usageCheckout());
+      respondText(context, 200, usageCheckout());
       return false;
     }
 
@@ -157,7 +157,7 @@ public class AiaAdminComponent {
     if (args.bool("latest", false)) selectors++;
     if (args.bool("previous", false)) selectors++;
     if (selectors > 1) {
-      context.completeText(200, "Only one selector is allowed: <ver>, --latest, or --previous\\n" + usageCheckout());
+      respondText(context, 200, "Only one selector is allowed: <ver>, --latest, or --previous\\n" + usageCheckout());
       return false;
     }
 
@@ -246,11 +246,11 @@ public class AiaAdminComponent {
           "Component manager is not available in command context.",
           ""
       );
-      context.completeText(200, renderResult(action, fail));
+      respondText(context, 200, renderResult(action, fail));
       return fail;
     }
     PrivilegedOperationResult result = manager.lifecycleRuntimeService().execute(request, null);
-    context.completeText(200, renderResult(action, result));
+    respondText(context, 200, renderResult(action, result));
     return result;
   }
 
@@ -264,11 +264,11 @@ public class AiaAdminComponent {
           "Component manager is not available in command context.",
           ""
       );
-      context.completeText(200, renderResult(action, fail));
+      respondText(context, 200, renderResult(action, fail));
       return fail;
     }
     PrivilegedOperationResult result = manager.adminControlRuntimeService().execute(request, null);
-    context.completeText(200, renderResult(action, result));
+    respondText(context, 200, renderResult(action, result));
     return result;
   }
 
@@ -351,14 +351,14 @@ public class AiaAdminComponent {
       }
     }
     if (!unknown.isEmpty()) {
-      context.completeText(200, "Unrecognized flag(s): " + String.join(", ", unknown) + "\\n" + usage);
+      respondText(context, 200, "Unrecognized flag(s): " + String.join(", ", unknown) + "\\n" + usage);
       return false;
     }
     return true;
   }
 
   private boolean invalidArgs(CommandContext context, String usage, List<String> args) {
-    context.completeText(200, "Unrecognized argument(s): " + String.join(" ", args) + "\\n" + usage);
+    respondText(context, 200, "Unrecognized argument(s): " + String.join(" ", args) + "\\n" + usage);
     return false;
   }
 
@@ -439,6 +439,48 @@ public class AiaAdminComponent {
     }
   }
 
+
+  private static void respondText(CommandContext context, int status, String message) {
+    String safeMessage = message == null ? "" : message;
+    context.completeJson(status, "{"
+        + "\"ok\":" + (status < 400) + ","
+        + "\"message\":" + quoteJson(safeMessage) + ","
+        + "\"channels\":{"
+        + "\"chat\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"status\":{\"message\":" + quoteJson(safeMessage) + "},"
+        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
+        + "}"
+        + "}");
+  }
+
+  private static String quoteJson(String value) {
+    if (value == null) {
+      return "null";
+    }
+    StringBuilder out = new StringBuilder(value.length() + 2);
+    out.append('"');
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      switch (c) {
+        case '"' -> out.append("\\\"");
+        case '\\' -> out.append("\\\\");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            out.append(String.format("\\u%04x", (int) c));
+          } else {
+            out.append(c);
+          }
+        }
+      }
+    }
+    out.append('"');
+    return out.toString();
+  }
 
   private static String requestBody(CommandContext context) {
     if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getBody() == null) {

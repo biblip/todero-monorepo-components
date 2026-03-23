@@ -8,7 +8,7 @@ import com.social100.todero.common.ai.llm.LLMProviderDefinition;
 import com.social100.todero.common.ai.llm.LLMRegistry;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
-import com.social100.todero.common.aiatpio.AiatpTerminalResult;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
@@ -115,7 +115,7 @@ class TaskManagerAgentComponentTest {
 
   @Test
   void processHappyPathWithMockedToolResponse() throws Exception {
-    AtomicReference<AiatpTerminalResult> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
     FakeComponentManager manager = new FakeComponentManager(200, "{\"ok\":true,\"message\":\"healthy\"}");
     CommandContext context = newContext("process", "execute health", manager, out);
 
@@ -131,7 +131,7 @@ class TaskManagerAgentComponentTest {
 
   @Test
   void processToolFailurePathReturnsExecutionFailure() throws Exception {
-    AtomicReference<AiatpTerminalResult> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
     FakeComponentManager manager = new FakeComponentManager(400,
         "{\"ok\":false,\"errorCode\":\"execution_failed\",\"message\":\"boom\"}");
     CommandContext context = newContext("process", "execute health", manager, out);
@@ -148,7 +148,7 @@ class TaskManagerAgentComponentTest {
 
   @Test
   void reactPayloadAcceptedPathReturnsAcceptedEnvelope() throws Exception {
-    AtomicReference<AiatpTerminalResult> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
     CommandContext context = newContext(
         "react",
         "{\"event_id\":\"e1\",\"seq\":1,\"event_type\":\"TASK_DUE\",\"task_id\":\"t1\"}",
@@ -166,7 +166,7 @@ class TaskManagerAgentComponentTest {
 
   @Test
   void capabilitiesReturnsChannelsAndSkillSummary() throws Exception {
-    AtomicReference<AiatpTerminalResult> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
     CommandContext context = newContext("capabilities", "", new FakeComponentManager(404, "{}"), out);
 
     TaskManagerAgentComponent component = newComponent();
@@ -182,7 +182,7 @@ class TaskManagerAgentComponentTest {
 
   @Test
   void reactPayloadMissingRequiredFieldReturnsInvalidArguments() throws Exception {
-    AtomicReference<AiatpTerminalResult> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
     CommandContext context = newContext(
         "react",
         "{\"event_id\":\"e1\",\"seq\":1,\"event_type\":\"TASK_DUE\"}",
@@ -206,11 +206,11 @@ class TaskManagerAgentComponentTest {
   private static CommandContext newContext(String command,
                                            String body,
                                            ComponentManagerInterface manager,
-                                           AtomicReference<AiatpTerminalResult> out) {
+                                           AtomicReference<AiatpResponse> out) {
     return CommandContext.builder()
         .sourceId("test-client")
         .componentManager(manager)
-        .terminalConsumer(out::set)
+        .responseConsumer(out::set)
         .llmRegistry(fakeRegistry())
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.taskmanager/" + command,
             AiatpIO.Body.ofString(body, StandardCharsets.UTF_8)))
@@ -253,7 +253,7 @@ class TaskManagerAgentComponentTest {
     };
   }
 
-  private static String responseBody(AiatpTerminalResult response) {
+  private static String responseBody(AiatpResponse response) {
     assertNotNull(response);
     return AiatpIO.bodyToString(response.getBody(), StandardCharsets.UTF_8);
   }
