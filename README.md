@@ -48,6 +48,35 @@ Build the whole monorepo:
 mvn -f todero-monorepo-components/pom.xml clean package
 ```
 
+## Publish all modules to local Nexus
+
+The repo root contains `version.txt`, which stores the next release version to publish.
+
+Publish all components, agents, preprocessors, and postprocessors to the local Nexus instance on `http://localhost:8081`:
+
+```sh
+cd todero-monorepo-components
+./publish-all-to-nexus.sh
+```
+
+Behavior:
+- reads the release version from `version.txt`
+- deploys the full monorepo to `maven-releases`
+- increments the patch in `version.txt`
+- leaves the Maven project on the next patch `-SNAPSHOT`
+
+Credential sources:
+- `CI_NEXUS_USER` and `CI_NEXUS_TOKEN`, or
+- `../nexus/provisioning/output/ci-publisher.token`
+
+Useful options:
+
+```sh
+./publish-all-to-nexus.sh --with-tests
+./publish-all-to-nexus.sh --version 0.1.7
+./publish-all-to-nexus.sh --dry-run
+```
+
 Build selected modules by role path:
 
 ```sh
