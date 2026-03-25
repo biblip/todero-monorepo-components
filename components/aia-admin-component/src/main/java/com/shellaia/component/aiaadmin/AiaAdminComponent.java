@@ -35,7 +35,7 @@ public class AiaAdminComponent {
 
   @Action(group = MAIN_GROUP,
       command = "update",
-      description = "Update the current set through internal runtime lifecycle service. Usage: update")
+      description = "Update floating coordinates in the current set through internal runtime lifecycle service. Usage: update (floating coords only: @latest, <major>, <major>.<minor>)")
   public Boolean update(CommandContext context) {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageUpdate(), List.of())) return false;
@@ -57,7 +57,7 @@ public class AiaAdminComponent {
 
   @Action(group = MAIN_GROUP,
       command = "install",
-      description = "Install coordinates into the current runtime set through internal runtime lifecycle service. Usage: install --coord <g:a:v> [--coord ...]")
+      description = "Install coordinates into the current runtime set through internal runtime lifecycle service. Usage: install --coord <coord> [--coord ...]. coord supports g:a:v, g:a:@latest, g:a:<major>, g:a:<major>.<minor>")
   public Boolean install(CommandContext context) {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageInstall(), List.of("coord"))) return false;
@@ -89,7 +89,7 @@ public class AiaAdminComponent {
 
   @Action(group = MAIN_GROUP,
       command = "uninstall",
-      description = "Uninstall coordinates from the current runtime set through internal runtime lifecycle service. Usage: uninstall --coord <g:a:v> [--coord ...]")
+      description = "Uninstall coordinates from the current runtime set through internal runtime lifecycle service. Usage: uninstall --coord <coord> [--coord ...]. coord supports g:a:v, g:a:@latest, g:a:<major>, g:a:<major>.<minor>")
   public Boolean uninstall(CommandContext context) {
     ParsedArgs args = parseBody(context);
     if (!validateAllowedFlags(context, args, usageUninstall(), List.of("coord"))) return false;
@@ -137,6 +137,25 @@ public class AiaAdminComponent {
     );
 
     PrivilegedOperationResult result = executeLifecycle(context, "versions", request);
+    return result != null && result.success();
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "components",
+      description = "Show installed components for the current runtime set, including desired coords and resolved versions. Usage: components")
+  public Boolean components(CommandContext context) {
+    ParsedArgs args = parseBody(context);
+    if (!validateAllowedFlags(context, args, usageComponents(), List.of())) return false;
+    if (!args.positional.isEmpty()) return invalidArgs(context, usageComponents(), args.positional);
+
+    LifecycleRuntimeRequest request = new LifecycleRuntimeRequest(
+        LifecycleRuntimeAction.COMPONENTS,
+        null,
+        List.of(),
+        Map.of()
+    );
+
+    PrivilegedOperationResult result = executeLifecycle(context, "components", request);
     return result != null && result.success();
   }
 
@@ -310,19 +329,23 @@ public class AiaAdminComponent {
   }
 
   private String usageUpdate() {
-    return "Usage: update";
+    return "Usage: update\nUpdates only floating coords: g:a:@latest, g:a:<major>, g:a:<major>.<minor>. Exact g:a:v pins are unchanged.";
   }
 
   private String usageInstall() {
-    return "Usage: install --coord <g:a:v> [--coord ...]";
+    return "Usage: install --coord <coord> [--coord ...]\ncoord supports: g:a:v | g:a:@latest | g:a:<major> | g:a:<major>.<minor>\nExamples: --coord com.shellaia:spotify-agent:0.1.4 --coord com.shellaia:spotify-agent:@latest --coord com.shellaia:spotify-agent:0 --coord com.shellaia:spotify-agent:0.1";
   }
 
   private String usageUninstall() {
-    return "Usage: uninstall --coord <g:a:v> [--coord ...]";
+    return "Usage: uninstall --coord <coord> [--coord ...]\ncoord supports: g:a:v | g:a:@latest | g:a:<major> | g:a:<major>.<minor>";
   }
 
   private String usageVersions() {
     return "Usage: versions [--limit <N>]";
+  }
+
+  private String usageComponents() {
+    return "Usage: components\nShows configured desired coords and current resolved installed versions for the active runtime set.";
   }
 
   private String usageCheckout() {

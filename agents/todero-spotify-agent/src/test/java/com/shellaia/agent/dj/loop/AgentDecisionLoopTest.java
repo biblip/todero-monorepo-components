@@ -88,6 +88,40 @@ class AgentDecisionLoopTest {
   }
 
   @Test
+  void loopRunsWithoutAnyRequestTimeoutField() throws Exception {
+    AgentDecisionLoop loop = new AgentDecisionLoop();
+    CountDownLatch done = new CountDownLatch(1);
+    AtomicReference<AgentDecisionLoop.LoopResult> resultRef = new AtomicReference<>();
+    ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    try {
+      loop.start(
+          new AgentDecisionLoop.LoopRequest("play enya", "process", "corr-2", 1, 1_000L, null),
+          (prompt, step) -> {
+            Thread.sleep(25);
+            return new AgentDecisionLoop.PlannerResult("none", "Nothing else to do.", "");
+          },
+          action -> new AgentDecisionLoop.ToolCall("play", "enya", action),
+          (call, handle) -> handle.complete("ok"),
+          null,
+          null,
+          result -> {
+            resultRef.set(result);
+            done.countDown();
+          },
+          Runnable::run,
+          scheduler
+      );
+
+      assertTrue(done.await(2, TimeUnit.SECONDS));
+      AgentDecisionLoop.LoopResult result = resultRef.get();
+      assertEquals("action_none", result.stopReason().code);
+      assertEquals("Nothing else to do.", result.channels().chat());
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  @Test
   void eventForwarderTracksTerminalDeliveryByChannel() {
     CommandContext context = CommandContext.builder()
         .sourceId("src-1")
@@ -108,6 +142,6 @@ class AgentDecisionLoopTest {
   }
 
   private static AgentDecisionLoop.LoopRequest request(AgentDecisionLoop.EventForwarder forwarder) {
-    return new AgentDecisionLoop.LoopRequest("play enya", "process", "corr-1", 1, 5_000L, 1_000L, forwarder);
+    return new AgentDecisionLoop.LoopRequest("play enya", "process", "corr-1", 1, 1_000L, forwarder);
   }
 }

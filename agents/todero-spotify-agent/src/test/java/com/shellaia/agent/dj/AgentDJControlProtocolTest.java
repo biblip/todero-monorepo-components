@@ -10,6 +10,10 @@ import com.social100.todero.common.aiatpio.AiatpEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.social100.todero.common.ai.action.CommandAgentResponse;
+import com.social100.todero.common.ai.llm.LLMClient;
+import com.social100.todero.common.ai.llm.LLMInstance;
+import com.social100.todero.common.ai.llm.LLMProviderDefinition;
+import com.social100.todero.common.ai.llm.LLMRegistry;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.common.aiatpio.AiatpRequest;
@@ -21,6 +25,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -257,6 +262,51 @@ class AgentDJControlProtocolTest {
     assertEquals("spotify", root.path("channels").path("auth").path("provider").asText());
   }
 
+  @Test
+  void normalizeGoalIntentCanClassifyUnsupportedToolchainRequests() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    Method normalize = declaredMethod(AgentDJComponent.class, "normalizeGoalIntent",
+        LLMClient.class, String.class, String.class, String.class, boolean.class, String.class);
+
+    Object result = normalize.invoke(component,
+        unsupportedRequestRegistry().system().orElseThrow().client(),
+        "give me the lyrics of the French national anthem",
+        "process",
+        "corr-6",
+        true,
+        "work-6");
+
+    Method supported = result.getClass().getDeclaredMethod("supportedByToolchain");
+    Method unsupportedReason = result.getClass().getDeclaredMethod("unsupportedReason");
+    supported.setAccessible(true);
+    unsupportedReason.setAccessible(true);
+
+    assertEquals(false, supported.invoke(result));
+    assertTrue(((String) unsupportedReason.invoke(result)).contains("cannot provide lyrics"));
+  }
+
+  @Test
+  void renderLoopResultUsesRouterCompatibleFallbackForOutOfScope() throws Exception {
+    Object stopReason = enumConstant("com.shellaia.agent.dj.AgentDJComponent$StopReason", "OUT_OF_SCOPE");
+    Object loopResult = newLoopResult(
+        "give me the lyrics of the French national anthem",
+        new CommandAgentResponse("give me the lyrics of the French national anthem", "none",
+            "I can't handle that request in this agent.", ""),
+        List.of(),
+        stopReason,
+        12L,
+        "process",
+        "corr-6");
+
+    String json = (String) declaredMethod(AgentDJComponent.class, "renderLoopResultAsJson", loopResult.getClass())
+        .invoke(null, loopResult);
+    JsonNode root = JSON.readTree(json);
+    assertEquals("unsupported_operation", root.path("response").path("outcome").asText());
+    assertEquals("unhandled_intent", root.path("meta").path("outcome").asText());
+    assertEquals("unsupported_operation", root.path("meta").path("errorCode").asText());
+    assertEquals("out_of_scope", root.path("stopReason").asText());
+  }
+
   private static Method declaredMethod(Class<?> owner, String name, Class<?>... types) throws Exception {
     Method method = owner.getDeclaredMethod(name, types);
     method.setAccessible(true);
@@ -360,5 +410,48 @@ class AgentDJControlProtocolTest {
     public void deleteSecret(String key) {
       secrets.remove(key);
     }
+  }
+
+  private static LLMRegistry unsupportedRequestRegistry() {
+    LLMClient client = (systemPrompt, userPrompt, contextJson) -> {
+      if (systemPrompt.contains("compact JSON intent")) {
+        return "{\"intent\":\"unsupported_request\",\"target_scope\":\"explicit_request\",\"seed_hint\":\"\","
+            + "\"wants_playback\":false,\"references_current_playback\":false,\"needs_discovery\":false,"
+            + "\"supported_by_toolchain\":false,"
+            + "\"unsupported_reason\":\"The Spotify DJ toolchain cannot provide lyrics or full song text.\","
+            + "\"confidence\":0.98,\"reason\":\"The request needs content the Spotify playback toolchain cannot supply.\"}";
+      }
+      return "{\"request\":\"Unsupported request\",\"action\":\"none\",\"user\":\"This DJ agent cannot fulfill that request.\",\"html\":\"\"}";
+    };
+    LLMInstance instance = new LLMInstance(
+        new LLMProviderDefinition("test", "external", "planner", "test", true, 100, java.util.Set.of("system"), Map.of()),
+        client
+    );
+    return new LLMRegistry() {
+      @Override
+      public List<LLMInstance> list() {
+        return List.of(instance);
+      }
+
+      @Override
+      public List<LLMInstance> list(String category) {
+        return List.of(instance);
+      }
+
+      @Override
+      public Optional<LLMInstance> get(String name) {
+        return Optional.of(instance);
+      }
+
+      @Override
+      public Optional<LLMInstance> select(String category, String explicitName) {
+        return Optional.of(instance);
+      }
+
+      @Override
+      public Optional<LLMInstance> system() {
+        return Optional.of(instance);
+      }
+    };
   }
 }

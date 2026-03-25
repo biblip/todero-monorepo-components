@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -60,7 +61,7 @@ class AgentDJSpotifyEventExecutionTest {
         CommandAgentResponse.class);
     method.setAccessible(true);
     method.invoke(component, context, "play a simmilar song like that", "process", "corr-1", true, 2,
-        newGoalIntent("recommendation_playback", "current_playback", "current-playback", true, true, true, 0.92d, "test"),
+        newGoalIntent("recommendation_playback", "current_playback", "current-playback", true, true, true, 1, 0.92d, "test"),
         toolSteps, null);
 
     @SuppressWarnings("unchecked")
@@ -166,10 +167,81 @@ class AgentDJSpotifyEventExecutionTest {
         Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"));
     method.setAccessible(true);
     Object loopResult = method.invoke(component, parent, llm, "play a simmilar song like that", "process", "corr-3", "work-2",
-        newGoalIntent("recommendation_playback", "current_playback", "current-playback", true, true, true, 0.97d, "test"));
+        newGoalIntent("recommendation_playback", "current_playback", "current-playback", true, true, true, 1, 0.97d, "test"));
 
     Object response = accessor(loopResult, "finalResponse");
     assertEquals("Playing a verified similar track: Caribbean Blue — Enya.", accessor(response, "user"));
+  }
+
+  @Test
+  void recommendationFlowReturnsListWithoutPlaybackAndRejectsMismatchedResolutions() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CapturingLlm llm = new CapturingLlm();
+    llm.rawResponse.set("""
+        {"candidates":[
+          {"title":"Me haces tanto bien","artist":"Amistades Peligrosas","query":"Me haces tanto bien Amistades Peligrosas","reason":"Classic hit."},
+          {"title":"Estoy por ti","artist":"Amistades Peligrosas","query":"Estoy por ti Amistades Peligrosas","reason":"Another strong single."},
+          {"title":"Los Amantes de Estacion","artist":"Amistades Peligrosas","query":"Los Amantes de Estacion Amistades Peligrosas","reason":"Fits the requested artist catalog."},
+          {"title":"Africanos en Madrid","artist":"Amistades Peligrosas","query":"Africanos en Madrid Amistades Peligrosas","reason":"Widely recognized track."}
+        ]}
+        """);
+    List<String> commands = new ArrayList<>();
+    int[] resolveIndex = {0};
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          commands.add(cmd);
+          if ("resolve-track".equals(cmd)) {
+            int current = resolveIndex[0]++;
+            switch (current) {
+              case 0 -> {
+                ctx.completeJson(200, "{\"ok\":true,\"message\":\"Resolved track: Me haces tanto bien — Amistades Peligrosas [uri=spotify:track:1111111111111111111111]\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Resolved track: Me haces tanto bien — Amistades Peligrosas [uri=spotify:track:1111111111111111111111]\"},\"status\":{\"message\":\"Track resolved.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+                return;
+              }
+              case 1 -> {
+                ctx.completeJson(200, "{\"ok\":true,\"message\":\"Resolved track: Estoy por ti — Amistades Peligrosas [uri=spotify:track:2222222222222222222222]\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Resolved track: Estoy por ti — Amistades Peligrosas [uri=spotify:track:2222222222222222222222]\"},\"status\":{\"message\":\"Track resolved.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+                return;
+              }
+              case 2 -> {
+                ctx.completeJson(200, "{\"ok\":true,\"message\":\"Resolved track: Con Que Fin? — Convicto de Musa [uri=spotify:track:3333333333333333333333]\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Resolved track: Con Que Fin? — Convicto de Musa [uri=spotify:track:3333333333333333333333]\"},\"status\":{\"message\":\"Track resolved.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+                return;
+              }
+              case 3 -> {
+                ctx.completeJson(200, "{\"ok\":true,\"message\":\"Resolved track: Africanos en Madrid — Amistades Peligrosas [uri=spotify:track:4444444444444444444444]\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Resolved track: Africanos en Madrid — Amistades Peligrosas [uri=spotify:track:4444444444444444444444]\"},\"status\":{\"message\":\"Track resolved.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+                return;
+              }
+            }
+          }
+          throw new AssertionError("Unexpected command: " + cmd + " #" + resolveIndex[0]);
+        }))
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
+            AiatpIO.Body.ofString("give me a list of songs for amistades peligrosas 5 songs", StandardCharsets.UTF_8)))
+        .build();
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "runRecommendationFlow",
+        CommandContext.class,
+        LLMClient.class,
+        String.class,
+        String.class,
+        String.class,
+        String.class,
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"));
+    method.setAccessible(true);
+    Object loopResult = method.invoke(component, parent, llm, "give me a list of songs for amistades peligrosas 5 songs", "process", "corr-4", "work-4",
+        newGoalIntent("recommendation_info", "explicit_seed", "amistades peligrosas", false, false, false, 5, 0.97d, "test"));
+
+    Object response = accessor(loopResult, "finalResponse");
+    String user = (String) accessor(response, "user");
+    String html = (String) accessor(response, "html");
+    assertTrue(user.contains("I could verify 3 of 5 requested tracks"));
+    assertTrue(html.contains("Verified recommendations (3 of 5)"));
+    assertTrue(html.contains("Me haces tanto bien"));
+    assertTrue(html.contains("Estoy por ti"));
+    assertTrue(html.contains("Africanos en Madrid"));
+    assertFalse(html.contains("Convicto de Musa"));
+    assertEquals(4L, commands.stream().filter("resolve-track"::equals).count());
+    assertTrue(commands.stream().noneMatch("play"::equals));
   }
 
   @Test
@@ -266,6 +338,59 @@ class AgentDJSpotifyEventExecutionTest {
     assertEquals("No devices available.", accessor(result, "output"));
   }
 
+  @Test
+  void executeSpotifyActionRejectsUnsupportedToolchainBeforeDispatch() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          throw new AssertionError("Spotify command should not be dispatched");
+        }))
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
+            AiatpIO.Body.ofString("lyrics", StandardCharsets.UTF_8)))
+        .build();
+
+    Method method = AgentDJComponent.class.getDeclaredMethod("executeSpotifyAction",
+        CommandContext.class, String.class, Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"));
+    method.setAccessible(true);
+    Object result = method.invoke(component, parent, "resolve-track La Marseillaise",
+        newGoalIntent("unsupported_request", "explicit_request", "", false, false, false, 1, 0.99d,
+            "The Spotify DJ toolchain cannot provide lyrics or full song text.", false));
+
+    assertFalse((Boolean) accessor(result, "executed"));
+    assertEquals("unsupported_operation", accessor(result, "errorCode"));
+    assertTrue(((String) accessor(result, "output")).contains("cannot provide lyrics"));
+  }
+
+  @Test
+  void executeSpotifyInternalTimesOutAfterThreeSeconds() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          // Intentionally never complete the delegated command.
+        }))
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
+            AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
+        .build();
+
+    long started = System.nanoTime();
+    Object result = invokeExecuteSpotifyInternal(component, parent, "play", "enya");
+    long elapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - started);
+
+    assertFalse((Boolean) accessor(result, "executed"));
+    assertEquals("tool-execution-failed", accessor(result, "errorCode"));
+    assertEquals("Tool execution timed out after 3s", accessor(result, "output"));
+    assertTrue(elapsedSeconds >= 3 && elapsedSeconds < 6, "elapsedSeconds=" + elapsedSeconds);
+  }
+
+  @Test
+  void toolTimeoutConstantIsThreeSeconds() throws Exception {
+    var field = AgentDJComponent.class.getDeclaredField("TOOL_TIMEOUT_SECONDS");
+    field.setAccessible(true);
+    assertEquals(3L, field.getLong(null));
+  }
+
   private static Object invokeExecuteSpotifyInternal(AgentDJComponent component,
                                                      CommandContext context,
                                                      String command,
@@ -308,12 +433,29 @@ class AgentDJSpotifyEventExecutionTest {
                                       boolean wantsPlayback,
                                       boolean referencesCurrentPlayback,
                                       boolean needsDiscovery,
+                                      int requestedCount,
                                       double confidence,
                                       String reason) throws Exception {
+    return newGoalIntent(intent, targetScope, seedHint, wantsPlayback, referencesCurrentPlayback,
+        needsDiscovery, requestedCount, confidence, reason, true);
+  }
+
+  private static Object newGoalIntent(String intent,
+                                      String targetScope,
+                                      String seedHint,
+                                      boolean wantsPlayback,
+                                      boolean referencesCurrentPlayback,
+                                      boolean needsDiscovery,
+                                      int requestedCount,
+                                      double confidence,
+                                      String reason,
+                                      boolean supportedByToolchain) throws Exception {
     Class<?> clazz = Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent");
-    var ctor = clazz.getDeclaredConstructor(String.class, String.class, String.class, boolean.class, boolean.class, boolean.class, double.class, String.class);
+    var ctor = clazz.getDeclaredConstructor(String.class, String.class, String.class, boolean.class, boolean.class,
+        boolean.class, int.class, boolean.class, String.class, double.class, String.class);
     ctor.setAccessible(true);
-    return ctor.newInstance(intent, targetScope, seedHint, wantsPlayback, referencesCurrentPlayback, needsDiscovery, confidence, reason);
+    return ctor.newInstance(intent, targetScope, seedHint, wantsPlayback, referencesCurrentPlayback,
+        needsDiscovery, requestedCount, supportedByToolchain, supportedByToolchain ? "" : reason, confidence, reason);
   }
 
   @FunctionalInterface

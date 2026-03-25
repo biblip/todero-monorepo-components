@@ -95,7 +95,6 @@ public final class AgentDecisionLoop {
                             String source,
                             String correlationId,
                             int maxSteps,
-                            long requestTimeoutMs,
                             long toolTimeoutMs,
                             EventForwarder forwarder) {
   }
@@ -191,10 +190,6 @@ public final class AgentDecisionLoop {
 
     public static StopReason maxSteps() {
       return new StopReason("max_steps_reached", "Max steps reached.");
-    }
-
-    public static StopReason requestTimeout(long timeoutMs) {
-      return new StopReason("request_timeout", "Agent processing exceeded " + Math.max(1, timeoutMs / 1000L) + " seconds");
     }
 
     public static StopReason toolTimeout(long timeoutMs) {
@@ -361,7 +356,6 @@ public final class AgentDecisionLoop {
     private long activePlannerDurationMs;
     private long activeStepStartedAtNs;
     private long activeToolStartedAtNs;
-    private ScheduledFuture<?> requestTimeoutTask;
     private ScheduledFuture<?> toolTimeoutTask;
 
     private LoopSession(LoopRequest request,
@@ -386,14 +380,6 @@ public final class AgentDecisionLoop {
     }
 
     public void start() {
-      long requestTimeoutMs = request.requestTimeoutMs();
-      if (requestTimeoutMs > 0) {
-        requestTimeoutTask = scheduler.schedule(
-            () -> finish(StopReason.requestTimeout(requestTimeoutMs), lastPlan, lastTool),
-            requestTimeoutMs,
-            TimeUnit.MILLISECONDS
-        );
-      }
       startPlanningStep();
     }
 
@@ -573,7 +559,6 @@ public final class AgentDecisionLoop {
         }
         completed = true;
         cancelToolTimeout();
-        cancelRequestTimeout();
         if (plan != null) {
           lastPlan = plan;
         }
@@ -587,13 +572,6 @@ public final class AgentDecisionLoop {
         result = new LoopResult(stopReason, lastPlan, lastTool, List.copyOf(steps), channels, delivery);
       }
       listener.onCompleted(result);
-    }
-
-    private void cancelRequestTimeout() {
-      if (requestTimeoutTask != null) {
-        requestTimeoutTask.cancel(false);
-        requestTimeoutTask = null;
-      }
     }
 
     private void cancelToolTimeout() {
@@ -675,7 +653,7 @@ public final class AgentDecisionLoop {
       return false;
     }
     return switch (safe(stopReason.code)) {
-      case "planner_exception", "invalid_action", "tool_failed", "max_steps_reached", "request_timeout", "tool_timeout" -> true;
+      case "planner_exception", "invalid_action", "tool_failed", "max_steps_reached", "tool_timeout" -> true;
       default -> false;
     };
   }
