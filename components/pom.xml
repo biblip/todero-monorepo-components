@@ -6,7 +6,7 @@
     <version>0.1.7-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
-  <artifactId>shellaia-components-components</artifactId>
+  <artifactId>components</artifactId>
   <packaging>pom</packaging>
   <name>shellaia-components-components</name>
   <modules>
@@ -18,7 +18,7 @@
     <module>simple-component</module>
     <module>ssh-component</module>
     <module>task-manager-component</module>
-    <module>todero-spotify-component</module>
+    <module>spotify-component</module>
     <module>vlc-component</module>
   </modules>
 </project>

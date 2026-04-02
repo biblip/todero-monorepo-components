@@ -2,11 +2,11 @@
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>com.shellaia</groupId>
-    <artifactId>shellaia-components-processors</artifactId>
+    <artifactId>processors</artifactId>
     <version>0.1.7-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
-  <artifactId>shellaia-components-postprocessors</artifactId>
+  <artifactId>postprocessors</artifactId>
   <packaging>pom</packaging>
   <name>shellaia-components-postprocessors</name>
   <modules>

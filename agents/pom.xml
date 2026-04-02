@@ -6,7 +6,7 @@
     <version>0.1.7-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
-  <artifactId>shellaia-components-agents</artifactId>
+  <artifactId>agents</artifactId>
   <packaging>pom</packaging>
   <name>shellaia-components-agents</name>
   <modules>
