@@ -103,6 +103,29 @@ class AgentDJSpotifyEventExecutionTest {
   }
 
   @Test
+  void normalizeGoalIntentOverridesRecommendationForDirectPlayRequests() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CapturingLlm llm = new CapturingLlm();
+    llm.rawResponse.set("{\"intent\":\"recommendation_playback\",\"target_scope\":\"explicit_seed\",\"seed_hint\":\"Tan Natural Pipe Pelaez\",\"wants_playback\":true,\"references_current_playback\":false,\"needs_discovery\":true,\"confidence\":0.92,\"reason\":\"Need to find the requested song before playback.\"}");
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "normalizeGoalIntent",
+        LLMClient.class,
+        String.class,
+        String.class,
+        String.class,
+        boolean.class,
+        String.class);
+    method.setAccessible(true);
+    Object result = method.invoke(component, llm, "play tan natural, by pipe pelaez", "process", "corr-2b", true, "work-1b");
+
+    assertEquals("general_spotify_control", accessor(result, "intent"));
+    assertEquals("explicit_request", accessor(result, "targetScope"));
+    assertEquals(Boolean.TRUE, accessor(result, "wantsPlayback"));
+    assertEquals(Boolean.FALSE, accessor(result, "referencesCurrentPlayback"));
+  }
+
+  @Test
   void planNextActionReceivesStructuredContextForRecommendationFlow() throws Exception {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     AgentContext context = new AgentContext();

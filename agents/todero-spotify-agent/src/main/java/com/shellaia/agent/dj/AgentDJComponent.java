@@ -776,7 +776,9 @@ public class AgentDJComponent {
                                          boolean interactiveRequest,
                                          String rootWorkId) {
     GoalIntent fallback = fallbackGoalIntent(initialPrompt);
-    boolean explicitPlaybackRequest = hasExplicitPlaybackRequest(safeTrim(initialPrompt).toLowerCase(Locale.ROOT));
+    String normalizedPrompt = safeTrim(initialPrompt).toLowerCase(Locale.ROOT);
+    boolean explicitPlaybackRequest = hasExplicitPlaybackRequest(normalizedPrompt);
+    boolean recommendationCue = isRecommendationIntent(normalizedPrompt);
     try {
       Map<String, Object> context = new LinkedHashMap<>();
       context.put("source", safeTrim(source));
@@ -822,6 +824,18 @@ public class AgentDJComponent {
           safeTrim(readPath(root, "reason")),
           fallback.reason()
       );
+      String normalizedIntent = safeTrim(intent).toLowerCase(Locale.ROOT);
+      // Direct play requests should not enter recommendation verification unless the prompt
+      // actually asks for recommendations or similar music.
+      if (normalizedIntent.contains("recommend")
+          && explicitPlaybackRequest
+          && !referencesCurrentPlayback
+          && !recommendationCue) {
+        intent = "general_spotify_control";
+        targetScope = "explicit_request";
+        wantsPlayback = true;
+        reason = firstNonBlank(reason, "direct_play_request");
+      }
       GoalIntent normalized = new GoalIntent(
           intent,
           targetScope,
