@@ -81,7 +81,7 @@ class AgentDJSpotifyEventExecutionTest {
     assertEquals("spotify:track:0B9x2BRHqj3Qer7biM3pU3", knownFacts.get("current_track_uri"));
     assertEquals("You're The One That I Want - From “Grease” — John Travolta", knownFacts.get("current_track"));
     assertEquals(Boolean.FALSE, knownFacts.get("playback_active"));
-    assertEquals("need_candidate_verification", context.get("plan_state"));
+    assertEquals("need_candidate_resolution", context.get("plan_state"));
     assertEquals(1, recentSteps.size());
     assertEquals("status", recentSteps.get(0).get("tool_command"));
     assertEquals("recommendation_playback", ((Map<?, ?>) context.get("normalized_goal")).get("intent"));
@@ -143,7 +143,7 @@ class AgentDJSpotifyEventExecutionTest {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     AgentContext context = new AgentContext();
     context.set("goal", Map.of("original", "play a simmilar song like that", "intent", "recommendation_playback"));
-    context.set("plan_state", "need_candidate_verification");
+    context.set("plan_state", "need_candidate_resolution");
     context.set("known_facts", Map.of(
         "current_track", "You're The One That I Want - From “Grease” — John Travolta",
         "current_track_uri", "spotify:track:0B9x2BRHqj3Qer7biM3pU3",
@@ -163,7 +163,7 @@ class AgentDJSpotifyEventExecutionTest {
 
     JsonNode ctx = JSON.readTree(llm.contextJson.get());
     assertEquals("recommendation_playback", ctx.path("goal").path("intent").asText());
-    assertEquals("need_candidate_verification", ctx.path("plan_state").asText());
+    assertEquals("need_candidate_resolution", ctx.path("plan_state").asText());
     assertEquals("spotify:track:0B9x2BRHqj3Qer7biM3pU3", ctx.path("known_facts").path("current_track_uri").asText());
     assertEquals("status", ctx.path("recent_steps").get(0).path("tool_command").asText());
   }
@@ -206,7 +206,7 @@ class AgentDJSpotifyEventExecutionTest {
         newGoalIntent("recommendation_playback", "current_playback", "current-playback", true, true, true, 1, 0.97d, "test"));
 
     Object response = accessor(loopResult, "finalResponse");
-    assertEquals("Playing a verified similar track: Caribbean Blue — Enya.", accessor(response, "user"));
+    assertEquals("Playing a recommended track: Caribbean Blue — Enya.", accessor(response, "user"));
   }
 
   @Test
@@ -270,12 +270,12 @@ class AgentDJSpotifyEventExecutionTest {
     Object response = accessor(loopResult, "finalResponse");
     String user = (String) accessor(response, "user");
     String html = (String) accessor(response, "html");
-    assertTrue(user.contains("I could verify 3 of 5 requested tracks"));
-    assertTrue(html.contains("Verified recommendations (3 of 5)"));
+    assertTrue(user.contains("I could resolve 4 of 5 requested tracks"));
+    assertTrue(html.contains("Recommendations (4 of 5)"));
     assertTrue(html.contains("Me haces tanto bien"));
     assertTrue(html.contains("Estoy por ti"));
     assertTrue(html.contains("Africanos en Madrid"));
-    assertFalse(html.contains("Convicto de Musa"));
+    assertTrue(html.contains("Convicto de Musa"));
     assertEquals(4L, commands.stream().filter("resolve-track"::equals).count());
     assertTrue(commands.stream().noneMatch("play"::equals));
   }

@@ -1215,13 +1215,13 @@ public class SpotifyComponent {
     if (context == null || context.getAiatpRequest() == null) {
       return "";
     }
-    String target = safeTrim(context.getAiatpRequest().getChainTarget());
+    String target = trimToEmpty(context.getAiatpRequest().getChainTarget());
     if (!target.isEmpty()) {
       return target;
     }
     try {
       if (context.getAiatpRequest().getHeaders() != null) {
-        String host = safeTrim(context.getAiatpRequest().getHeaders().getFirst("Host"));
+        String host = trimToEmpty(context.getAiatpRequest().getHeaders().getFirst("Host"));
         if (!host.isEmpty()) {
           return host;
         }
@@ -1232,15 +1232,12 @@ public class SpotifyComponent {
     return "";
   }
 
-  private static String urlEncode(String value) {
-    if (value == null || value.isBlank()) {
+  private static String trimToEmpty(String value) {
+    if (value == null) {
       return "";
     }
-    try {
-      return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
-    } catch (Exception e) {
-      return value;
-    }
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? "" : trimmed;
   }
 
   private static String inferAuthErrorCode(Exception e) {
