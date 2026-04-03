@@ -313,6 +313,10 @@ public class SpotifyComponent {
       authPayload.put("provider", "spotify");
       authPayload.put("session", sessionMap(result.session()));
       authPayload.put("authorizeUrl", result.authorizeUrl());
+      String completeUrl = buildAuthCompleteUrlTemplate(context, result.session(), result.secureEnvelope());
+      if (!completeUrl.isEmpty()) {
+        authPayload.put("completeUrl", completeUrl);
+      }
       authPayload.put("requiredScopes", pkceService().requiredScopes());
       authPayload.put("secureEnvelope", envelopeMap(result.secureEnvelope()));
       authPayload.put("relayPolicy", relayPolicyMap(result.relayPolicy()));
@@ -1180,6 +1184,63 @@ public class SpotifyComponent {
     out.put("inspectAllowed", relayPolicy.inspectAllowed());
     out.put("maxTtlSec", relayPolicy.maxTtlSec());
     return out;
+  }
+
+  private static String buildAuthCompleteUrlTemplate(CommandContext context,
+                                                     com.social100.todero.common.runtime.auth.AuthorizationSession session,
+                                                     AuthorizationSecureEnvelope envelope) {
+    if (context == null || session == null || envelope == null) {
+      return "";
+    }
+    String host = resolveChainTarget(context);
+    if (host.isEmpty()) {
+      return "";
+    }
+    StringBuilder url = new StringBuilder();
+    url.append("aia://").append(host).append("/com.shellaia.spotify/auth-complete");
+    url.append("?session-id=").append(urlEncode(session.sessionId()));
+    url.append("&state={state}");
+    url.append("&code={code}");
+    url.append("&envelope-id=").append(urlEncode(envelope.envelopeId()));
+    url.append("&nonce=").append(urlEncode(envelope.nonce()));
+    url.append("&ttl-sec=").append(envelope.ttlSec());
+    url.append("&opaque-payload=").append(urlEncode(envelope.opaquePayload()));
+    url.append("&integrity=").append(urlEncode(envelope.integrity()));
+    url.append("&algorithm=").append(urlEncode(envelope.algorithm()));
+    url.append("&issued-at-ms=").append(envelope.issuedAtMs());
+    return url.toString();
+  }
+
+  private static String resolveChainTarget(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null) {
+      return "";
+    }
+    String target = safeTrim(context.getAiatpRequest().getChainTarget());
+    if (!target.isEmpty()) {
+      return target;
+    }
+    try {
+      if (context.getAiatpRequest().getHeaders() != null) {
+        String host = safeTrim(context.getAiatpRequest().getHeaders().getFirst("Host"));
+        if (!host.isEmpty()) {
+          return host;
+        }
+      }
+    } catch (Exception ignored) {
+      return "";
+    }
+    return "";
+  }
+
+  private static String urlEncode(String value) {
+    if (value == null || value.isBlank()) {
+      return "";
+    }
+    try {
+      return java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
+    } catch (Exception e) {
+      return value;
+    }
   }
 
   private static String inferAuthErrorCode(Exception e) {
