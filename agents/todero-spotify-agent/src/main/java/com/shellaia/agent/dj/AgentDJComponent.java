@@ -977,7 +977,7 @@ public class AgentDJComponent {
     if (verified.isEmpty()) {
       stopReason = StopReason.TOOL_EXECUTION_FAILED;
       finalResponse = failureResponse(initialPrompt, stopReason, "resolve-track", correlationId,
-          "Could not verify any Spotify tracks for this recommendation request.");
+          "Could not resolve any Spotify tracks for this recommendation request.");
       finalizeLedgerWork(rootWorkId, stopReason, finalResponse, toolSteps);
       return new LoopResult(initialPrompt, finalResponse, toolSteps, stopReason, elapsedMs(startedAtNs), source, correlationId);
     }
@@ -998,7 +998,7 @@ public class AgentDJComponent {
       finalResponse = new CommandAgentResponse(
           initialPrompt,
           "none",
-          "Playing a verified similar track: " + selected.title() + " — " + selected.artist() + ".",
+          "Playing a recommended track: " + selected.title() + " — " + selected.artist() + ".",
           buildRecommendationHtml(playback, verified, requestedCount)
       );
     } else {
@@ -1744,37 +1744,6 @@ public class AgentDJComponent {
     return clampRecommendationCount(fallback);
   }
 
-  private static boolean matchesRecommendationCandidate(RecommendationCandidate candidate, VerifiedTrack track) {
-    String candidateArtist = normalizeForCompare(candidate.artist());
-    String resolvedArtist = normalizeForCompare(track.artist());
-    String candidateTitle = normalizeForCompare(candidate.title());
-    String resolvedTitle = normalizeForCompare(track.title());
-
-    boolean artistMatches = candidateArtist.isEmpty()
-        || resolvedArtist.equals(candidateArtist)
-        || resolvedArtist.contains(candidateArtist)
-        || candidateArtist.contains(resolvedArtist);
-    boolean titleMatches = candidateTitle.isEmpty()
-        || resolvedTitle.equals(candidateTitle)
-        || resolvedTitle.contains(candidateTitle)
-        || candidateTitle.contains(resolvedTitle)
-        || tokenOverlap(candidateTitle, resolvedTitle) >= 0.75d;
-    return artistMatches && titleMatches;
-  }
-
-  private static double tokenOverlap(String left, String right) {
-    Set<String> leftTokens = new HashSet<>(List.of(safeTrim(left).split("\\s+")));
-    Set<String> rightTokens = new HashSet<>(List.of(safeTrim(right).split("\\s+")));
-    leftTokens.remove("");
-    rightTokens.remove("");
-    if (leftTokens.isEmpty() || rightTokens.isEmpty()) {
-      return 0d;
-    }
-    Set<String> intersection = new HashSet<>(leftTokens);
-    intersection.retainAll(rightTokens);
-    return (double) intersection.size() / (double) Math.max(leftTokens.size(), rightTokens.size());
-  }
-
   private static boolean isRecommendationIntent(String prompt) {
     return prompt.contains("recommend")
         || prompt.contains("similar to")
@@ -1926,7 +1895,7 @@ public class AgentDJComponent {
         safeTrim(matcher.group(3)),
         safeTrim(candidate.reason())
     );
-    return matchesRecommendationCandidate(candidate, track) ? track : null;
+    return track;
   }
 
   private static String buildRecommendationSummary(PlaybackFacts playback, List<VerifiedTrack> verified, int requestedCount) {
@@ -1935,7 +1904,7 @@ public class AgentDJComponent {
         : "the current track " + playback.trackTitle();
     StringBuilder message = new StringBuilder();
     if (verified.size() < requestedCount) {
-      message.append("I could verify ")
+      message.append("I could resolve ")
           .append(verified.size())
           .append(" of ")
           .append(requestedCount)
@@ -1943,7 +1912,7 @@ public class AgentDJComponent {
           .append(anchor)
           .append(':');
     } else {
-      message.append("Here are verified similar tracks for ").append(anchor).append(':');
+      message.append("Here are recommended tracks for ").append(anchor).append(':');
     }
     for (int i = 0; i < verified.size(); i++) {
       VerifiedTrack track = verified.get(i);
@@ -1962,8 +1931,8 @@ public class AgentDJComponent {
       return "";
     }
     String title = safeTrim(playback.trackTitle()).isEmpty()
-        ? "Verified recommendations"
-        : "Verified tracks related to " + playback.trackTitle();
+        ? "Recommendations"
+        : "Recommended tracks related to " + playback.trackTitle();
     if (verified.size() < requestedCount) {
       title += " (" + verified.size() + " of " + requestedCount + ")";
     }
@@ -1992,7 +1961,7 @@ public class AgentDJComponent {
 
   private static String inferPlanState(GoalIntent goalIntent, List<ToolStep> toolSteps) {
     if (toolSteps == null || toolSteps.isEmpty()) {
-      return goalIntent.isRecommendationFlow() ? "need_candidate_verification" : "planning";
+      return goalIntent.isRecommendationFlow() ? "need_candidate_resolution" : "planning";
     }
     PlaybackFacts playback = extractPlaybackFacts(toolSteps);
     if (hasFailedTool(toolSteps)) {
@@ -2005,10 +1974,10 @@ public class AgentDJComponent {
       return "need_current_playback";
     }
     if (hasSuccessfulTool(toolSteps, "resolve-track")) {
-      return goalIntent.wantsPlayback() ? "need_playback_action" : "have_verified_recommendations";
+      return goalIntent.wantsPlayback() ? "need_playback_action" : "have_recommended_tracks";
     }
     if (goalIntent.isRecommendationFlow() && !safeTrim(playback.trackUri()).isEmpty()) {
-      return "need_candidate_verification";
+      return "need_candidate_resolution";
     }
     return "planning";
   }
@@ -2271,12 +2240,12 @@ public class AgentDJComponent {
       prompt.append("- This is a recommendation/similar-song flow.\n");
       if (!safeTrim(playback.trackUri()).isEmpty()) {
         prompt.append("- Current playback is already known. Do not call `status all` again.\n");
-        prompt.append("- Use concrete verification or playback actions only.\n");
+        prompt.append("- Use concrete resolution or playback actions only.\n");
       } else {
         prompt.append("- If current playback facts are missing, `status all` is the correct discovery step.\n");
       }
       if (hasSuccessfulTool(toolSteps, "resolve-track") && goalIntent.wantsPlayback()) {
-        prompt.append("- Verified candidates already exist. Prefer a play-capable next step instead of more verification.\n");
+        prompt.append("- Resolved candidates already exist. Prefer a play-capable next step instead of more resolution.\n");
       }
     }
     prompt.append("- Keep the plan moving with exactly one next command, or return `none` if the goal is satisfied or this toolchain cannot fulfill the request.\n");
