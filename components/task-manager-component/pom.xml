@@ -3,7 +3,7 @@
   <parent>
     <groupId>com.shellaia</groupId>
     <artifactId>components</artifactId>
-    <version>0.1.7-SNAPSHOT</version>
+    <version>0.1.8-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>task-manager-component</artifactId>
