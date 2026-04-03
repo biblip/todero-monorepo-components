@@ -2,32 +2,28 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-version_file="${repo_dir}/version.txt"
 nexus_root_default="$(cd "${repo_dir}/.." && pwd)/nexus"
 nexus_root="${NEXUS_PROJECT_DIR:-${nexus_root_default}}"
 nexus_host="${NEXUS_HOST:-http://localhost:8081}"
-token_file="${NEXUS_TOKEN_FILE:-${nexus_root}/provisioning/output/ci-publisher.token}"
+credentials_file="${NEXUS_CREDENTIALS_FILE:-${nexus_root}/provisioning/output/ci-publisher.credentials}"
 run_tests="${RUN_TESTS:-false}"
-deploy_repo_id="${NEXUS_DEPLOY_REPOSITORY_ID:-nexus-releases}"
-deploy_repo_url="${NEXUS_DEPLOY_REPOSITORY_URL:-${nexus_host%/}/repository/maven-releases/}"
 
 usage() {
   cat <<'EOF'
 Usage: ./publish-all-to-nexus.sh [--with-tests] [--version <x.y.z>] [--dry-run]
 
 Publishes all modules in todero-monorepo-components to the local Nexus instance.
-The publish version is read from version.txt unless --version is provided.
-After a successful publish, the script increments the patch version in version.txt
-and leaves the Maven project on the next patch snapshot.
+By default, the release version is derived from the root pom.xml version:
+- if the current version is x.y.z-SNAPSHOT, it publishes x.y.z
+- if the current version is x.y.z, it publishes x.y.z
+After a successful publish, the script leaves the Maven project on the next patch snapshot.
 
 Environment overrides:
   CI_NEXUS_USER                  Nexus username
-  CI_NEXUS_TOKEN                 Nexus user token
+  CI_NEXUS_PASSWORD              Nexus password
   NEXUS_HOST                     Defaults to http://localhost:8081
   NEXUS_PROJECT_DIR              Defaults to ../nexus
-  NEXUS_TOKEN_FILE               Defaults to ../nexus/provisioning/output/ci-publisher.token
-  NEXUS_DEPLOY_REPOSITORY_ID     Defaults to nexus-releases
-  NEXUS_DEPLOY_REPOSITORY_URL    Defaults to http://localhost:8081/repository/maven-releases/
+  NEXUS_CREDENTIALS_FILE         Defaults to ../nexus/provisioning/output/ci-publisher.credentials
   RUN_TESTS=true                 Same as --with-tests
 EOF
 }
@@ -72,20 +68,6 @@ require_cmd mvn
 require_cmd python3
 require_cmd curl
 
-if [[ ! -f "${version_file}" ]]; then
-  echo "Missing version file: ${version_file}" >&2
-  exit 1
-fi
-
-if [[ -z "${publish_version}" ]]; then
-  publish_version="$(tr -d '[:space:]' < "${version_file}")"
-fi
-
-if [[ ! "${publish_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "version.txt must contain a release version like 1.2.3. Got: ${publish_version}" >&2
-  exit 1
-fi
-
 current_project_version="$(
   python3 - "${repo_dir}/pom.xml" <<'PY'
 import sys
@@ -99,6 +81,19 @@ if version is None:
 print(version.strip())
 PY
 )"
+
+if [[ -z "${publish_version}" ]]; then
+  if [[ "${current_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT$ ]]; then
+    publish_version="${current_project_version%-SNAPSHOT}"
+  else
+    publish_version="${current_project_version}"
+  fi
+fi
+
+if [[ ! "${publish_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Release version must look like 1.2.3. Resolved: ${publish_version}" >&2
+  exit 1
+fi
 
 next_version="$(
   python3 - "${publish_version}" <<'PY'
@@ -114,33 +109,29 @@ if [[ "${dry_run}" == "true" ]]; then
 Dry run only.
 Current project version: ${current_project_version}
 Publish version: ${publish_version}
-Next version.txt value: ${next_version}
 Next project snapshot version: ${next_snapshot_version}
-Deploy target: ${deploy_repo_id} -> ${deploy_repo_url}
-Token lookup path: ${token_file}
+Deploy target: distributionManagement in pom.xml via ${nexus_host}
+Credentials lookup path: ${credentials_file}
 EOF
   exit 0
 fi
 
 read -r nexus_user nexus_secret < <(
-  python3 - "${token_file}" <<'PY'
+  python3 - "${credentials_file}" <<'PY'
 import os
 import sys
 
-token_path = sys.argv[1]
+credentials_path = sys.argv[1]
 user = os.environ.get("CI_NEXUS_USER", "").strip()
-secret = (
-    os.environ.get("CI_NEXUS_TOKEN", "").strip()
-    or os.environ.get("CI_NEXUS_PASSWORD", "").strip()
-)
+secret = os.environ.get("CI_NEXUS_PASSWORD", "").strip()
 
 if user and secret:
     print(user, secret)
     raise SystemExit(0)
 
 values = {}
-if os.path.exists(token_path):
-    with open(token_path, "r", encoding="utf-8") as fh:
+if os.path.exists(credentials_path):
+    with open(credentials_path, "r", encoding="utf-8") as fh:
         for raw in fh:
             line = raw.strip()
             if not line or "=" not in line:
@@ -149,14 +140,14 @@ if os.path.exists(token_path):
             values[key.strip()] = value.strip()
 
 user = user or values.get("username", "")
-secret = secret or values.get("token", "") or values.get("password", "")
+secret = secret or values.get("password", "")
 if not user or not secret:
     raise SystemExit(1)
 
 print(user, secret)
 PY
 ) || {
-  echo "Unable to resolve Nexus credentials. Set CI_NEXUS_USER with CI_NEXUS_TOKEN/CI_NEXUS_PASSWORD, or provision ${token_file}." >&2
+  echo "Unable to resolve Nexus credentials. Set CI_NEXUS_USER with CI_NEXUS_PASSWORD, or provision ${credentials_file}." >&2
   exit 1
 }
 
@@ -222,16 +213,14 @@ fi
 
 mvn -f "${repo_dir}/pom.xml" \
   -s "${tmp_settings}" \
-  "${deploy_goal[@]}" \
-  -DaltDeploymentRepository="${deploy_repo_id}::${deploy_repo_url}"
+  -Dnexus.baseUrl="${nexus_host%/}" \
+  "${deploy_goal[@]}"
 
-printf '%s\n' "${next_version}" > "${version_file}"
 set_version "${next_snapshot_version}"
 restore_needed="false"
 
 cat <<EOF
 Published version: ${publish_version}
-Next version.txt: ${next_version}
 Project version set to: ${next_snapshot_version}
-Deployment repository: ${deploy_repo_url}
+Deployment repositories: ${nexus_host%/}/repository/maven-releases/ and ${nexus_host%/}/repository/maven-snapshots/
 EOF

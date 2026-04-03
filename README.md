@@ -50,8 +50,6 @@ mvn -f todero-monorepo-components/pom.xml clean package
 
 ## Publish all modules to local Nexus
 
-The repo root contains `version.txt`, which stores the next release version to publish.
-
 Publish all components, agents, preprocessors, and postprocessors to the local Nexus instance on `http://localhost:8081`:
 
 ```sh
@@ -60,14 +58,16 @@ cd todero-monorepo-components
 ```
 
 Behavior:
-- reads the release version from `version.txt`
-- deploys the full monorepo to `maven-releases`
-- increments the patch in `version.txt`
+- derives the release version from the root `pom.xml`
+- if the current version is `x.y.z-SNAPSHOT`, it publishes `x.y.z`
+- if the current version is `x.y.z`, it publishes `x.y.z`
+- sets the reactor to that release version and runs `mvn deploy`
+- Maven routes releases to `maven-releases` using root `distributionManagement`
 - leaves the Maven project on the next patch `-SNAPSHOT`
 
 Credential sources:
-- `CI_NEXUS_USER` and `CI_NEXUS_TOKEN`, or
-- `../nexus/provisioning/output/ci-publisher.token`
+- `CI_NEXUS_USER` and `CI_NEXUS_PASSWORD`, or
+- `../nexus/provisioning/output/ci-publisher.credentials`
 
 Useful options:
 
@@ -76,6 +76,43 @@ Useful options:
 ./publish-all-to-nexus.sh --version 0.1.7
 ./publish-all-to-nexus.sh --dry-run
 ```
+
+## Publish snapshots with `mvn deploy`
+
+The root POM now declares `distributionManagement` for both hosted repos:
+- releases: `nexus-releases`
+- snapshots: `nexus-snapshots`
+
+Set Maven credentials in `~/.m2/settings.xml`:
+
+```xml
+<settings>
+  <servers>
+    <server>
+      <id>nexus-releases</id>
+      <username>${env.CI_NEXUS_USER}</username>
+      <password>${env.CI_NEXUS_PASSWORD}</password>
+    </server>
+    <server>
+      <id>nexus-snapshots</id>
+      <username>${env.CI_NEXUS_USER}</username>
+      <password>${env.CI_NEXUS_PASSWORD}</password>
+    </server>
+  </servers>
+</settings>
+```
+
+Publish the current snapshot version from the monorepo root:
+
+```sh
+CI_NEXUS_USER=user-to-deploy-maven-releases \
+CI_NEXUS_PASSWORD='your-password' \
+mvn -f todero-monorepo-components/pom.xml \
+  -Dnexus.baseUrl=http://localhost:8081 \
+  clean deploy
+```
+
+If the project version ends with `-SNAPSHOT`, Maven deploys to `maven-snapshots`. Release versions deploy to `maven-releases`.
 
 Build selected modules by role path:
 
