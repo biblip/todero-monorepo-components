@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.shellaia</groupId>
   <artifactId>shellaia-components</artifactId>
-  <version>0.1.7-SNAPSHOT</version>
+  <version>0.1.8-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>shellaia-components</name>
   <modules>
@@ -34,7 +34,35 @@
     <vlcj.version>4.8.2</vlcj.version>
     <reflections.version>0.10.2</reflections.version>
     <slf4j.version>2.0.17</slf4j.version>
+    <todero.runtime.metadata.enforcer.skip>true</todero.runtime.metadata.enforcer.skip>
   </properties>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>require-runtime-storage-metadata</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <skip>${todero.runtime.metadata.enforcer.skip}</skip>
+              <rules>
+                <requireProperty>
+                  <property>todero.runtime.kind</property>
+                  <message>todero.runtime.kind must be set for runtime jars.</message>
+                </requireProperty>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
   <dependencyManagement>
     <dependencies>
       <dependency>

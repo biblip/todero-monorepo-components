@@ -3,12 +3,42 @@
   <parent>
     <groupId>com.shellaia</groupId>
     <artifactId>shellaia-components</artifactId>
-    <version>0.1.7-SNAPSHOT</version>
+    <version>0.1.8-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>components</artifactId>
   <packaging>pom</packaging>
   <name>shellaia-components-components</name>
+  <properties>
+    <todero.runtime.kind>component</todero.runtime.kind>
+    <todero.runtime.metadata.enforcer.skip>false</todero.runtime.metadata.enforcer.skip>
+  </properties>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+        <executions>
+          <execution>
+            <id>default-jar</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <archive>
+                <manifestEntries>
+                  <Todero-Runtime-Kind>${todero.runtime.kind}</Todero-Runtime-Kind>
+                  <Todero-Storage-GroupId>${project.groupId}</Todero-Storage-GroupId>
+                  <Todero-Storage-ArtifactId>${project.artifactId}</Todero-Storage-ArtifactId>
+                </manifestEntries>
+              </archive>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
   <modules>
     <module>aia-admin-component</module>
     <module>aia-protocol-component</module>
