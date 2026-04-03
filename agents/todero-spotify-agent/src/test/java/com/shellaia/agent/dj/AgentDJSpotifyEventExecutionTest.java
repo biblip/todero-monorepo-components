@@ -10,6 +10,9 @@ import com.social100.todero.common.ai.action.CommandAgentResponse;
 import com.social100.todero.common.ai.agent.AgentContext;
 import com.social100.todero.common.ai.agent.AgentPrompt;
 import com.social100.todero.common.ai.llm.LLMClient;
+import com.social100.todero.common.ai.llm.LLMInstance;
+import com.social100.todero.common.ai.llm.LLMProviderDefinition;
+import com.social100.todero.common.ai.llm.LLMRegistry;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
@@ -20,9 +23,14 @@ import com.social100.todero.common.storage.Storage;
 import com.social100.todero.console.base.OutputType;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,11 +66,12 @@ class AgentDJSpotifyEventExecutionTest {
         int.class,
         Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
         List.class,
-        CommandAgentResponse.class);
+        CommandAgentResponse.class,
+        List.class);
     method.setAccessible(true);
     method.invoke(component, context, "play a simmilar song like that", "process", "corr-1", true, 2,
         newGoalIntent("recommendation_playback", "current_playback", "current-playback", true, true, true, 1, 0.92d, "test"),
-        toolSteps, null);
+        toolSteps, null, List.of("status all"));
 
     @SuppressWarnings("unchecked")
     Map<String, Object> knownFacts = (Map<String, Object>) context.get("known_facts");
@@ -76,6 +85,10 @@ class AgentDJSpotifyEventExecutionTest {
     assertEquals(1, recentSteps.size());
     assertEquals("status", recentSteps.get(0).get("tool_command"));
     assertEquals("recommendation_playback", ((Map<?, ?>) context.get("normalized_goal")).get("intent"));
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> plannerHistory = (List<Map<String, Object>>) context.get("planner_history");
+    assertEquals(1, plannerHistory.size());
+    assertEquals("status all", plannerHistory.get(0).get("action"));
   }
 
   @Test
@@ -362,6 +375,88 @@ class AgentDJSpotifyEventExecutionTest {
   }
 
   @Test
+  void runGoalLoopFailsWhenPlannerReturnsNoneAfterNonTerminalTool() throws Exception {
+    AgentDJComponent component = newLedgerIsolatedComponent();
+    SequencedLlm llm = new SequencedLlm(
+        "{\"intent\":\"general_spotify_control\",\"target_scope\":\"current_playback\",\"seed_hint\":\"current-playback\",\"wants_playback\":true,\"references_current_playback\":true,\"needs_discovery\":true,\"confidence\":0.97,\"reason\":\"Replay current track.\"}",
+        "{\"request\":\"Check playback\",\"action\":\"status all\",\"user\":\"Checking playback.\",\"html\":\"\"}",
+        "{\"request\":\"Replay current track\",\"action\":\"none\",\"user\":\"No further action.\",\"html\":\"\"}"
+    );
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          if ("status".equals(cmd)) {
+            ctx.completeJson(200, "{\"ok\":true,\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: Tan Natural — Felipe Peláez\\nURI: spotify:track:5CiiBycd20QB9YsK95byV6\\nPosition: 00:00 / 04:11\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: Tan Natural — Felipe Peláez\\nURI: spotify:track:5CiiBycd20QB9YsK95byV6\\nPosition: 00:00 / 04:11\"},\"status\":{\"message\":\"Playback status ready.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+            return;
+          }
+          throw new AssertionError("Unexpected command: " + cmd);
+        }))
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
+            AiatpIO.Body.ofString("play again the same song", StandardCharsets.UTF_8)))
+        .llmRegistry(singleLlmRegistry(llm))
+        .build();
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "runGoalLoop",
+        CommandContext.class,
+        String.class,
+        boolean.class,
+        String.class,
+        String.class,
+        String.class);
+    method.setAccessible(true);
+    Object root = openRootLedgerWork(component, "process", "play again the same song", true, "corr-loop-none");
+    String workId = (String) accessor(root, "workId");
+    Object loopResult = method.invoke(component, parent, "play again the same song", true, "process", "corr-loop-none", workId);
+
+    assertEquals("tool_succeeded_but_goal_unresolved", fieldAccessor(accessor(loopResult, "stopReason"), "code"));
+    Object response = accessor(loopResult, "finalResponse");
+    assertTrue(((String) accessor(response, "user")).contains("Planner returned no next action"));
+  }
+
+  @Test
+  void runGoalLoopDetectsRepeatedPlannerLoop() throws Exception {
+    AgentDJComponent component = newLedgerIsolatedComponent();
+    SequencedLlm llm = new SequencedLlm(
+        "{\"intent\":\"general_spotify_control\",\"target_scope\":\"current_playback\",\"seed_hint\":\"current-playback\",\"wants_playback\":true,\"references_current_playback\":true,\"needs_discovery\":true,\"confidence\":0.97,\"reason\":\"Replay current track.\"}",
+        "{\"request\":\"Check playback\",\"action\":\"status all\",\"user\":\"Checking playback.\",\"html\":\"\"}",
+        "{\"request\":\"Check playback again\",\"action\":\"status all\",\"user\":\"Checking playback again.\",\"html\":\"\"}",
+        "{\"request\":\"Check playback once more\",\"action\":\"status all\",\"user\":\"Checking playback once more.\",\"html\":\"\"}"
+    );
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          if ("status".equals(cmd)) {
+            ctx.completeJson(200, "{\"ok\":true,\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: Tan Natural — Felipe Peláez\\nURI: spotify:track:5CiiBycd20QB9YsK95byV6\\nPosition: 00:00 / 04:11\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: Tan Natural — Felipe Peláez\\nURI: spotify:track:5CiiBycd20QB9YsK95byV6\\nPosition: 00:00 / 04:11\"},\"status\":{\"message\":\"Playback status ready.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+            return;
+          }
+          throw new AssertionError("Unexpected command: " + cmd);
+        }))
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
+            AiatpIO.Body.ofString("play again the same song", StandardCharsets.UTF_8)))
+        .llmRegistry(singleLlmRegistry(llm))
+        .build();
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "runGoalLoop",
+        CommandContext.class,
+        String.class,
+        boolean.class,
+        String.class,
+        String.class,
+        String.class);
+    method.setAccessible(true);
+    Object root = openRootLedgerWork(component, "process", "play again the same song", true, "corr-loop-repeat");
+    String workId = (String) accessor(root, "workId");
+    Object loopResult = method.invoke(component, parent, "play again the same song", true, "process", "corr-loop-repeat", workId);
+
+    String stopCode = (String) fieldAccessor(accessor(loopResult, "stopReason"), "code");
+    assertTrue(Set.of("planner_loop_detected", "no_forward_progress").contains(stopCode));
+    Object response = accessor(loopResult, "finalResponse");
+    assertTrue(((String) accessor(response, "user")).contains("Reference: corr-loop-repeat"));
+  }
+
+  @Test
   void executeSpotifyActionRejectsUnsupportedToolchainBeforeDispatch() throws Exception {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     CommandContext parent = CommandContext.builder()
@@ -434,6 +529,22 @@ class AgentDJSpotifyEventExecutionTest {
       method.setAccessible(true);
       return method.invoke(target);
     }
+  }
+
+  private static Object fieldAccessor(Object target, String name) throws Exception {
+    var field = target.getClass().getDeclaredField(name);
+    field.setAccessible(true);
+    return field.get(target);
+  }
+
+  private static Object openRootLedgerWork(AgentDJComponent component,
+                                           String source,
+                                           String prompt,
+                                           boolean interactive,
+                                           String correlationId) throws Exception {
+    Method m = AgentDJComponent.class.getDeclaredMethod("openRootLedgerWork", String.class, String.class, boolean.class, String.class);
+    m.setAccessible(true);
+    return m.invoke(component, source, prompt, interactive, correlationId);
   }
 
   private static Object newToolStep(int step,
@@ -583,5 +694,62 @@ class AgentDJSpotifyEventExecutionTest {
       }
       return "{\"request\":\"Play a similar song to the current track\",\"action\":\"status all\",\"user\":\"Finding a similar song.\",\"html\":\"\"}";
     }
+  }
+
+  private static final class SequencedLlm implements LLMClient {
+    private final List<String> responses;
+    private int index = 0;
+
+    private SequencedLlm(String... responses) {
+      this.responses = List.of(responses);
+    }
+
+    @Override
+    public String chat(String systemPrompt, String userPrompt, String contextJson) {
+      if (index >= responses.size()) {
+        return responses.get(responses.size() - 1);
+      }
+      return responses.get(index++);
+    }
+  }
+
+  private static LLMRegistry singleLlmRegistry(LLMClient client) {
+    LLMInstance instance = new LLMInstance(
+        new LLMProviderDefinition("test", "external", "planner", "test", true, 1,
+            new LinkedHashSet<>(Set.of("system")), Map.of()),
+        client
+    );
+    return new LLMRegistry() {
+      @Override
+      public List<LLMInstance> list() {
+        return List.of(instance);
+      }
+
+      @Override
+      public List<LLMInstance> list(String category) {
+        return List.of(instance);
+      }
+
+      @Override
+      public Optional<LLMInstance> get(String name) {
+        return Optional.of(instance);
+      }
+
+      @Override
+      public Optional<LLMInstance> select(String category, String explicitName) {
+        return Optional.of(instance);
+      }
+
+      @Override
+      public Optional<LLMInstance> system() {
+        return Optional.of(instance);
+      }
+    };
+  }
+
+  private static AgentDJComponent newLedgerIsolatedComponent() throws Exception {
+    Path ledgerDir = Files.createTempDirectory("dj-agent-ledger-test");
+    System.setProperty("todero.agent.dj.ledger.dir", ledgerDir.toString());
+    return new AgentDJComponent(new InMemoryStorage());
   }
 }

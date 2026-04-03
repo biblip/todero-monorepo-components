@@ -75,6 +75,7 @@ public class AgentDJComponent {
   private static final int DEFAULT_RECOMMENDATION_COUNT = 1;
   private static final int MAX_RECOMMENDATION_COUNT = 12;
   private static final int PLANNER_RECENT_STEP_LIMIT = 4;
+  private static final int PLANNER_HISTORY_LIMIT = 8;
   private static final int LEDGER_SUMMARY_MAX_ENTRIES = 12;
   private static final int LEDGER_SUMMARY_MAX_CHARS = 1400;
   private static final String LEDGER_OWNER_ID = "com.shellaia.agent.dj";
@@ -316,6 +317,9 @@ public class AgentDJComponent {
 
     CommandAgentResponse lastResponse = null;
     List<ToolStep> toolSteps = new ArrayList<>();
+    List<String> plannerHistory = new ArrayList<>();
+    boolean awaitingContinuation = false;
+    String awaitingCommand = "";
 
     for (int step = 1; step <= MAX_STEPS; step++) {
       AgentContext plannerContext = new AgentContext();
@@ -329,7 +333,8 @@ public class AgentDJComponent {
           step,
           goalIntent,
           toolSteps,
-          lastResponse
+          lastResponse,
+          plannerHistory
       );
       String plannerPrompt = buildPlannerPrompt(
           initialPrompt,
@@ -340,6 +345,7 @@ public class AgentDJComponent {
           goalIntent,
           toolSteps,
           lastResponse,
+          plannerHistory,
           rootWorkId
       );
       long stepStartedAtNs = System.nanoTime();
@@ -372,6 +378,10 @@ public class AgentDJComponent {
       action = coercePlannerAction(initialPrompt, goalIntent, action, step, interactiveRequest);
       action = coerceCurrentPlaylistSongAddAction(action, currentPlaylistSongTitle, step, interactiveRequest);
       action = coercePlaylistAddAction(action, toolSteps, playlistAddIntent, step, interactiveRequest);
+      String actionSignature = normalizeActionSignature(action);
+      if (!actionSignature.isEmpty()) {
+        plannerHistory.add(actionSignature);
+      }
       appendLedgerAction(rootWorkId, WorkActionType.PLAN,
           "step=" + step + " planner_action=" + safeTrim(action),
           null, null, null, plannerDurationMs, null);
@@ -379,10 +389,30 @@ public class AgentDJComponent {
       if (action.isEmpty() || "none".equalsIgnoreCase(action)) {
         long stepDurationMs = elapsedMs(stepStartedAtNs);
         toolSteps.add(new ToolStep(step, "none", "none", "", "", plannerDurationMs, 0, stepDurationMs));
-        stopReason = StopReason.ACTION_NONE;
-        appendLedgerAction(rootWorkId, WorkActionType.DECISION,
-            "step=" + step + " action=none stopReason=" + stopReason.code,
-            null, null, null, null, null);
+        if (awaitingContinuation) {
+          stopReason = StopReason.TOOL_SUCCEEDED_BUT_GOAL_UNRESOLVED;
+          lastResponse = failureResponse(initialPrompt, stopReason, awaitingCommand, correlationId,
+              "Planner returned no next action after a non-terminal tool result.");
+          appendLedgerAction(rootWorkId, WorkActionType.FAIL,
+              "step=" + step + " action=none while goal unresolved",
+              awaitingCommand, null, null, null, stopReason.code,
+              "planner returned no follow-up action");
+        } else {
+          stopReason = StopReason.ACTION_NONE;
+          appendLedgerAction(rootWorkId, WorkActionType.DECISION,
+              "step=" + step + " action=none stopReason=" + stopReason.code,
+              null, null, null, null, null);
+        }
+        break;
+      }
+
+      LoopTermination loopTermination = detectLoopTermination(actionSignature, plannerHistory, toolSteps);
+      if (loopTermination != null) {
+        stopReason = loopTermination.stopReason();
+        lastResponse = failureResponse(initialPrompt, stopReason, awaitingCommand, correlationId, loopTermination.details());
+        appendLedgerAction(rootWorkId, WorkActionType.FAIL,
+            "step=" + step + " planner_loop stopReason=" + stopReason.code,
+            awaitingCommand, null, loopTermination.details(), null, stopReason.code, loopTermination.details());
         break;
       }
 
@@ -467,6 +497,8 @@ public class AgentDJComponent {
       }
 
       if (completesAfterSuccessfulTool) {
+        awaitingContinuation = false;
+        awaitingCommand = "";
         stopReason = StopReason.ACTION_NONE;
         appendLedgerAction(rootWorkId, WorkActionType.DECISION,
             "step=" + step + " completion=tool_success command=" + tool.command,
@@ -475,6 +507,8 @@ public class AgentDJComponent {
       }
 
       if (disposition == ToolResponseDisposition.AWAIT_EXTERNAL_COMPLETION) {
+        awaitingContinuation = false;
+        awaitingCommand = "";
         stopReason = StopReason.AUTH_REQUIRED;
         lastResponse = new CommandAgentResponse(
             initialPrompt,
@@ -487,6 +521,9 @@ public class AgentDJComponent {
             tool.command, tool.args, redactedForLogs(tool.rawOutput()), toolDurationMs, null);
         break;
       }
+
+      awaitingContinuation = true;
+      awaitingCommand = safeTrim(tool.command);
 
       if (!interactiveRequest && step >= 2) {
         // For background reactions, keep loops short and non-blocking.
@@ -2198,6 +2235,7 @@ public class AgentDJComponent {
                                     GoalIntent goalIntent,
                                     List<ToolStep> toolSteps,
                                     CommandAgentResponse lastResponse,
+                                    List<String> plannerHistory,
                                     String rootWorkId) {
     PlaybackFacts playback = extractPlaybackFacts(toolSteps);
     StringBuilder prompt = new StringBuilder(1024);
@@ -2217,9 +2255,13 @@ public class AgentDJComponent {
     appendKnownFacts(prompt, playback, toolSteps, lastResponse);
     prompt.append("\nRecent steps:\n");
     appendRecentSteps(prompt, toolSteps);
+    prompt.append("\nPlanner history:\n");
+    appendPlannerHistory(prompt, plannerHistory);
     prompt.append("\nDecision rules:\n");
     prompt.append("- Do not forget the original goal.\n");
     prompt.append("- Do not repeat a successful tool step unless a required fact is still missing.\n");
+    prompt.append("- If the latest tool result did not complete the goal, propose one concrete next command or explicitly explain why the request cannot continue.\n");
+    prompt.append("- Never loop on the same command with the same arguments when no new facts were discovered.\n");
     if (goalIntent.isRecommendationFlow()) {
       prompt.append("- This is a recommendation/similar-song flow.\n");
       if (!safeTrim(playback.trackUri()).isEmpty()) {
@@ -2244,7 +2286,8 @@ public class AgentDJComponent {
                                       int step,
                                       GoalIntent goalIntent,
                                       List<ToolStep> toolSteps,
-                                      CommandAgentResponse lastResponse) {
+                                      CommandAgentResponse lastResponse,
+                                      List<String> plannerHistory) {
     if (context == null) {
       return;
     }
@@ -2272,6 +2315,7 @@ public class AgentDJComponent {
     context.set("plan_state", inferPlanState(goalIntent, toolSteps));
     context.set("known_facts", buildKnownFactsMap(playback, toolSteps, lastResponse));
     context.set("recent_steps", buildRecentStepsContext(toolSteps));
+    context.set("planner_history", buildPlannerHistoryContext(plannerHistory));
     if (lastResponse != null) {
       context.set("last_planner_response", Map.of(
           "request", safeTrim(lastResponse.getRequest()),
@@ -3132,6 +3176,99 @@ public class AgentDJComponent {
     }
   }
 
+  private static String normalizeActionSignature(String action) {
+    String raw = safeTrim(action).toLowerCase(Locale.ROOT);
+    if (raw.isEmpty() || "none".equals(raw)) {
+      return "";
+    }
+    LineParserUtil.ParsedLine parsed = LineParserUtil.parse(raw);
+    if (parsed == null || safeTrim(parsed.first).isEmpty()) {
+      return raw.replaceAll("\\s+", " ");
+    }
+    String command = safeTrim(parsed.first).toLowerCase(Locale.ROOT);
+    String args = joinArgs(parsed.second, parsed.remaining).trim().replaceAll("\\s+", " ");
+    return args.isEmpty() ? command : command + " " + args;
+  }
+
+  private static LoopTermination detectLoopTermination(String currentActionSignature,
+                                                       List<String> plannerHistory,
+                                                       List<ToolStep> toolSteps) {
+    String signature = safeTrim(currentActionSignature);
+    if (signature.isEmpty()) {
+      return null;
+    }
+    int repeatedPlans = 0;
+    for (String prior : plannerHistory) {
+      if (signature.equals(safeTrim(prior))) {
+        repeatedPlans++;
+      }
+    }
+    if (repeatedPlans >= 3) {
+      return new LoopTermination(
+          StopReason.PLANNER_LOOP_DETECTED,
+          "Planner repeated the same action without enough change: " + signature
+      );
+    }
+    int repeatedMatchingSteps = 0;
+    String lastDigest = "";
+    for (ToolStep step : toolSteps) {
+      String priorSignature = normalizeActionSignature(step.agentAction);
+      if (!signature.equals(priorSignature)) {
+        continue;
+      }
+      repeatedMatchingSteps++;
+      String digest = toolOutputDigest(step.toolOutput);
+      if (!lastDigest.isEmpty() && lastDigest.equals(digest)) {
+        return new LoopTermination(
+            StopReason.NO_FORWARD_PROGRESS,
+            "Repeated action produced the same result without new facts: " + signature
+        );
+      }
+      lastDigest = digest;
+    }
+    if (repeatedMatchingSteps >= 2) {
+      return new LoopTermination(
+          StopReason.PLANNER_LOOP_DETECTED,
+          "Planner returned the same action again after previous execution: " + signature
+      );
+    }
+    return null;
+  }
+
+  private static String toolOutputDigest(String toolOutput) {
+    String text = safeTrim(extractToolText(toolOutput)).toLowerCase(Locale.ROOT);
+    if (text.isEmpty()) {
+      return "";
+    }
+    return text.replaceAll("\\s+", " ");
+  }
+
+  private static List<Map<String, Object>> buildPlannerHistoryContext(List<String> plannerHistory) {
+    List<Map<String, Object>> items = new ArrayList<>();
+    if (plannerHistory == null || plannerHistory.isEmpty()) {
+      return items;
+    }
+    int start = Math.max(0, plannerHistory.size() - PLANNER_HISTORY_LIMIT);
+    for (int i = start; i < plannerHistory.size(); i++) {
+      items.add(Map.of(
+          "step", i + 1,
+          "action", safeTrim(plannerHistory.get(i))
+      ));
+    }
+    return items;
+  }
+
+  private static void appendPlannerHistory(StringBuilder prompt, List<String> plannerHistory) {
+    if (plannerHistory == null || plannerHistory.isEmpty()) {
+      prompt.append("- none\n");
+      return;
+    }
+    int start = Math.max(0, plannerHistory.size() - PLANNER_HISTORY_LIMIT);
+    for (int i = start; i < plannerHistory.size(); i++) {
+      prompt.append("- plan ").append(i + 1).append(": ").append(safeTrim(plannerHistory.get(i))).append('\n');
+    }
+  }
+
   private static String readText(JsonNode node, String field) {
     if (node == null || node.isMissingNode()) {
       return "";
@@ -3291,11 +3428,12 @@ public class AgentDJComponent {
   private static AgentFailureResponseFactory.FailureKind mapFailureKind(StopReason stopReason) {
     return switch (stopReason) {
       case PLANNER_EXCEPTION -> AgentFailureResponseFactory.FailureKind.PLANNER_EXCEPTION;
-      case TOOL_EXECUTION_FAILED -> AgentFailureResponseFactory.FailureKind.TOOL_EXECUTION_FAILED;
+      case TOOL_EXECUTION_FAILED, TOOL_SUCCEEDED_BUT_GOAL_UNRESOLVED -> AgentFailureResponseFactory.FailureKind.TOOL_EXECUTION_FAILED;
       case UNSUPPORTED_ACTION -> AgentFailureResponseFactory.FailureKind.UNSUPPORTED_ACTION;
       case OUT_OF_SCOPE -> AgentFailureResponseFactory.FailureKind.UNSUPPORTED_ACTION;
       case INVALID_ARGUMENTS -> AgentFailureResponseFactory.FailureKind.INVALID_ARGUMENTS;
       case MAX_STEPS_REACHED -> AgentFailureResponseFactory.FailureKind.MAX_STEPS_REACHED;
+      case NO_FORWARD_PROGRESS, PLANNER_LOOP_DETECTED -> AgentFailureResponseFactory.FailureKind.INTERNAL_ERROR;
       default -> AgentFailureResponseFactory.FailureKind.INTERNAL_ERROR;
     };
   }
@@ -3474,9 +3612,12 @@ public class AgentDJComponent {
   private static boolean isFailureStopReason(StopReason stopReason) {
     return stopReason == StopReason.PLANNER_EXCEPTION
         || stopReason == StopReason.TOOL_EXECUTION_FAILED
+        || stopReason == StopReason.TOOL_SUCCEEDED_BUT_GOAL_UNRESOLVED
         || stopReason == StopReason.UNSUPPORTED_ACTION
         || stopReason == StopReason.INVALID_ARGUMENTS
-        || stopReason == StopReason.MAX_STEPS_REACHED;
+        || stopReason == StopReason.MAX_STEPS_REACHED
+        || stopReason == StopReason.NO_FORWARD_PROGRESS
+        || stopReason == StopReason.PLANNER_LOOP_DETECTED;
   }
 
   private static String lastToolOutput(List<ToolStep> toolSteps) {
@@ -3735,15 +3876,21 @@ public class AgentDJComponent {
                             String correlationId) {
   }
 
+  private record LoopTermination(StopReason stopReason, String details) {
+  }
+
   private enum StopReason {
     ACTION_NONE("action_none", "planner concluded no further action is needed"),
     PLANNER_EXCEPTION("planner_exception", "planner failed with an internal exception"),
     TOOL_EXECUTION_FAILED("tool_execution_failed", "spotify command execution failed"),
+    TOOL_SUCCEEDED_BUT_GOAL_UNRESOLVED("tool_succeeded_but_goal_unresolved", "a tool succeeded but the planner did not complete the goal"),
     OUT_OF_SCOPE("out_of_scope", "request cannot be fulfilled by the DJ Spotify toolchain"),
     UNSUPPORTED_ACTION("unsupported_action", "planner proposed a command outside the allowed spotify command set"),
     INVALID_ARGUMENTS("invalid_arguments", "planner proposed invalid arguments for a spotify command"),
     AUTH_REQUIRED("auth_required", "spotify authorization is required before continuing"),
     BACKGROUND_STEP_LIMIT("background_step_limit", "background reaction reached step cap"),
+    NO_FORWARD_PROGRESS("no_forward_progress", "planner could not make forward progress after prior tool steps"),
+    PLANNER_LOOP_DETECTED("planner_loop_detected", "planner repeated prior actions without meaningful change"),
     MAX_STEPS_REACHED("max_steps_reached", "maximum loop step limit reached");
 
     private final String code;
