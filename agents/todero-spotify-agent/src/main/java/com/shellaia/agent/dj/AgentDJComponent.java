@@ -99,6 +99,11 @@ public class AgentDJComponent {
   private static final Set<String> AUTH_REQUIRED_CODES = Set.of("auth_required", "auth_scope_missing");
   //private final AgentDefinition agentDefinition;
   private final ExecutorService cognitionExecutor;
+  private static final ExecutorService TOOL_PROGRESS_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+    Thread thread = new Thread(r, "dj-tool-progress");
+    thread.setDaemon(true);
+    return thread;
+  });
   private final Path ledgerPath;
   private volatile OwnerAgentWorkLedger ownerLedger;
   private final Object ledgerInitLock = new Object();
@@ -429,7 +434,7 @@ public class AgentDJComponent {
           : ToolResponseDisposition.CONTINUE;
       boolean completesAfterSuccessfulTool = disposition == ToolResponseDisposition.GOAL_COMPLETED;
       if (interactiveRequest && !authRequiredToolResult && !completesAfterSuccessfulTool) {
-        emitToolProgress(parentContext, tool, correlationId, step);
+        emitToolProgressAsync(parentContext, tool, correlationId, step);
       }
 
       if (authRequiredToolResult) {
@@ -3379,6 +3384,20 @@ public class AgentDJComponent {
         + " hasChat=" + !chat.isEmpty()
         + " hasHtml=" + (!html.isEmpty() || "suggestions_from_toolsteps".equalsIgnoreCase(mode))
         + " hasAuth=" + !authJson.isBlank());
+  }
+
+  private void emitToolProgressAsync(CommandContext context, ToolExecution tool, String correlationId, int step) {
+    try {
+      TOOL_PROGRESS_EXECUTOR.submit(() -> {
+        try {
+          emitToolProgress(context, tool, correlationId, step);
+        } catch (Exception e) {
+          System.out.println("[DJ-AGENT][EMIT] tool_progress failed: " + safeTrim(e.getMessage()));
+        }
+      });
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT][EMIT] tool_progress submit failed: " + safeTrim(e.getMessage()));
+    }
   }
 
   private record ToolChannels(String statusMessage, String chatMessage, String html, String htmlMode, Boolean htmlReplace) {
