@@ -303,8 +303,9 @@ public class SpotifyComponent {
       String profile = value(argMap, "redirect-profile", "redirectProfile");
       String redirectUri = value(argMap, "redirect-uri", "redirectUri");
       String owner = value(argMap, "owner", "ownerBinding");
-
-      SpotifyPkceService.AuthBeginResult result = pkceService().authBegin(profile, redirectUri, owner);
+      String host = resolveChainTarget(context);
+      String authCompleteTarget = buildAuthCompleteUrlTemplate(host, null, null);
+      SpotifyPkceService.AuthBeginResult result = pkceService().authBegin(profile, redirectUri, owner, authCompleteTarget);
       context.emitStatus(result.message(), "progress");
       if (result.ctaHtml() != null && !result.ctaHtml().isBlank()) {
         context.emitHtml(result.ctaHtml(), "progress", "html", true);
@@ -313,9 +314,8 @@ public class SpotifyComponent {
       authPayload.put("provider", "spotify");
       authPayload.put("session", sessionMap(result.session()));
       authPayload.put("authorizeUrl", result.authorizeUrl());
-      String completeUrl = buildAuthCompleteUrlTemplate(context, result.session(), result.secureEnvelope());
-      if (!completeUrl.isEmpty()) {
-        authPayload.put("completeUrl", completeUrl);
+      if (!result.authCompleteTarget().isEmpty()) {
+        authPayload.put("auth-complete", result.authCompleteTarget());
       }
       authPayload.put("requiredScopes", pkceService().requiredScopes());
       authPayload.put("secureEnvelope", envelopeMap(result.secureEnvelope()));
@@ -1186,29 +1186,13 @@ public class SpotifyComponent {
     return out;
   }
 
-  private static String buildAuthCompleteUrlTemplate(CommandContext context,
+  private static String buildAuthCompleteUrlTemplate(String host,
                                                      com.social100.todero.common.runtime.auth.AuthorizationSession session,
                                                      AuthorizationSecureEnvelope envelope) {
-    if (context == null || session == null || envelope == null) {
+    if (host == null || host.isBlank()) {
       return "";
     }
-    String host = resolveChainTarget(context);
-    if (host.isEmpty()) {
-      return "";
-    }
-    StringBuilder url = new StringBuilder();
-    url.append("aia://").append(host).append("/com.shellaia.spotify/auth-complete");
-    url.append("?session-id=").append(urlEncode(session.sessionId()));
-    url.append("&state={state}");
-    url.append("&code={code}");
-    url.append("&envelope-id=").append(urlEncode(envelope.envelopeId()));
-    url.append("&nonce=").append(urlEncode(envelope.nonce()));
-    url.append("&ttl-sec=").append(envelope.ttlSec());
-    url.append("&opaque-payload=").append(urlEncode(envelope.opaquePayload()));
-    url.append("&integrity=").append(urlEncode(envelope.integrity()));
-    url.append("&algorithm=").append(urlEncode(envelope.algorithm()));
-    url.append("&issued-at-ms=").append(envelope.issuedAtMs());
-    return url.toString();
+    return "aia://" + host + "/com.shellaia.spotify/auth-complete";
   }
 
   private static String resolveChainTarget(CommandContext context) {
@@ -1229,7 +1213,31 @@ public class SpotifyComponent {
     } catch (Exception ignored) {
       return "";
     }
+    String requestTarget = trimToEmpty(context.getAiatpRequest().getTarget());
+    if (!requestTarget.isEmpty()) {
+      String parsedHost = parseHostFromTarget(requestTarget);
+      if (!parsedHost.isEmpty()) {
+        return parsedHost;
+      }
+    }
     return "";
+  }
+
+  private static String parseHostFromTarget(String target) {
+    if (target == null || target.isBlank()) {
+      return "";
+    }
+    String trimmed = target.trim();
+    if (!trimmed.startsWith("ai://") && !trimmed.startsWith("aia://")) {
+      return "";
+    }
+    try {
+      java.net.URI uri = java.net.URI.create(trimmed);
+      String host = uri.getHost();
+      return host == null ? "" : host.trim();
+    } catch (Exception ignored) {
+      return "";
+    }
   }
 
   private static String trimToEmpty(String value) {
@@ -1246,6 +1254,9 @@ public class SpotifyComponent {
       return "execution_failed";
     }
     String lower = msg.toLowerCase();
+    if (lower.contains("aia uri") || lower.contains("aia_uri") || lower.contains("auth-complete target")) {
+      return AuthorizationErrorCode.AUTH_AIA_URI_MISSING;
+    }
     if (lower.contains("redirect")) return AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED;
     if (lower.contains("state")) return AuthorizationErrorCode.AUTH_STATE_MISMATCH;
     if (lower.contains("session")) return AuthorizationErrorCode.AUTH_SESSION_MISSING;

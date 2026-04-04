@@ -1,5 +1,7 @@
 package com.shellaia.component.spotify.core;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.social100.todero.common.runtime.auth.AuthorizationErrorCode;
 import com.social100.todero.common.runtime.auth.AuthorizationSessionStatus;
 import com.social100.todero.common.runtime.auth.AuthorizationSecureEnvelope;
@@ -15,12 +17,14 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class SpotifyPkceServiceAuthFlowTest {
+  private static final Gson GSON = new Gson();
 
   private HttpServer tokenServer;
 
@@ -39,7 +43,7 @@ class SpotifyPkceServiceAuthFlowTest {
     TestStorage storage = new TestStorage();
     SpotifyPkceService service = newService(storage, tokenServerUri());
 
-    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
     assertTrue(begin.ok());
     assertNotNull(begin.session());
     assertEquals(AuthorizationSessionStatus.PENDING, begin.session().status());
@@ -65,12 +69,48 @@ class SpotifyPkceServiceAuthFlowTest {
   }
 
   @Test
+  void authBeginEncodesStateWithCanonicalAuthCompleteTarget() throws Exception {
+    startTokenServer(200, tokenResponseWithScopes(), 0);
+
+    TestStorage storage = new TestStorage();
+    SpotifyPkceService service = newService(storage, tokenServerUri());
+
+    String authCompleteTarget =
+        "aia://test-host/com.shellaia.spotify/auth-complete";
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", authCompleteTarget);
+    assertTrue(begin.ok());
+    assertNotNull(begin.session());
+    assertEquals(authCompleteTarget, begin.authCompleteTarget());
+
+    String decoded = new String(Base64.getUrlDecoder().decode(begin.session().state()), StandardCharsets.UTF_8);
+    JsonObject state = GSON.fromJson(decoded, JsonObject.class);
+    assertEquals(authCompleteTarget, state.get("auth-complete").getAsString());
+    assertFalse(state.has("aia_uri"));
+    assertNotNull(state.get("internal_state"));
+    assertFalse(state.get("internal_state").getAsString().isBlank());
+  }
+
+  @Test
+  void authBeginRejectsMissingAuthCompleteTarget() throws Exception {
+    startTokenServer(200, tokenResponseWithScopes(), 0);
+
+    TestStorage storage = new TestStorage();
+    SpotifyPkceService service = newService(storage, tokenServerUri());
+
+    AuthorizationValidationException ex = assertThrows(
+        AuthorizationValidationException.class,
+        () -> service.authBegin("console", null, "owner-a", " ")
+    );
+    assertEquals(AuthorizationErrorCode.AUTH_AIA_URI_MISSING, ex.code());
+  }
+
+  @Test
   void authCompleteRejectsTamperedEnvelope() throws Exception {
     startTokenServer(200, tokenResponseWithScopes(), 0);
 
     TestStorage storage = new TestStorage();
     SpotifyPkceService service = newService(storage, tokenServerUri());
-    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
 
     AuthorizationSecureEnvelope tampered = new AuthorizationSecureEnvelope(
         begin.secureEnvelope().envelopeId(),
@@ -103,7 +143,7 @@ class SpotifyPkceServiceAuthFlowTest {
 
     TestStorage storage = new TestStorage();
     SpotifyPkceService service = newService(storage, tokenServerUri());
-    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
 
     AuthorizationSecureEnvelope expired = new AuthorizationSecureEnvelope(
         begin.secureEnvelope().envelopeId(),
@@ -136,7 +176,7 @@ class SpotifyPkceServiceAuthFlowTest {
 
     TestStorage storage = new TestStorage();
     SpotifyPkceService service = newService(storage, tokenServerUri());
-    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
 
     SpotifyPkceService.AuthCompleteRequest req = new SpotifyPkceService.AuthCompleteRequest(
         begin.session().sessionId(),
@@ -160,7 +200,7 @@ class SpotifyPkceServiceAuthFlowTest {
 
     TestStorage storage = new TestStorage();
     SpotifyPkceService service = newService(storage, tokenServerUri());
-    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
 
     SpotifyPkceService.AuthCompleteResult complete = service.authComplete(
         new SpotifyPkceService.AuthCompleteRequest(
@@ -182,7 +222,7 @@ class SpotifyPkceServiceAuthFlowTest {
 
     TestStorage storage = new TestStorage();
     SpotifyPkceService service = newService(storage, tokenServerUri());
-    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
 
     AuthorizationSecureEnvelope mismatched = new AuthorizationSecureEnvelope(
         begin.secureEnvelope().envelopeId(),
@@ -220,10 +260,10 @@ class SpotifyPkceServiceAuthFlowTest {
         .build();
     SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
 
-    SpotifyPkceService.AuthBeginResult appBegin = service.authBegin("app", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult appBegin = service.authBegin("app", null, "owner-a", "aia://test-host");
     assertTrue(appBegin.authorizeUrl().contains("redirect_uri=https%3A%2F%2Fauth.shellaia.com%2Foauth2%2Fcomponent%2Fcallback%3Fprovider%3Dspotify"));
 
-    SpotifyPkceService.AuthBeginResult consoleBegin = service.authBegin("console", null, "owner-a");
+    SpotifyPkceService.AuthBeginResult consoleBegin = service.authBegin("console", null, "owner-a", "aia://test-host");
     assertTrue(consoleBegin.authorizeUrl().contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A34895%2Fspotify%2Fcallback"));
 
     String html = appBegin.ctaHtml();
@@ -244,7 +284,7 @@ class SpotifyPkceServiceAuthFlowTest {
 
     AuthorizationValidationException ex = assertThrows(
         AuthorizationValidationException.class,
-        () -> service.authBegin("explicit", "http://127.0.0.1:34895/spotify/callback", "owner-a")
+        () -> service.authBegin("explicit", "http://127.0.0.1:34895/spotify/callback", "owner-a", "aia://test-host")
     );
     assertEquals(AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED, ex.code());
   }
@@ -272,7 +312,7 @@ class SpotifyPkceServiceAuthFlowTest {
 
     AuthorizationValidationException ex = assertThrows(
         AuthorizationValidationException.class,
-        () -> service.authBegin("app", null, "owner-a")
+        () -> service.authBegin("app", null, "owner-a", "aia://test-host")
     );
     assertEquals(AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED, ex.code());
   }

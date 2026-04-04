@@ -122,12 +122,20 @@ public class SpotifyPkceService {
     applyTokens(td);
   }
 
-  public AuthBeginResult authBegin(String redirectProfile, String redirectUriInput, String ownerBinding) {
+  public AuthBeginResult authBegin(String redirectProfile, String redirectUriInput, String ownerBinding, String authCompleteTarget) {
+    String normalizedAuthCompleteTarget = safeTrim(authCompleteTarget);
+    if (normalizedAuthCompleteTarget.isEmpty()) {
+      throw new AuthorizationValidationException(
+          AuthorizationErrorCode.AUTH_AIA_URI_MISSING,
+          "Auth-complete target is required."
+      );
+    }
     String profile = normalizeRedirectProfile(redirectProfile);
     URI selectedRedirectUri = resolveRedirectUri(profile, redirectUriInput);
     String verifier = PkceUtil.generateCodeVerifier();
     String challenge = PkceUtil.codeChallengeS256(verifier);
-    String state = UUID.randomUUID().toString().replace("-", "");
+    String internalState = UUID.randomUUID().toString().replace("-", "");
+    String state = encodeStatePayload(internalState, normalizedAuthCompleteTarget);
     String sessionId = UUID.randomUUID().toString().replace("-", "");
     long nowMs = System.currentTimeMillis();
     long expiresAtMs = nowMs + (AUTH_SESSION_TTL_SEC * 1000L);
@@ -160,7 +168,7 @@ public class SpotifyPkceService {
 
     String ctaHtml = buildAuthCtaHtml(authorizeUrl, expiresAtMs);
 
-    return new AuthBeginResult(true, null, "Authorization session created.", session, authorizeUrl, ctaHtml, relayPolicy, envelope);
+    return new AuthBeginResult(true, null, "Authorization session created.", session, authorizeUrl, ctaHtml, relayPolicy, envelope, normalizedAuthCompleteTarget);
   }
 
   public AuthCompleteResult authComplete(AuthCompleteRequest request) {
@@ -521,6 +529,22 @@ public class SpotifyPkceService {
     return ownerBinding.trim();
   }
 
+  private static String encodeStatePayload(String internalState, String authCompleteTarget) {
+    JsonObject payload = new JsonObject();
+    payload.addProperty("internal_state", safeTrim(internalState));
+    payload.addProperty("auth-complete", safeTrim(authCompleteTarget));
+    String json = GSON.toJson(payload);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static String safeTrim(String value) {
+    if (value == null) {
+      return "";
+    }
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? "" : trimmed;
+  }
+
   private AuthorizationSecureEnvelope buildSecureEnvelope(String sessionId, String state, long nowMs, long ttlSec) {
     String nonce = UUID.randomUUID().toString().replace("-", "");
     String payload = Base64.getUrlEncoder().withoutPadding()
@@ -772,7 +796,8 @@ public class SpotifyPkceService {
                                 String authorizeUrl,
                                 String ctaHtml,
                                 AuthorizationRelayPolicy relayPolicy,
-                                AuthorizationSecureEnvelope secureEnvelope) {
+                                AuthorizationSecureEnvelope secureEnvelope,
+                                String authCompleteTarget) {
   }
 
   public record AuthCompleteRequest(String sessionId,
