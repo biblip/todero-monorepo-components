@@ -14,7 +14,7 @@ class SpotifyCommandServiceResolveTrackTest {
   void resolveTrackRejectsBlankQueryClearly() {
     SpotifyConfig config = SpotifyConfig.builder()
         .clientId("test-client")
-        .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
         .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
         .build();
     SpotifyCommandService service = new SpotifyCommandService(

@@ -440,10 +440,11 @@ public class AgentDJComponent {
       if (authRequiredToolResult) {
         System.out.println("[DJ-AGENT] auth escalation triggered correlationId=" + correlationId
             + " step=" + step + " command=" + tool.command + " reason=auth_required_tool_result");
-        ToolExecution authBegin = executeSpotifyInternal(parentContext, "auth-begin", "redirect-profile=app owner=" + LEDGER_OWNER_ID);
+        String authBeginArgs = "redirect-profile=app owner=" + LEDGER_OWNER_ID;
+        ToolExecution authBegin = executeSpotifyInternal(parentContext, "auth-begin", authBeginArgs);
         System.out.println("[DJ-AGENT] auth escalation auth-begin executed="
             + authBegin.executed + " errorCode=" + safeTrim(authBegin.errorCode()));
-        toolSteps.add(new ToolStep(step, "auth-begin", "auth-begin", "redirect-profile=app owner=" + LEDGER_OWNER_ID,
+        toolSteps.add(new ToolStep(step, "auth-begin", "auth-begin", authBeginArgs,
             authBegin.rawOutput(), plannerDurationMs, toolDurationMs, stepDurationMs));
         appendLedgerAction(rootWorkId, WorkActionType.NOTE,
             "AUTH_REQUIRED command=" + tool.command + " code=" + safeTrim(tool.errorCode()),
@@ -457,18 +458,22 @@ public class AgentDJComponent {
             lastResponse = failureResponse(initialPrompt, stopReason, "auth-begin", correlationId, invalidMessage);
             appendLedgerAction(rootWorkId, WorkActionType.FAIL,
                 "AUTH_BEGIN_INVALID message=" + invalidMessage,
-                "auth-begin", "redirect-profile=app owner=" + LEDGER_OWNER_ID,
+                "auth-begin", authBeginArgs,
                 redactedForLogs(authBegin.rawOutput()), null, "auth_contract_invalid", invalidMessage);
             break;
           }
-          pendingAuthRetries.put(sessionId, new PendingAuthRetry(tool.command, tool.args, initialPrompt, rootWorkId));
+          if (shouldAutoRetryAfterAuth(authBeginArgs)) {
+            pendingAuthRetries.put(sessionId, new PendingAuthRetry(tool.command, tool.args, initialPrompt, rootWorkId));
+          }
           appendLedgerAction(rootWorkId, WorkActionType.NOTE,
               "AUTH_BEGIN sessionId=" + sessionId,
-              "auth-begin", "redirect-profile=app owner=" + LEDGER_OWNER_ID, null, null, null, null);
+              "auth-begin", authBeginArgs, null, null, null, null);
           lastResponse = new CommandAgentResponse(
               initialPrompt,
               "none",
-              "Spotify authorization required. Open the authorization link and complete authentication.",
+              shouldAutoRetryAfterAuth(authBeginArgs)
+                  ? "Spotify authorization required. Open the authorization link and complete authentication."
+                  : "Spotify authorization required. Open the authorization link, complete authentication, then retry your request.",
               null
           );
           stopReason = StopReason.AUTH_REQUIRED;
@@ -478,7 +483,7 @@ public class AgentDJComponent {
         lastResponse = failureResponse(initialPrompt, stopReason, "auth-begin", correlationId, authBegin.output);
         appendLedgerAction(rootWorkId, WorkActionType.RECOVERY,
             "auth_begin_failed step=" + step + " stopReason=" + stopReason.code,
-            "auth-begin", "redirect-profile=app owner=" + LEDGER_OWNER_ID, safeTrim(authBegin.output), null, safeTrim(authBegin.errorCode));
+            "auth-begin", authBeginArgs, safeTrim(authBegin.output), null, safeTrim(authBegin.errorCode));
         break;
       }
 
@@ -591,15 +596,13 @@ public class AgentDJComponent {
     String internalRequestId = "dj-tool-" + newCorrelationId();
     CompletableFuture<SpotifyExecutionResult> outFuture = new CompletableFuture<>();
     SpotifyEventAggregate aggregate = new SpotifyEventAggregate();
-    AiatpRequest internalRequest = AiatpRuntimeAdapter.withHeader(
-        AiatpRuntimeAdapter.request(
-            "ACTION",
-            "/" + SPOTIFY_COMPONENT + "/" + command,
-            AiatpIO.Body.ofString(spotifyArgs, StandardCharsets.UTF_8)
-        ),
-        "X-Request-Id",
-        internalRequestId
+    AiatpRequest internalRequest = AiatpRuntimeAdapter.request(
+        "ACTION",
+        "/" + SPOTIFY_COMPONENT + "/" + command,
+        AiatpIO.Body.ofString(spotifyArgs, StandardCharsets.UTF_8)
     );
+    internalRequest = inheritParentRouting(parentContext, internalRequest);
+    internalRequest = AiatpRuntimeAdapter.withHeader(internalRequest, "X-Request-Id", internalRequestId);
     internalRequest = AiatpRuntimeAdapter.withHeader(
         internalRequest,
         CommandContext.HDR_INTERNAL_EVENT_DELIVERY,
@@ -2884,6 +2887,38 @@ public class AgentDJComponent {
 
   private static boolean hasValidAuthDirective(String authJson) {
     return extractAuthDirective(authJson).valid();
+  }
+
+  private static boolean shouldAutoRetryAfterAuth(String authBeginArgs) {
+    String args = safeTrim(authBeginArgs).toLowerCase(Locale.ROOT);
+    return !args.contains("redirect-profile=app");
+  }
+
+  private static AiatpRequest inheritParentRouting(CommandContext parentContext, AiatpRequest childRequest) {
+    if (parentContext == null || childRequest == null) {
+      return childRequest;
+    }
+    AiatpRequest parentRequest = parentContext.getAiatpRequest();
+    if (parentRequest == null) {
+      return childRequest;
+    }
+    AiatpIO.Headers mergedHeaders = new AiatpIO.Headers();
+    if (parentRequest.getHeaders() != null) {
+      for (Map.Entry<String, String> header : parentRequest.getHeaders()) {
+        mergedHeaders.set(header.getKey(), header.getValue());
+      }
+    }
+    if (childRequest.getHeaders() != null) {
+      for (Map.Entry<String, String> header : childRequest.getHeaders()) {
+        mergedHeaders.set(header.getKey(), header.getValue());
+      }
+    }
+    AiatpRequest effective = childRequest.toBuilder().headers(mergedHeaders).build();
+    String host = requestHeader(parentContext, "Host");
+    if (!host.isEmpty()) {
+      effective = AiatpRuntimeAdapter.withHeader(effective, "Host", host);
+    }
+    return effective;
   }
 
   private static boolean readBoolean(JsonNode root, boolean fallback, String... paths) {

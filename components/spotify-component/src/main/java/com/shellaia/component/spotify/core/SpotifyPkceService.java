@@ -51,8 +51,6 @@ public class SpotifyPkceService {
   private static final long AUTH_SESSION_TTL_SEC = 300L;
   private static final long ENVELOPE_TTL_SEC = 300L;
   private static final String PROVIDER = "spotify";
-  private static final String APP_DELEGATED_AUTH_HOST = "auth.shellaia.com";
-  private static final String APP_DELEGATED_AUTH_PATH = "/component/callback";
   private static final Set<String> REQUIRED_SCOPES = Set.of(
       "user-read-playback-state",
       "user-modify-playback-state",
@@ -68,7 +66,6 @@ public class SpotifyPkceService {
   private final String clientId;
   private final URI redirectUriApp;
   private final URI redirectUriConsole;
-  private final Set<String> explicitRedirectAllowlist;
   private final String deviceIdEnv; // optional
   private final SpotifyApi spotifyApi;
   private final TokenStore tokenStore;
@@ -83,7 +80,6 @@ public class SpotifyPkceService {
     this.clientId = spotifyConfig.getClientId();
     this.redirectUriApp = parseUri(spotifyConfig.getRedirectUrlApp());
     this.redirectUriConsole = parseUri(spotifyConfig.getRedirectUrlConsole());
-    this.explicitRedirectAllowlist = parseRedirectAllowlist(spotifyConfig.getRedirectAllowlist());
     this.deviceIdEnv = spotifyConfig.getDeviceId();
     this.tokenEndpoint = tokenEndpoint;
 
@@ -367,7 +363,7 @@ public class SpotifyPkceService {
       return "app";
     }
     String p = redirectProfile.trim().toLowerCase();
-    if (!"app".equals(p) && !"console".equals(p) && !"explicit".equals(p)) {
+    if (!"app".equals(p) && !"console".equals(p)) {
       throw new AuthorizationValidationException(
           AuthorizationErrorCode.AUTH_REDIRECT_PROFILE_INVALID,
           "Invalid redirect profile."
@@ -379,26 +375,11 @@ public class SpotifyPkceService {
   private URI resolveRedirectUri(String profile, String redirectUriInput) {
     if ("app".equals(profile)) {
       URI appRedirect = requireConfiguredRedirect(redirectUriApp, "App redirect-uri is not configured.");
-      return validateAppDelegatedRedirect(appRedirect);
+      return validateConfiguredRedirect(appRedirect, "App redirect-uri must be an absolute URI.");
     }
     if ("console".equals(profile)) {
-      return requireConfiguredRedirect(redirectUriConsole, "Console redirect-uri is not configured.");
-    }
-    if ("explicit".equals(profile)) {
-      if (redirectUriInput == null || redirectUriInput.isBlank()) {
-        throw new AuthorizationValidationException(
-            AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED,
-            "redirect-uri is required for explicit profile."
-        );
-      }
-      URI explicit = parseUri(redirectUriInput.trim());
-      if (!explicitRedirectAllowlist.contains(explicit.toString())) {
-        throw new AuthorizationValidationException(
-            AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED,
-            "Explicit redirect-uri is not allowed by policy."
-        );
-      }
-      return explicit;
+      URI consoleRedirect = requireConfiguredRedirect(redirectUriConsole, "Console redirect-uri is not configured.");
+      return validateConfiguredRedirect(consoleRedirect, "Console redirect-uri must be an absolute URI.");
     }
     throw new AuthorizationValidationException(
         AuthorizationErrorCode.AUTH_REDIRECT_PROFILE_INVALID,
@@ -430,20 +411,17 @@ public class SpotifyPkceService {
     }
   }
 
-  private static URI validateAppDelegatedRedirect(URI uri) {
+  private static URI validateConfiguredRedirect(URI uri, String message) {
     if (uri == null) {
       throw new AuthorizationValidationException(
           AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED,
-          "App redirect-uri is not configured."
+          message
       );
     }
-    String scheme = safeLower(uri.getScheme());
-    String host = safeLower(uri.getHost());
-    String path = uri.getPath() == null ? "" : uri.getPath();
-    if (!"https".equals(scheme) || !APP_DELEGATED_AUTH_HOST.equals(host) || !APP_DELEGATED_AUTH_PATH.equals(path)) {
+    if (!uri.isAbsolute() || safeTrim(uri.getScheme()).isEmpty()) {
       throw new AuthorizationValidationException(
           AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED,
-          "App redirect-uri must be https://auth.shellaia.com/component/callback."
+          message
       );
     }
     return uri;
@@ -473,22 +451,6 @@ public class SpotifyPkceService {
     } catch (Exception e) {
       return "";
     }
-  }
-
-  private static String safeLower(String value) {
-    return value == null ? "" : value.trim().toLowerCase();
-  }
-
-  private static Set<String> parseRedirectAllowlist(String raw) {
-    if (raw == null || raw.isBlank()) {
-      return Set.of();
-    }
-    return Arrays.stream(raw.split(","))
-        .map(String::trim)
-        .filter(s -> !s.isBlank())
-        .map(SpotifyPkceService::parseUri)
-        .map(URI::toString)
-        .collect(Collectors.toCollection(LinkedHashSet::new));
   }
 
   private static String buildAuthCtaHtml(String authorizeUrl, long expiresAtMs) {

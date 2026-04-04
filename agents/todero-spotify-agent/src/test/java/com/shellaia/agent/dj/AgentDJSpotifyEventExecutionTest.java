@@ -14,6 +14,7 @@ import com.social100.todero.common.ai.llm.LLMInstance;
 import com.social100.todero.common.ai.llm.LLMProviderDefinition;
 import com.social100.todero.common.ai.llm.LLMRegistry;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
@@ -355,6 +356,32 @@ class AgentDJSpotifyEventExecutionTest {
     JsonNode root = JSON.readTree((String) accessor(result, "rawOutput"));
     assertEquals("spotify", root.path("auth").path("provider").asText());
     assertEquals("sess-1", root.path("auth").path("sessionId").asText());
+  }
+
+  @Test
+  void executeSpotifyInternalPreservesParentRoutingHeaders() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    AtomicReference<AiatpRequest> seenRequest = new AtomicReference<>();
+    AiatpIO.Headers headers = new AiatpIO.Headers();
+    headers.set("Host", "brumor.pbxkey.com");
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          seenRequest.set(ctx.getAiatpRequest());
+          ctx.completeJson(200,
+              "{\"ok\":true,\"message\":\"Authorization required.\",\"auth\":{\"required\":true,\"provider\":\"spotify\",\"sessionId\":\"sess-1\",\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"},\"channels\":{\"status\":{\"message\":\"Open the Spotify link.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+        }))
+        .aiatpRequest(AiatpRuntimeAdapter.request(
+            "ACTION",
+            "/com.shellaia.agent.dj/process",
+            headers,
+            AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8)))
+        .build();
+
+    Object result = invokeExecuteSpotifyInternal(component, parent, "auth-begin", "");
+
+    assertTrue((Boolean) accessor(result, "executed"));
+    assertEquals("brumor.pbxkey.com", seenRequest.get().getHeaders().getFirst("Host"));
   }
 
   @Test

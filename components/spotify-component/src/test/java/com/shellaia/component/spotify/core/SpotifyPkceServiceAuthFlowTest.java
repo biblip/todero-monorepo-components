@@ -272,21 +272,77 @@ class SpotifyPkceServiceAuthFlowTest {
   }
 
   @Test
-  void authBeginExplicitRejectsRedirectOutsideAllowlist() {
+  void authBeginAppAcceptsConfiguredAbsoluteRedirectOutsideHardcodedCallback() {
     TestStorage storage = new TestStorage();
     SpotifyConfig config = SpotifyConfig.builder()
         .clientId("client-test")
-        .redirectUrlApp("https://auth.shellaia.com/component/callback")
+        .redirectUrlApp("https://login.example.com/custom/callback")
         .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
         .redirectAllowlist("https://auth.shellaia.com/component/callback")
         .build();
     SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
 
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("app", null, "owner-a", "aia://test-host");
+
+    assertTrue(begin.ok());
+    assertTrue(begin.authorizeUrl().contains("redirect_uri=https%3A%2F%2Flogin.example.com%2Fcustom%2Fcallback"));
+  }
+
+  @Test
+  void authBeginAppRejectsRelativeConfiguredRedirect() {
+    TestStorage storage = new TestStorage();
+    SpotifyConfig config = SpotifyConfig.builder()
+        .clientId("client-test")
+        .redirectUrlApp("/component/callback")
+        .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
+        .build();
+    SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
+
     AuthorizationValidationException ex = assertThrows(
         AuthorizationValidationException.class,
-        () -> service.authBegin("explicit", "http://127.0.0.1:34895/spotify/callback", "owner-a", "aia://test-host")
+        () -> service.authBegin("app", null, "owner-a", "aia://test-host")
     );
+
     assertEquals(AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED, ex.code());
+    assertEquals("App redirect-uri must be an absolute URI.", ex.getMessage());
+  }
+
+  @Test
+  void authBeginConsoleRejectsRelativeConfiguredRedirect() {
+    TestStorage storage = new TestStorage();
+    SpotifyConfig config = SpotifyConfig.builder()
+        .clientId("client-test")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
+        .redirectUrlConsole("/spotify/callback")
+        .build();
+    SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
+
+    AuthorizationValidationException ex = assertThrows(
+        AuthorizationValidationException.class,
+        () -> service.authBegin("console", null, "owner-a", "aia://test-host")
+    );
+
+    assertEquals(AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED, ex.code());
+    assertEquals("Console redirect-uri must be an absolute URI.", ex.getMessage());
+  }
+
+  @Test
+  void authBeginRejectsDeprecatedExplicitProfile() {
+    TestStorage storage = new TestStorage();
+    SpotifyConfig config = SpotifyConfig.builder()
+        .clientId("client-test")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
+        .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
+        .build();
+    SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
+
+    AuthorizationValidationException ex = assertThrows(
+        AuthorizationValidationException.class,
+        () -> service.authBegin("explicit", "https://login.example.com/custom/callback", "owner-a", "aia://test-host")
+    );
+
+    assertEquals(AuthorizationErrorCode.AUTH_REDIRECT_PROFILE_INVALID, ex.code());
+    assertEquals("Invalid redirect profile.", ex.getMessage());
   }
 
   private static SpotifyPkceService newService(TestStorage storage, URI tokenUri) {

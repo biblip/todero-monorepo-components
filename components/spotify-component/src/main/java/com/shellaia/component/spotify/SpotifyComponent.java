@@ -295,7 +295,7 @@ public class SpotifyComponent {
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-begin",
-      description = "Start delegated Spotify auth session. Usage: auth-begin [redirect-profile=app|console|explicit] [redirect-uri=<uri>] [owner=<binding>]")
+      description = "Start delegated Spotify auth session. Usage: auth-begin [redirect-profile=app|console] [owner=<binding>]")
   public Boolean authBeginCommand(CommandContext context) {
     String args = readArgs(context);
     try {
@@ -303,7 +303,7 @@ public class SpotifyComponent {
       String profile = value(argMap, "redirect-profile", "redirectProfile");
       String redirectUri = value(argMap, "redirect-uri", "redirectUri");
       String owner = value(argMap, "owner", "ownerBinding");
-      String host = resolveChainTarget(context);
+      String host = resolveRequestHost(context);
       String authCompleteTarget = buildAuthCompleteUrlTemplate(host, null, null);
       SpotifyPkceService.AuthBeginResult result = pkceService().authBegin(profile, redirectUri, owner, authCompleteTarget);
       context.emitStatus(result.message(), "progress");
@@ -1195,13 +1195,9 @@ public class SpotifyComponent {
     return "aia://" + host + "/com.shellaia.spotify/auth-complete";
   }
 
-  private static String resolveChainTarget(CommandContext context) {
+  private static String resolveRequestHost(CommandContext context) {
     if (context == null || context.getAiatpRequest() == null) {
       return "";
-    }
-    String target = trimToEmpty(context.getAiatpRequest().getChainTarget());
-    if (!target.isEmpty()) {
-      return target;
     }
     try {
       if (context.getAiatpRequest().getHeaders() != null) {

@@ -93,4 +93,13 @@ class AgentDJAuthFlowUtilitiesTest {
     );
     assertEquals(false, method.invoke(null, nonAuth));
   }
+
+  @Test
+  void appProfileAuthBeginDoesNotAutoRetry() throws Exception {
+    Method method = AgentDJComponent.class.getDeclaredMethod("shouldAutoRetryAfterAuth", String.class);
+    method.setAccessible(true);
+
+    assertEquals(false, method.invoke(null, "redirect-profile=app owner=com.shellaia.agent.dj"));
+    assertEquals(true, method.invoke(null, "redirect-profile=console owner=com.shellaia.agent.dj"));
+  }
 }
