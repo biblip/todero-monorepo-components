@@ -9,9 +9,9 @@ public class App {
   public static void main(String[] args) {
     SpotifyConfig spotifyConfig = SpotifyConfig.builder()
         .clientId("xxxx")
-        .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
         .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
-        .redirectAllowlist("https://auth.shellaia.com/oauth2/component/callback?provider=spotify,http://127.0.0.1:34895/spotify/callback")
+        .redirectAllowlist("https://auth.shellaia.com/component/callback,http://127.0.0.1:34895/spotify/callback")
         .deviceId("yyyyy")
         .build();
     SpotifyPkceService service = new SpotifyPkceService(spotifyConfig, null);

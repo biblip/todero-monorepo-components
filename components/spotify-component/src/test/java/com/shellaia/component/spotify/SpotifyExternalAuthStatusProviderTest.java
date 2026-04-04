@@ -55,7 +55,7 @@ class SpotifyExternalAuthStatusProviderTest {
     storage.writeFile(
         ".env",
         ("SPOTIFY_CLIENT_ID=abc\n"
-            + "SPOTIFY_REDIRECT_URI_APP=https://auth.shellaia.com/oauth2/component/callback?provider=spotify\n"
+            + "SPOTIFY_REDIRECT_URI_APP=https://auth.shellaia.com/component/callback\n"
             + "SPOTIFY_REDIRECT_URI_CONSOLE=http://127.0.0.1:34895/spotify/callback\n").getBytes());
     return storage;
   }

@@ -254,14 +254,14 @@ class SpotifyPkceServiceAuthFlowTest {
     TestStorage storage = new TestStorage();
     SpotifyConfig config = SpotifyConfig.builder()
         .clientId("client-test")
-        .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
         .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
-        .redirectAllowlist("https://auth.shellaia.com/oauth2/component/callback?provider=spotify,http://127.0.0.1:34895/spotify/callback")
+        .redirectAllowlist("https://auth.shellaia.com/component/callback,http://127.0.0.1:34895/spotify/callback")
         .build();
     SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
 
     SpotifyPkceService.AuthBeginResult appBegin = service.authBegin("app", null, "owner-a", "aia://test-host");
-    assertTrue(appBegin.authorizeUrl().contains("redirect_uri=https%3A%2F%2Fauth.shellaia.com%2Foauth2%2Fcomponent%2Fcallback%3Fprovider%3Dspotify"));
+    assertTrue(appBegin.authorizeUrl().contains("redirect_uri=https%3A%2F%2Fauth.shellaia.com%2Fcomponent%2Fcallback"));
 
     SpotifyPkceService.AuthBeginResult consoleBegin = service.authBegin("console", null, "owner-a", "aia://test-host");
     assertTrue(consoleBegin.authorizeUrl().contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A34895%2Fspotify%2Fcallback"));
@@ -276,9 +276,9 @@ class SpotifyPkceServiceAuthFlowTest {
     TestStorage storage = new TestStorage();
     SpotifyConfig config = SpotifyConfig.builder()
         .clientId("client-test")
-        .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
         .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
-        .redirectAllowlist("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
+        .redirectAllowlist("https://auth.shellaia.com/component/callback")
         .build();
     SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
 
@@ -292,29 +292,27 @@ class SpotifyPkceServiceAuthFlowTest {
   private static SpotifyPkceService newService(TestStorage storage, URI tokenUri) {
     SpotifyConfig config = SpotifyConfig.builder()
         .clientId("client-test")
-        .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback?provider=spotify")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
         .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
-        .redirectAllowlist("https://auth.shellaia.com/oauth2/component/callback?provider=spotify,http://127.0.0.1:34895/spotify/callback")
+        .redirectAllowlist("https://auth.shellaia.com/component/callback,http://127.0.0.1:34895/spotify/callback")
         .build();
     return new SpotifyPkceService(config, storage, tokenUri);
   }
 
   @Test
-  void authBeginAppRejectsMissingProviderMarker() {
+  void authBeginAppAcceptsComponentCallbackWithoutProvider() {
     TestStorage storage = new TestStorage();
     SpotifyConfig config = SpotifyConfig.builder()
         .clientId("client-test")
-        .redirectUrlApp("https://auth.shellaia.com/oauth2/component/callback")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
         .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
-        .redirectAllowlist("https://auth.shellaia.com/oauth2/component/callback,http://127.0.0.1:34895/spotify/callback")
+        .redirectAllowlist("https://auth.shellaia.com/component/callback,http://127.0.0.1:34895/spotify/callback")
         .build();
     SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
 
-    AuthorizationValidationException ex = assertThrows(
-        AuthorizationValidationException.class,
-        () -> service.authBegin("app", null, "owner-a", "aia://test-host")
-    );
-    assertEquals(AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED, ex.code());
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("app", null, "owner-a", "aia://test-host");
+    assertTrue(begin.ok());
+    assertTrue(begin.authorizeUrl().contains("redirect_uri=https%3A%2F%2Fauth.shellaia.com%2Fcomponent%2Fcallback"));
   }
 
   private void startTokenServer(int statusCode, String responseBody, long responseDelayMs) throws IOException {

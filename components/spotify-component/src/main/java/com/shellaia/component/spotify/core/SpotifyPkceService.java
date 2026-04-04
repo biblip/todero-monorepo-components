@@ -52,7 +52,7 @@ public class SpotifyPkceService {
   private static final long ENVELOPE_TTL_SEC = 300L;
   private static final String PROVIDER = "spotify";
   private static final String APP_DELEGATED_AUTH_HOST = "auth.shellaia.com";
-  private static final String APP_DELEGATED_AUTH_PATH = "/oauth2/component/callback";
+  private static final String APP_DELEGATED_AUTH_PATH = "/component/callback";
   private static final Set<String> REQUIRED_SCOPES = Set.of(
       "user-read-playback-state",
       "user-modify-playback-state",
@@ -443,14 +443,7 @@ public class SpotifyPkceService {
     if (!"https".equals(scheme) || !APP_DELEGATED_AUTH_HOST.equals(host) || !APP_DELEGATED_AUTH_PATH.equals(path)) {
       throw new AuthorizationValidationException(
           AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED,
-          "App redirect-uri must be https://auth.shellaia.com/oauth2/component/callback with provider=spotify."
-      );
-    }
-    String provider = queryParam(uri.getRawQuery(), "provider");
-    if (!PROVIDER.equals(safeLower(provider))) {
-      throw new AuthorizationValidationException(
-          AuthorizationErrorCode.AUTH_REDIRECT_URI_DISALLOWED,
-          "App redirect-uri must include provider=spotify."
+          "App redirect-uri must be https://auth.shellaia.com/component/callback."
       );
     }
     return uri;
