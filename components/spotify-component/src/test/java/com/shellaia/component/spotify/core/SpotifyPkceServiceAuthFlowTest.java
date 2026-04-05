@@ -86,8 +86,8 @@ class SpotifyPkceServiceAuthFlowTest {
     JsonObject state = GSON.fromJson(decoded, JsonObject.class);
     assertEquals(authCompleteTarget, state.get("auth-complete").getAsString());
     assertFalse(state.has("aia_uri"));
-    assertNotNull(state.get("internal_state"));
-    assertFalse(state.get("internal_state").getAsString().isBlank());
+    assertEquals(begin.session().sessionId(), state.get("session-id").getAsString());
+    assertFalse(state.has("internal_state"));
   }
 
   @Test

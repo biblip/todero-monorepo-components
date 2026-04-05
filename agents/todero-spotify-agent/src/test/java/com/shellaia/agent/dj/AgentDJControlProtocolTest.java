@@ -220,6 +220,60 @@ class AgentDJControlProtocolTest {
   }
 
   @Test
+  void upstreamControlAcceptsAuthHandoffWithoutAuthPayloadWhenHtmlIsPresent() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    AtomicReference<AiatpIORequestWrapper> seen = new AtomicReference<>();
+    AiatpIO.Headers headers = new AiatpIO.Headers();
+    headers.set("X-AIATP-Upstream-Control", "true");
+    headers.set(CommandContext.HDR_INTERACTIVE_MODE, "event");
+
+    CommandContext context = CommandContext.builder()
+        .sourceId("src-5")
+        .aiatpRequest(AiatpRequest.builder()
+            .method("ACTION")
+            .target("/com.shellaia.agent.dj/process")
+            .requestId("r-5")
+            .headers(headers)
+            .body(AiatpIO.Body.ofString("play music", StandardCharsets.UTF_8))
+            .build())
+        .eventConsumer(seen::set)
+        .build();
+
+    Object stopReason = enumConstant("com.shellaia.agent.dj.AgentDJComponent$StopReason", "AUTH_HANDOFF");
+    Object toolStep = newToolStep(
+        1,
+        "auth-begin",
+        "auth-begin",
+        "redirect-profile=app owner=com.shellaia.agent.dj",
+        """
+        {"ok":true,"message":"Authorization session created.","response":{"outcome":"await_external_completion","completed":true},"channels":{"chat":{"message":"Authorization session created."},"status":{"message":"Authorization session created."},"html":{"html":"<a href=\\"https://accounts.spotify.com/authorize\\">Authorize Spotify</a>","mode":"html","replace":true}}}
+        """,
+        10L,
+        20L,
+        30L);
+    Object loopResult = newLoopResult(
+        "play music",
+        new CommandAgentResponse("play music", "none", "Spotify authorization required. Open the authorization link, complete authentication, then retry your request.", ""),
+        List.of(toolStep),
+        stopReason,
+        30L,
+        "process",
+        "corr-5");
+    String json = (String) declaredMethod(AgentDJComponent.class, "renderLoopResultAsJson", loopResult.getClass())
+        .invoke(null, loopResult);
+    Method emitLoopResult = declaredMethod(AgentDJComponent.class, "emitLoopResult",
+        CommandContext.class, loopResult.getClass(), String.class, String.class, String.class);
+    emitLoopResult.invoke(component, context, loopResult, json, "process", "corr-5");
+
+    AiatpIORequestWrapper wrapper = seen.get();
+    assertNotNull(wrapper);
+    JsonNode root = JSON.readTree(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8));
+    assertEquals("auth_handoff", root.path("outcome").asText());
+    assertEquals("auth_handoff", root.path("payload").path("stopReason").asText());
+    assertEquals("none", root.path("channels").path("html").path("mode").asText());
+  }
+
+  @Test
   void upstreamControlToolProgressUsesControlEnvelope() throws Exception {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     AtomicReference<AiatpIORequestWrapper> seen = new AtomicReference<>();

@@ -128,11 +128,10 @@ public class SpotifyPkceService {
     }
     String profile = normalizeRedirectProfile(redirectProfile);
     URI selectedRedirectUri = resolveRedirectUri(profile, redirectUriInput);
+    String sessionId = UUID.randomUUID().toString().replace("-", "");
     String verifier = PkceUtil.generateCodeVerifier();
     String challenge = PkceUtil.codeChallengeS256(verifier);
-    String internalState = UUID.randomUUID().toString().replace("-", "");
-    String state = encodeStatePayload(internalState, normalizedAuthCompleteTarget);
-    String sessionId = UUID.randomUUID().toString().replace("-", "");
+    String state = encodeStatePayload(sessionId, normalizedAuthCompleteTarget);
     long nowMs = System.currentTimeMillis();
     long expiresAtMs = nowMs + (AUTH_SESSION_TTL_SEC * 1000L);
     String normalizedOwner = normalizeOwnerBinding(ownerBinding);
@@ -168,44 +167,70 @@ public class SpotifyPkceService {
   }
 
   public AuthCompleteResult authComplete(AuthCompleteRequest request) {
+    System.out.println("[SPOTIFY][AUTH-COMPLETE] service start"
+        + " sessionId=" + safeTrim(request == null ? null : request.sessionId())
+        + " hasState=" + (request != null && !safeTrim(request.state()).isEmpty())
+        + " hasCode=" + (request != null && !safeTrim(request.code()).isEmpty())
+        + " hasError=" + (request != null && !safeTrim(request.error()).isEmpty())
+        + " hasEnvelope=" + (request != null && request.secureEnvelope() != null));
     if (request == null || request.sessionId() == null || request.sessionId().isBlank()) {
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] reject missing_session_id");
       return AuthCompleteResult.error(AuthorizationErrorCode.AUTH_SESSION_MISSING, "Missing auth session id.");
     }
     Optional<SpotifyAuthSessionStore.SessionEnvelope> maybeEnvelope = authSessionStore.get(request.sessionId());
     if (maybeEnvelope.isEmpty()) {
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] reject session_not_found sessionId=" + safeTrim(request.sessionId()));
       return AuthCompleteResult.error(AuthorizationErrorCode.AUTH_SESSION_MISSING, "Authorization session not found.");
     }
     SpotifyAuthSessionStore.SessionEnvelope stored = maybeEnvelope.get();
     AuthorizationSession session = stored.session();
     long nowMs = System.currentTimeMillis();
+    System.out.println("[SPOTIFY][AUTH-COMPLETE] loaded session"
+        + " sessionId=" + safeTrim(session.sessionId())
+        + " status=" + session.status()
+        + " expiresAtMs=" + session.expiresAtMs()
+        + " redirectUri=" + safeTrim(stored.redirectUri()));
 
     if (AuthorizationValidation.isExpired(nowMs, session.expiresAtMs())) {
       authSessionStore.updateSessionStatus(stored, AuthorizationSessionStatus.EXPIRED, nowMs, AuthorizationErrorCode.AUTH_SESSION_EXPIRED);
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] reject expired sessionId=" + safeTrim(session.sessionId()));
       return AuthCompleteResult.error(AuthorizationErrorCode.AUTH_SESSION_EXPIRED, "Authorization session expired.");
     }
     if (session.status() == AuthorizationSessionStatus.COMPLETED) {
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] reject already_completed sessionId=" + safeTrim(session.sessionId()));
       return AuthCompleteResult.error(AuthorizationErrorCode.AUTH_SESSION_ALREADY_COMPLETED, "Authorization session already completed.");
     }
     if (session.status() == AuthorizationSessionStatus.CANCELED) {
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] reject canceled sessionId=" + safeTrim(session.sessionId()));
       return AuthCompleteResult.error(AuthorizationErrorCode.AUTH_SESSION_CANCELED, "Authorization session canceled.");
     }
     if (request.error() != null && !request.error().isBlank()) {
       authSessionStore.updateSessionStatus(stored, AuthorizationSessionStatus.FAILED, nowMs, AuthorizationErrorCode.AUTH_EXCHANGE_FAILED);
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] callback error sessionId=" + safeTrim(session.sessionId())
+          + " error=" + safeTrim(request.error()));
       return AuthCompleteResult.error(AuthorizationErrorCode.AUTH_EXCHANGE_FAILED, "Authorization callback returned error.");
     }
     try {
       AuthorizationValidation.requireState(session.state(), request.state());
       verifySecureEnvelope(stored, request, nowMs);
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] validation ok sessionId=" + safeTrim(session.sessionId()));
     } catch (AuthorizationValidationException e) {
       authSessionStore.updateSessionStatus(stored, AuthorizationSessionStatus.FAILED, nowMs, e.code());
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] validation failed sessionId=" + safeTrim(session.sessionId())
+          + " code=" + safeTrim(e.code())
+          + " message=" + safeTrim(e.getMessage()));
       return AuthCompleteResult.error(e.code(), e.getMessage());
     }
 
     try {
       TokenStore.TokenData td = exchangeCodeForTokens(request.code(), stored.codeVerifier(), URI.create(stored.redirectUri()));
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] token exchange ok sessionId=" + safeTrim(session.sessionId())
+          + " scope=" + safeTrim(td.scope));
       Set<String> missingScopes = missingRequiredScopes(td.scope);
       if (!missingScopes.isEmpty()) {
         authSessionStore.updateSessionStatus(stored, AuthorizationSessionStatus.FAILED, nowMs, AuthorizationErrorCode.AUTH_SCOPE_MISSING);
+        System.out.println("[SPOTIFY][AUTH-COMPLETE] missing scopes sessionId=" + safeTrim(session.sessionId())
+            + " missing=" + String.join(",", missingScopes));
         return AuthCompleteResult.error(
             AuthorizationErrorCode.AUTH_SCOPE_MISSING,
             "Authorization completed but required scopes are missing: " + String.join(", ", missingScopes)
@@ -219,9 +244,14 @@ public class SpotifyPkceService {
           nowMs,
           null
       );
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] completed sessionId=" + safeTrim(completed.session().sessionId())
+          + " status=" + completed.session().status());
       return AuthCompleteResult.ok(completed.session(), tokenSummary(td));
     } catch (Exception e) {
       authSessionStore.updateSessionStatus(stored, AuthorizationSessionStatus.FAILED, nowMs, AuthorizationErrorCode.AUTH_EXCHANGE_FAILED);
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] exchange failed sessionId=" + safeTrim(session.sessionId())
+          + " type=" + e.getClass().getSimpleName()
+          + " message=" + safeTrim(e.getMessage()));
       return AuthCompleteResult.error(AuthorizationErrorCode.AUTH_EXCHANGE_FAILED, "Spotify auth exchange failed.");
     }
   }
@@ -484,9 +514,9 @@ public class SpotifyPkceService {
     return ownerBinding.trim();
   }
 
-  private static String encodeStatePayload(String internalState, String authCompleteTarget) {
+  private static String encodeStatePayload(String sessionId, String authCompleteTarget) {
     JsonObject payload = new JsonObject();
-    payload.addProperty("internal_state", safeTrim(internalState));
+    payload.addProperty("session-id", safeTrim(sessionId));
     payload.addProperty("auth-complete", safeTrim(authCompleteTarget));
     String json = GSON.toJson(payload);
     return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));

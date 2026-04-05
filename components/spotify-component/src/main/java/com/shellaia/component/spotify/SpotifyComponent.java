@@ -24,6 +24,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -350,7 +351,22 @@ public class SpotifyComponent {
     String args = readArgs(context);
     try {
       SpotifyPkceService.AuthCompleteRequest request = parseAuthCompleteRequest(context, args);
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] command invoked"
+          + " target=" + trimToEmpty(context != null && context.getAiatpRequest() != null ? context.getAiatpRequest().getTarget() : "")
+          + " targetPath=" + trimToEmpty(context != null && context.getAiatpRequest() != null ? context.getAiatpRequest().getTargetPath() : "")
+          + " query=" + trimToEmpty(context != null && context.getAiatpRequest() != null && context.getAiatpRequest().getQueryParams() != null
+              ? context.getAiatpRequest().getQueryParams().toString() : "")
+          + " rawArgs=" + redact(args)
+          + " sessionId=" + trimToEmpty(request.sessionId())
+          + " hasState=" + !trimToEmpty(request.state()).isEmpty()
+          + " hasCode=" + !trimToEmpty(request.code()).isEmpty()
+          + " hasError=" + !trimToEmpty(request.error()).isEmpty()
+          + " hasEnvelope=" + (request.secureEnvelope() != null));
       SpotifyPkceService.AuthCompleteResult result = pkceService().authComplete(request);
+      System.out.println("[SPOTIFY][AUTH-COMPLETE] command result"
+          + " ok=" + result.ok()
+          + " errorCode=" + trimToEmpty(result.errorCode())
+          + " message=" + redact(result.message()));
       context.completeJson(200, responseJson(
           "auth-complete",
           args,
@@ -1004,8 +1020,11 @@ public class SpotifyComponent {
   private static SpotifyPkceService.AuthCompleteRequest parseAuthCompleteRequest(CommandContext context, String raw) {
     Map<String, String> queryArgs = readQueryArgs(context);
     if (!queryArgs.isEmpty()) {
-      String sessionId = value(queryArgs, "session-id", "sessionId");
       String state = value(queryArgs, "state");
+      String sessionId = firstNonBlank(
+          value(queryArgs, "session-id", "sessionId"),
+          sessionIdFromState(state)
+      );
       String code = value(queryArgs, "code");
       String error = value(queryArgs, "error");
       AuthorizationSecureEnvelope envelope = parseEnvelopeFromArgs(queryArgs, sessionId);
@@ -1017,20 +1036,52 @@ public class SpotifyComponent {
     String trimmed = raw.trim();
     if (trimmed.startsWith("{")) {
       JsonObject o = GSON.fromJson(trimmed, JsonObject.class);
-      String sessionId = readString(o, "sessionId", "session-id");
       String state = readString(o, "state");
+      String sessionId = firstNonBlank(
+          readString(o, "sessionId", "session-id"),
+          sessionIdFromState(state)
+      );
       String code = readString(o, "code");
       String error = readString(o, "error");
       AuthorizationSecureEnvelope envelope = parseEnvelopeFromJson(o.getAsJsonObject("secureEnvelope"));
       return new SpotifyPkceService.AuthCompleteRequest(sessionId, state, code, error, envelope);
     }
     Map<String, String> args = parseArgMap(trimmed);
-    String sessionId = value(args, "session-id", "sessionId");
     String state = value(args, "state");
+    String sessionId = firstNonBlank(
+        value(args, "session-id", "sessionId"),
+        sessionIdFromState(state)
+    );
     String code = value(args, "code");
     String error = value(args, "error");
     AuthorizationSecureEnvelope envelope = parseEnvelopeFromArgs(args, sessionId);
     return new SpotifyPkceService.AuthCompleteRequest(sessionId, state, code, error, envelope);
+  }
+
+  private static String sessionIdFromState(String state) {
+    String normalizedState = trimToEmpty(state);
+    if (normalizedState.isEmpty()) {
+      return null;
+    }
+    try {
+      String decoded = new String(Base64.getUrlDecoder().decode(normalizedState), StandardCharsets.UTF_8);
+      JsonObject payload = GSON.fromJson(decoded, JsonObject.class);
+      return readString(payload, "session-id", "sessionId");
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  private static String firstNonBlank(String... values) {
+    if (values == null) {
+      return null;
+    }
+    for (String value : values) {
+      if (value != null && !value.isBlank()) {
+        return value;
+      }
+    }
+    return null;
   }
 
   private static AuthorizationSecureEnvelope parseEnvelopeFromJson(JsonObject envelopeJson) {

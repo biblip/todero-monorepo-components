@@ -359,6 +359,34 @@ class AgentDJSpotifyEventExecutionTest {
   }
 
   @Test
+  void executeSpotifyInternalTreatsObservedAuthHandoffAsSuccessAfterTimeout() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    CommandContext parent = CommandContext.builder()
+        .sourceId("source-1")
+        .componentManager(new EventOnlyManager((cmd, ctx) -> {
+          ctx.emitStatus("Authorization session created.", "progress");
+          ctx.emitHtml("<a href=\"https://accounts.spotify.com/authorize\">Authorize Spotify</a>", "progress", "html", true);
+          try {
+            Thread.sleep(3500L);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        }))
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
+            AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8)))
+        .build();
+
+    Object result = invokeExecuteSpotifyInternal(component, parent, "auth-begin", "");
+
+    assertTrue((Boolean) accessor(result, "executed"));
+    assertEquals("Authorization session created.", accessor(result, "output"));
+    assertEquals("AWAIT_EXTERNAL_COMPLETION", String.valueOf(accessor(result, "responseOutcome")));
+    JsonNode root = JSON.readTree((String) accessor(result, "rawOutput"));
+    assertEquals("await_external_completion", root.path("response").path("outcome").asText());
+    assertEquals("html", root.path("channels").path("html").path("mode").asText());
+  }
+
+  @Test
   void executeSpotifyInternalPreservesParentRoutingHeaders() throws Exception {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     AtomicReference<AiatpRequest> seenRequest = new AtomicReference<>();

@@ -9,6 +9,7 @@ import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SpotifyComponentResponseInferenceTest {
@@ -64,8 +65,33 @@ class SpotifyComponentResponseInferenceTest {
 
     Method code = request.getClass().getDeclaredMethod("code");
     Method state = request.getClass().getDeclaredMethod("state");
+    Method sessionId = request.getClass().getDeclaredMethod("sessionId");
     assertEquals("abc", code.invoke(request));
     assertEquals("s1", state.invoke(request));
+    assertNull(sessionId.invoke(request));
+  }
+
+  @Test
+  void authCompleteParsingResolvesSessionIdFromEncodedState() throws Exception {
+    Method method = SpotifyComponent.class.getDeclaredMethod(
+        "parseAuthCompleteRequest",
+        CommandContext.class,
+        String.class);
+    method.setAccessible(true);
+    String encodedState = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+        "{\"session-id\":\"sess-123\",\"auth-complete\":\"aia://host/com.shellaia.spotify/auth-complete\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    );
+    CommandContext context = new TestCommandContext(new TestStorage())
+        .create("/com.shellaia.spotify/auth-complete?code=abc&state=" + encodedState, "");
+
+    Object request = method.invoke(null, context, "");
+
+    Method code = request.getClass().getDeclaredMethod("code");
+    Method state = request.getClass().getDeclaredMethod("state");
+    Method sessionId = request.getClass().getDeclaredMethod("sessionId");
+    assertEquals("abc", code.invoke(request));
+    assertEquals(encodedState, state.invoke(request));
+    assertEquals("sess-123", sessionId.invoke(request));
   }
 
   private static boolean inferSuccess(String message) throws Exception {

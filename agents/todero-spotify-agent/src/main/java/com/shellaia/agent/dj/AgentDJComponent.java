@@ -452,7 +452,8 @@ public class AgentDJComponent {
         if (authBegin.executed) {
           AuthDirective authDirective = extractAuthDirective(authBegin.rawOutput());
           String sessionId = authDirective.sessionId();
-          if (!authDirective.valid()) {
+          boolean authHandoff = isAuthHandoffToolExecution(authBegin);
+          if (!authHandoff && !authDirective.valid()) {
             stopReason = StopReason.TOOL_EXECUTION_FAILED;
             String invalidMessage = "Authorization handshake failed: component returned incomplete auth metadata.";
             lastResponse = failureResponse(initialPrompt, stopReason, "auth-begin", correlationId, invalidMessage);
@@ -462,12 +463,18 @@ public class AgentDJComponent {
                 redactedForLogs(authBegin.rawOutput()), null, "auth_contract_invalid", invalidMessage);
             break;
           }
-          if (shouldAutoRetryAfterAuth(authBeginArgs)) {
-            pendingAuthRetries.put(sessionId, new PendingAuthRetry(tool.command, tool.args, initialPrompt, rootWorkId));
+          if (authDirective.valid()) {
+            if (shouldAutoRetryAfterAuth(authBeginArgs)) {
+              pendingAuthRetries.put(sessionId, new PendingAuthRetry(tool.command, tool.args, initialPrompt, rootWorkId));
+            }
+            appendLedgerAction(rootWorkId, WorkActionType.NOTE,
+                "AUTH_BEGIN sessionId=" + sessionId,
+                "auth-begin", authBeginArgs, null, null, null, null);
+          } else {
+            appendLedgerAction(rootWorkId, WorkActionType.NOTE,
+                "AUTH_HANDOFF_STARTED command=auth-begin",
+                "auth-begin", authBeginArgs, null, null, null, null);
           }
-          appendLedgerAction(rootWorkId, WorkActionType.NOTE,
-              "AUTH_BEGIN sessionId=" + sessionId,
-              "auth-begin", authBeginArgs, null, null, null, null);
           lastResponse = new CommandAgentResponse(
               initialPrompt,
               "none",
@@ -476,7 +483,7 @@ public class AgentDJComponent {
                   : "Spotify authorization required. Open the authorization link, complete authentication, then retry your request.",
               null
           );
-          stopReason = StopReason.AUTH_REQUIRED;
+          stopReason = StopReason.AUTH_HANDOFF;
           break;
         }
         stopReason = StopReason.TOOL_EXECUTION_FAILED;
@@ -662,6 +669,17 @@ public class AgentDJComponent {
       System.out.println("[DJ-AGENT] tool execution success command=" + command + " status=" + executionResult.status);
       return new ToolExecution(true, command, args, effectiveOutput, "", safeOutput, envelope.responseOutcome);
     } catch (TimeoutException e) {
+      SpotifyEventSnapshot snapshot = aggregate.snapshot();
+      if ("auth-begin".equals(command) && hasObservedAuthHandoff(snapshot)) {
+        String handoffOutput = firstNonBlank(
+            safeTrim(snapshot.lastStatus()),
+            safeTrim(snapshot.lastChat()),
+            "Spotify authorization required. Open the authorization link, complete authentication, then retry your request.");
+        String rawOutput = renderObservedAuthHandoff(snapshot, handoffOutput);
+        System.out.println("[DJ-AGENT] tool execution timeout converted to auth handoff command=" + command
+            + " after " + TOOL_TIMEOUT_SECONDS + "s");
+        return new ToolExecution(true, command, args, handoffOutput, "", rawOutput, ToolResponseOutcome.AWAIT_EXTERNAL_COMPLETION);
+      }
       System.out.println("[DJ-AGENT] tool execution timeout command=" + command + " after " + TOOL_TIMEOUT_SECONDS + "s");
       return ToolExecution.error(
           "tool-execution-failed",
@@ -2876,8 +2894,8 @@ public class AgentDJComponent {
 
   private static boolean isAuthHandoff(LoopResult result, String authJson) {
     return result != null
-        && result.stopReason == StopReason.AUTH_REQUIRED
-        && hasValidAuthDirective(authJson);
+        && (result.stopReason == StopReason.AUTH_HANDOFF
+        || (result.stopReason == StopReason.AUTH_REQUIRED && hasValidAuthDirective(authJson)));
   }
 
   private static boolean hasAuthPayload(String authJson) {
@@ -2887,6 +2905,56 @@ public class AgentDJComponent {
 
   private static boolean hasValidAuthDirective(String authJson) {
     return extractAuthDirective(authJson).valid();
+  }
+
+  private static boolean isAuthHandoffToolExecution(ToolExecution tool) {
+    return tool != null && tool.responseOutcome == ToolResponseOutcome.AWAIT_EXTERNAL_COMPLETION;
+  }
+
+  private static boolean hasObservedAuthHandoff(SpotifyEventSnapshot snapshot) {
+    if (snapshot == null) {
+      return false;
+    }
+    if (!safeTrim(snapshot.lastHtml()).isEmpty() || !safeTrim(snapshot.lastAuthJson()).isEmpty()) {
+      return true;
+    }
+    String status = safeTrim(snapshot.lastStatus()).toLowerCase(Locale.ROOT);
+    String chat = safeTrim(snapshot.lastChat()).toLowerCase(Locale.ROOT);
+    return status.contains("authorization") || chat.contains("authorization");
+  }
+
+  private static String renderObservedAuthHandoff(SpotifyEventSnapshot snapshot, String message) {
+    try {
+      ObjectNode root = JSON.createObjectNode();
+      root.put("ok", true);
+      root.put("message", safeTrim(message));
+      ObjectNode response = root.putObject("response");
+      response.put("outcome", "await_external_completion");
+      response.put("completed", true);
+      ObjectNode channels = root.putObject("channels");
+      channels.putObject("chat").put("message", safeTrim(snapshot == null ? "" : snapshot.lastChat()));
+      channels.putObject("status").put("message", safeTrim(snapshot == null ? "" : snapshot.lastStatus()));
+      ObjectNode html = channels.putObject("html");
+      String htmlBody = safeTrim(snapshot == null ? "" : snapshot.lastHtml());
+      if (htmlBody.isEmpty()) {
+        html.putNull("html");
+        html.put("mode", "none");
+      } else {
+        html.put("html", htmlBody);
+        html.put("mode", "html");
+      }
+      html.put("replace", true);
+      String authJson = safeTrim(snapshot == null ? "" : snapshot.lastAuthJson());
+      if (!authJson.isEmpty()) {
+        try {
+          root.set("auth", JSON.readTree(authJson));
+        } catch (Exception ignored) {
+        }
+      }
+      return root.toString();
+    } catch (Exception ignored) {
+      return "";
+    }
   }
 
   private static boolean shouldAutoRetryAfterAuth(String authBeginArgs) {
@@ -3911,6 +3979,7 @@ public class AgentDJComponent {
     UNSUPPORTED_ACTION("unsupported_action", "planner proposed a command outside the allowed spotify command set"),
     INVALID_ARGUMENTS("invalid_arguments", "planner proposed invalid arguments for a spotify command"),
     AUTH_REQUIRED("auth_required", "spotify authorization is required before continuing"),
+    AUTH_HANDOFF("auth_handoff", "spotify authorization handoff was started"),
     BACKGROUND_STEP_LIMIT("background_step_limit", "background reaction reached step cap"),
     NO_FORWARD_PROGRESS("no_forward_progress", "planner could not make forward progress after prior tool steps"),
     PLANNER_LOOP_DETECTED("planner_loop_detected", "planner repeated prior actions without meaningful change"),
