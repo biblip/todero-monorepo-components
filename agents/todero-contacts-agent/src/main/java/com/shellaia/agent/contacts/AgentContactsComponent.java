@@ -101,6 +101,14 @@ public class AgentContactsComponent {
 
       CommandAgentResponse planned = plan(llm, prompt, agentContext);
       String action = safeTrim(planned.getAction());
+      if ("unsupported_operation".equalsIgnoreCase(action)) {
+        String message = safeTrim(planned.getUser());
+        if (message.isBlank()) {
+          message = "I can only help with managing your contacts.";
+        }
+        context.completeJson(200, renderOutOfScopeEnvelope(message));
+        return true;
+      }
       if (action.isBlank() || "none".equalsIgnoreCase(action)) {
         String message = safeTrim(planned.getUser()).isBlank() ? "No action required." : planned.getUser();
         context.completeJson(200, renderEnvelope(message, message, null, null));
@@ -254,6 +262,24 @@ public class AgentContactsComponent {
       ObjectNode meta = root.putObject("meta");
       meta.put("errorCode", safeTrim(errorCode));
     }
+    return root.toString();
+  }
+
+  private String renderOutOfScopeEnvelope(String message) {
+    ObjectNode root = mapper.createObjectNode();
+    ObjectNode response = root.putObject("response");
+    response.put("outcome", "unsupported_operation");
+    response.put("completed", true);
+    ObjectNode meta = root.putObject("meta");
+    meta.put("outcome", "unhandled_intent");
+    meta.put("errorCode", "unsupported_operation");
+    ObjectNode channels = root.putObject("channels");
+    channels.putObject("chat").put("message", safeTrim(message));
+    channels.putObject("status").put("message", safeTrim(message));
+    ObjectNode html = channels.putObject("html");
+    html.putNull("html");
+    html.put("mode", "none");
+    html.put("replace", false);
     return root.toString();
   }
 

@@ -112,7 +112,10 @@ public class RouterAgentComponent {
     while (true) {
       List<AgentCapability> agents = discoverAgents(context);
       if (agents.isEmpty()) {
-        context.emitError("No routable agent found in runtime. Agents must expose routingHints.skillSummary.");
+        context.completeJson(
+            200,
+            unhandledIntentEnvelopeJson(
+                "No routable agent found in runtime. Agents must expose routingHints.skillSummary."));
         return true;
       }
 
@@ -158,19 +161,23 @@ public class RouterAgentComponent {
         return true;
       }
 
-      if (!rerouteAttempted && indicatesFailureSignal(delegatedJson)) {
-        rerouteAttempted = true;
+      if (indicatesFailureSignal(delegatedJson)) {
         excludedAgents.add(decision.route);
         stickyBySession.remove(sessionId);
-        RouteDecision retryDecision = decideRoute(prompt, sticky, agents, excludedAgents);
-        if (retryDecision.route != null && !retryDecision.route.isBlank()) {
-          context.emitStatus("Rerouting to another agent.", "progress");
-          context.emitThought("reroute=true reason=failure_signal agent=" + safe(decision.route), "progress");
-          System.out.println("[ROUTER-AGENT] fallback triggered by "
-              + readPath(delegatedJson.path("meta"), "errorCode")
-              + "; rerouting prompt: " + prompt);
-          continue;
+        if (excludeAgents(agents, excludedAgents).isEmpty()) {
+          context.completeJson(
+              200,
+              unhandledIntentEnvelopeJson(
+                  "No available agent can handle this request."));
+          return true;
         }
+        rerouteAttempted = true;
+        context.emitStatus("Rerouting to another agent.", "progress");
+        context.emitThought("reroute=true reason=failure_signal agent=" + safe(decision.route), "progress");
+        System.out.println("[ROUTER-AGENT] fallback triggered by "
+            + readPath(delegatedJson.path("meta"), "errorCode")
+            + "; rerouting prompt: " + prompt);
+        continue;
       }
 
       if (delegatedJson == null || !delegatedJson.has("channels") || !delegatedJson.path("channels").isObject()) {
@@ -756,7 +763,8 @@ public class RouterAgentComponent {
     }
     JsonNode meta = delegatedJson.path("meta");
     String responseOutcome = readPath(delegatedJson, "response.outcome");
-    if ("failure".equalsIgnoreCase(responseOutcome) || "unsupported_operation".equalsIgnoreCase(responseOutcome)) {
+    // Reroute only on explicit "out of scope" signals, never by heuristics.
+    if ("unsupported_operation".equalsIgnoreCase(responseOutcome)) {
       return true;
     }
     if (meta != null && !meta.isMissingNode()) {
@@ -769,16 +777,7 @@ public class RouterAgentComponent {
         return true;
       }
     }
-    String status = readPath(delegatedJson, "channels.status.message");
-    return containsFailureHint(status);
-  }
-
-  private static boolean containsFailureHint(String text) {
-    if (text == null || text.isBlank()) {
-      return false;
-    }
-    String lowered = text.toLowerCase(Locale.ROOT);
-    return lowered.contains("cannot") || lowered.contains("can't") || lowered.contains("unable") || lowered.contains("not handled") || lowered.contains("cannot handle");
+    return false;
   }
 
   private static Set<String> tokenize(String value) {
@@ -1123,6 +1122,39 @@ public class RouterAgentComponent {
           + "},\"channels\":{\"status\":{\"message\":"
           + quote(firstNonBlank(message, "Delegated agent failed."))
           + "},\"chat\":{\"message\":\"\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
+    }
+  }
+
+  private String unhandledIntentEnvelopeJson(String message) {
+    try {
+      JsonNode authNode = mapper.nullNode();
+      var root = mapper.createObjectNode();
+      root.put("kind", "terminal");
+      root.put("outcome", "failure");
+      root.put("terminal", true);
+      var response = root.putObject("response");
+      response.put("outcome", "failure");
+      response.put("completed", true);
+      var payload = root.putObject("payload");
+      payload.put("message", firstNonBlank(message, "No agent can handle this request."));
+      var meta = root.putObject("meta");
+      meta.put("outcome", "unhandled_intent");
+      meta.put("errorCode", "no_agent_support");
+      var channels = root.putObject("channels");
+      channels.putObject("status").put("message", payload.path("message").asText());
+      channels.putObject("chat").put("message", payload.path("message").asText());
+      channels.set("auth", authNode);
+      var htmlChannel = channels.putObject("html");
+      htmlChannel.putNull("html");
+      htmlChannel.put("mode", "none");
+      htmlChannel.put("replace", false);
+      return mapper.writeValueAsString(root);
+    } catch (Exception e) {
+      return "{\"kind\":\"terminal\",\"outcome\":\"failure\",\"terminal\":true,\"response\":{\"outcome\":\"failure\",\"completed\":true},"
+          + "\"meta\":{\"outcome\":\"unhandled_intent\",\"errorCode\":\"no_agent_support\"},"
+          + "\"channels\":{\"status\":{\"message\":" + quote(firstNonBlank(message, "No agent can handle this request.")) + "},"
+          + "\"chat\":{\"message\":" + quote(firstNonBlank(message, "No agent can handle this request.")) + "},"
+          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
     }
   }
 

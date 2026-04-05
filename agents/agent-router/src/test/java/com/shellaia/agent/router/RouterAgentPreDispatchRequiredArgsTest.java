@@ -49,21 +49,22 @@ class RouterAgentPreDispatchRequiredArgsTest {
   @Test
   void excludesAgentsWithoutExplicitSkillSummary() {
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    AtomicReference<AiatpIORequestWrapper> out = new AtomicReference<>();
+    AtomicReference<AiatpResponse> out = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
         .sourceId("sess-no-skill")
         .componentManager(new NoSkillManager())
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
             AiatpIO.Body.ofString("play music", StandardCharsets.UTF_8)))
-        .eventConsumer(out::set)
+        .responseConsumer(out::set)
         .build();
 
     router.process(context);
 
-    assertEquals("error", out.get().getAiatpEvent().getChannel());
-    assertTrue(AiatpIO.bodyToString(out.get().getAiatpEvent().getBody(), StandardCharsets.UTF_8)
-        .contains("routingHints.skillSummary"));
+    String responseBody = AiatpIO.bodyToString(out.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(responseBody.contains("\"outcome\":\"unhandled_intent\""));
+    assertTrue(responseBody.contains("\"errorCode\":\"no_agent_support\""));
+    assertTrue(responseBody.contains("routingHints.skillSummary"));
   }
 
   private static final class StubManager implements ComponentManagerInterface {

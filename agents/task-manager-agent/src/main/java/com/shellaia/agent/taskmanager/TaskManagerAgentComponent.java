@@ -147,6 +147,7 @@ public class TaskManagerAgentComponent {
     TOOL_EXECUTION_FAILED,
     INVALID_ARGUMENTS,
     UNSUPPORTED_ACTION,
+    OUT_OF_SCOPE,
     MAX_STEPS_REACHED,
     PLANNER_EXCEPTION,
     TIMEOUT
@@ -453,21 +454,30 @@ public class TaskManagerAgentComponent {
                                 String user,
                                 String html,
                                 String errorCode) {
+    boolean outOfScope = "unsupported_operation".equalsIgnoreCase(safe(errorCode));
     String errorValue = errorCode == null ? "null" : quote(errorCode);
     String chatMessage = quote(user);
     String statusMessage = quote(user);
     String webHtml = safe(html).isBlank() ? "null" : quote(html);
+    String responseBlock = outOfScope
+        ? "\"response\":{\"outcome\":\"unsupported_operation\",\"completed\":true},"
+        : "";
+    String metaOutcome = outOfScope
+        ? "\"outcome\":\"unhandled_intent\","
+        : "";
     return "{"
         + "\"request\":" + quote(request) + ","
         + "\"action\":" + quote(action) + ","
         + "\"user\":" + quote(user) + ","
         + "\"html\":" + quote(html) + ","
+        + responseBlock
         + "\"channels\":{"
         + "\"chat\":{\"message\":" + chatMessage + "},"
         + "\"status\":{\"message\":" + statusMessage + "},"
         + "\"html\":{\"html\":" + webHtml + ",\"mode\":\"none\",\"replace\":false}"
         + "},"
         + "\"meta\":{"
+        + metaOutcome
         + "\"source\":" + quote(source) + ","
         + "\"status\":" + quote(status) + ","
         + "\"correlationId\":" + quote(correlationId) + ","
@@ -529,6 +539,9 @@ public class TaskManagerAgentComponent {
         if (decision.stop) {
           appendTrace(loopTrace, correlationId, step, "stop", decision.stopReason.name());
           rememberLoopTrace(loopTrace, correlationId, "ok");
+          if (decision.stopReason == StopReason.OUT_OF_SCOPE) {
+            return LoopResult.of("error", decision.stopReason, "none", decision.userMessage, "unsupported_operation");
+          }
           return LoopResult.of("ok", decision.stopReason, lastAction, decision.userMessage, null);
         }
         ParsedCommand execution = extractExecutionCommand(action);
@@ -554,6 +567,13 @@ public class TaskManagerAgentComponent {
         if (!tool.ok) {
           rememberLoopTrace(loopTrace, correlationId, "error");
           return LoopResult.of("error", StopReason.TOOL_EXECUTION_FAILED, lastAction, tool.userMessage(), tool.errorCode);
+        }
+
+        // Without an LLM available, we can't reliably plan multi-step workflows.
+        // Stop after the first successful tool call to avoid drifting into out-of-scope defaults.
+        if (llm == null) {
+          rememberLoopTrace(loopTrace, correlationId, "ok");
+          return LoopResult.of("ok", StopReason.ACTION_NONE, "none", "Operation completed.", null);
         }
 
         lastExecutedAction = "execute " + execution.command + (execution.args.isBlank() ? "" : " " + execution.args);
@@ -611,8 +631,10 @@ public class TaskManagerAgentComponent {
     if ("debug memory".equalsIgnoreCase(prompt) || "show memory".equalsIgnoreCase(prompt)) {
       return PlannerDecision.stop(StopReason.ACTION_NONE, memoryBuffer.summarize(20));
     }
-    return PlannerDecision.stop(StopReason.ACTION_NONE,
-        "Task manager request captured. Use 'execute <command> [args]' or direct supported command syntax.");
+    return PlannerDecision.stop(
+        StopReason.OUT_OF_SCOPE,
+        "I can only help with task management requests."
+    );
   }
 
   private LLMClient buildLlmClient() {

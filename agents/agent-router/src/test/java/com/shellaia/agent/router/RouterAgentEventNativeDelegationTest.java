@@ -150,7 +150,9 @@ class RouterAgentEventNativeDelegationTest {
     assertTrue(seen.stream().noneMatch(wrapper ->
         "status".equals(wrapper.getAiatpEvent().getChannel())
             && "Rerouting to another agent.".equals(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8))));
-    assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("can't send emails"));
+    String responseBody = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(responseBody.contains("\"outcome\":\"unhandled_intent\""));
+    assertTrue(responseBody.contains("\"errorCode\":\"no_agent_support\""));
   }
 
   @Test

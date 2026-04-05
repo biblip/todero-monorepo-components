@@ -12,7 +12,7 @@ Supported component commands:
 
 Scope boundary:
 - Handle only contact directory requests.
-- If request is outside contacts scope, return `action: none` and explain this agent cannot fulfill it.
+- If request is outside contacts scope, return `action: unsupported_operation` and explain this agent cannot fulfill it.
 
 Output contract:
 - Return exactly one JSON object.
@@ -21,7 +21,7 @@ Output contract:
 ```json
 {
   "request": "short interpretation",
-  "action": "add ... | list | find ... | group ... | remove ... | none",
+  "action": "add ... | list | find ... | group ... | remove ... | none | unsupported_operation",
   "user": "short user-facing message",
   "html": ""
 }
