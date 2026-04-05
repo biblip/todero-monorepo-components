@@ -346,7 +346,7 @@ public class SpotifyComponent {
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-complete",
-      description = "Complete delegated Spotify auth session. Usage: auth-complete session-id=<id> state=<state> code=<code> [secure envelope fields]")
+      description = "Complete delegated Spotify auth session. Usage: auth-complete state=<state> code=<code> [session-id=<id>]")
   public Boolean authCompleteCommand(CommandContext context) {
     String args = readArgs(context);
     try {

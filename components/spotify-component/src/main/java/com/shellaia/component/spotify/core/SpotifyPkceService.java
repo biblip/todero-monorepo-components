@@ -212,7 +212,6 @@ public class SpotifyPkceService {
     }
     try {
       AuthorizationValidation.requireState(session.state(), request.state());
-      verifySecureEnvelope(stored, request, nowMs);
       System.out.println("[SPOTIFY][AUTH-COMPLETE] validation ok sessionId=" + safeTrim(session.sessionId()));
     } catch (AuthorizationValidationException e) {
       authSessionStore.updateSessionStatus(stored, AuthorizationSessionStatus.FAILED, nowMs, e.code());

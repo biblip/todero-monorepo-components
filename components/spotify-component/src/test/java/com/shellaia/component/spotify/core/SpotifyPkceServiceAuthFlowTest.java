@@ -105,7 +105,30 @@ class SpotifyPkceServiceAuthFlowTest {
   }
 
   @Test
-  void authCompleteRejectsTamperedEnvelope() throws Exception {
+  void authCompleteSucceedsWithoutEnvelope() throws Exception {
+    startTokenServer(200, tokenResponseWithScopes(), 0);
+
+    TestStorage storage = new TestStorage();
+    SpotifyPkceService service = newService(storage, tokenServerUri());
+    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
+
+    SpotifyPkceService.AuthCompleteResult complete = service.authComplete(
+        new SpotifyPkceService.AuthCompleteRequest(
+            begin.session().sessionId(),
+            begin.session().state(),
+            "oauth-code-123",
+            null,
+            null
+        )
+    );
+
+    assertTrue(complete.ok());
+    assertNotNull(complete.session());
+    assertEquals(AuthorizationSessionStatus.COMPLETED, complete.session().status());
+  }
+
+  @Test
+  void authCompleteIgnoresTamperedEnvelope() throws Exception {
     startTokenServer(200, tokenResponseWithScopes(), 0);
 
     TestStorage storage = new TestStorage();
@@ -133,41 +156,8 @@ class SpotifyPkceServiceAuthFlowTest {
         )
     );
 
-    assertFalse(complete.ok());
-    assertEquals(AuthorizationErrorCode.AUTH_ENVELOPE_INVALID, complete.errorCode());
-  }
-
-  @Test
-  void authCompleteRejectsExpiredEnvelope() throws Exception {
-    startTokenServer(200, tokenResponseWithScopes(), 0);
-
-    TestStorage storage = new TestStorage();
-    SpotifyPkceService service = newService(storage, tokenServerUri());
-    SpotifyPkceService.AuthBeginResult begin = service.authBegin("console", null, "owner-a", "aia://test-host");
-
-    AuthorizationSecureEnvelope expired = new AuthorizationSecureEnvelope(
-        begin.secureEnvelope().envelopeId(),
-        begin.secureEnvelope().sessionId(),
-        begin.secureEnvelope().nonce(),
-        1,
-        begin.secureEnvelope().opaquePayload(),
-        begin.secureEnvelope().integrity(),
-        begin.secureEnvelope().algorithm(),
-        begin.secureEnvelope().issuedAtMs() - 10_000
-    );
-
-    SpotifyPkceService.AuthCompleteResult complete = service.authComplete(
-        new SpotifyPkceService.AuthCompleteRequest(
-            begin.session().sessionId(),
-            begin.session().state(),
-            "oauth-code-123",
-            null,
-            expired
-        )
-    );
-
-    assertFalse(complete.ok());
-    assertEquals(AuthorizationErrorCode.AUTH_ENVELOPE_EXPIRED, complete.errorCode());
+    assertTrue(complete.ok());
+    assertEquals(AuthorizationSessionStatus.COMPLETED, complete.session().status());
   }
 
   @Test
@@ -217,7 +207,7 @@ class SpotifyPkceServiceAuthFlowTest {
   }
 
   @Test
-  void authCompleteRejectsMismatchedSessionBinding() throws Exception {
+  void authCompleteIgnoresMismatchedEnvelopeSessionBinding() throws Exception {
     startTokenServer(200, tokenResponseWithScopes(), 0);
 
     TestStorage storage = new TestStorage();
@@ -245,8 +235,8 @@ class SpotifyPkceServiceAuthFlowTest {
         )
     );
 
-    assertFalse(complete.ok());
-    assertEquals(AuthorizationErrorCode.AUTH_ENVELOPE_INVALID, complete.errorCode());
+    assertTrue(complete.ok());
+    assertEquals(AuthorizationSessionStatus.COMPLETED, complete.session().status());
   }
 
   @Test
