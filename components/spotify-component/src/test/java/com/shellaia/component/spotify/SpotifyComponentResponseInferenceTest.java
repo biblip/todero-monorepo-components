@@ -1,5 +1,7 @@
 package com.shellaia.component.spotify;
 
+import com.social100.todero.common.command.CommandContext;
+import com.social100.todero.component.testkit.TestCommandContext;
 import com.social100.todero.component.testkit.TestStorage;
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +48,24 @@ class SpotifyComponentResponseInferenceTest {
     assertTrue(json.contains("\"response\""));
     assertTrue(json.contains("\"outcome\":\"goal_completed\""));
     assertTrue(json.contains("\"channels\""));
+  }
+
+  @Test
+  void authCompleteParsingPrefersQueryParams() throws Exception {
+    Method method = SpotifyComponent.class.getDeclaredMethod(
+        "parseAuthCompleteRequest",
+        CommandContext.class,
+        String.class);
+    method.setAccessible(true);
+    CommandContext context = new TestCommandContext(new TestStorage())
+        .create("/com.shellaia.spotify/auth-complete?code=abc&state=s1", "code=body state=body");
+
+    Object request = method.invoke(null, context, "code=body state=body");
+
+    Method code = request.getClass().getDeclaredMethod("code");
+    Method state = request.getClass().getDeclaredMethod("state");
+    assertEquals("abc", code.invoke(request));
+    assertEquals("s1", state.invoke(request));
   }
 
   private static boolean inferSuccess(String message) throws Exception {

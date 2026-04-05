@@ -349,7 +349,7 @@ public class SpotifyComponent {
   public Boolean authCompleteCommand(CommandContext context) {
     String args = readArgs(context);
     try {
-      SpotifyPkceService.AuthCompleteRequest request = parseAuthCompleteRequest(args);
+      SpotifyPkceService.AuthCompleteRequest request = parseAuthCompleteRequest(context, args);
       SpotifyPkceService.AuthCompleteResult result = pkceService().authComplete(request);
       context.completeJson(200, responseJson(
           "auth-complete",
@@ -1001,7 +1001,16 @@ public class SpotifyComponent {
     return respond(context, "play-context", body, commandService().playContextWithOffset(contextUri, offset));
   }
 
-  private static SpotifyPkceService.AuthCompleteRequest parseAuthCompleteRequest(String raw) {
+  private static SpotifyPkceService.AuthCompleteRequest parseAuthCompleteRequest(CommandContext context, String raw) {
+    Map<String, String> queryArgs = readQueryArgs(context);
+    if (!queryArgs.isEmpty()) {
+      String sessionId = value(queryArgs, "session-id", "sessionId");
+      String state = value(queryArgs, "state");
+      String code = value(queryArgs, "code");
+      String error = value(queryArgs, "error");
+      AuthorizationSecureEnvelope envelope = parseEnvelopeFromArgs(queryArgs, sessionId);
+      return new SpotifyPkceService.AuthCompleteRequest(sessionId, state, code, error, envelope);
+    }
     if (raw == null || raw.isBlank()) {
       return new SpotifyPkceService.AuthCompleteRequest(null, null, null, null, null);
     }
@@ -1316,6 +1325,22 @@ public class SpotifyComponent {
         ? ""
         : AiatpIO.bodyToString(request.getBody(), StandardCharsets.UTF_8);
     return body == null ? "" : body.trim().replaceAll("\\s+", " ");
+  }
+
+  private static Map<String, String> readQueryArgs(CommandContext context) {
+    Map<String, String> out = new LinkedHashMap<>();
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getQueryParams() == null) {
+      return out;
+    }
+    for (Map.Entry<String, String> entry : context.getAiatpRequest().getQueryParams()) {
+      String key = entry.getKey();
+      String value = entry.getValue();
+      if (key == null || key.isBlank()) {
+        continue;
+      }
+      out.put(key, value == null ? "" : value);
+    }
+    return out;
   }
 
   private Boolean usage(CommandContext context, String args, String command, String usageText) {
