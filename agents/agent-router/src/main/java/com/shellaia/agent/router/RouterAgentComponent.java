@@ -1101,7 +1101,7 @@ public class RouterAgentComponent {
       meta.put("agent", safe(agentName));
       var projections = root.putObject("projections");
       projections.putObject("status").put("message", firstNonBlank(message, "Delegated agent failed."));
-      projections.putObject("chat").put("message", "");
+      projections.putObject("chat").put("message", firstNonBlank(message, "Delegated agent failed."));
       projections.set("auth", authNode);
       var projectionWebview = projections.putObject("html");
       projectionWebview.putNull("html");
@@ -1109,7 +1109,7 @@ public class RouterAgentComponent {
       projectionWebview.put("replace", false);
       var channels = root.putObject("channels");
       channels.putObject("status").put("message", firstNonBlank(message, "Delegated agent failed."));
-      channels.putObject("chat").put("message", "");
+      channels.putObject("chat").put("message", firstNonBlank(message, "Delegated agent failed."));
       channels.set("auth", authNode);
       var htmlChannel = channels.putObject("html");
       htmlChannel.putNull("html");
