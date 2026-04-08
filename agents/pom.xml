@@ -36,5 +36,6 @@
     <module>task-manager-agent</module>
     <module>todero-contacts-agent</module>
     <module>todero-spotify-agent</module>
+    <module>spotify-wire-agent</module>
   </modules>
 </project>

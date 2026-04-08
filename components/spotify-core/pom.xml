@@ -1,30 +1,23 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
+
   <parent>
     <groupId>com.shellaia</groupId>
     <artifactId>components</artifactId>
     <version>0.1.14-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
-  <artifactId>spotify-component</artifactId>
+
+  <artifactId>spotify-core</artifactId>
   <packaging>jar</packaging>
-  <name>spotify-component</name>
+  <name>spotify-core</name>
+
   <dependencies>
     <dependency>
       <groupId>com.social100.todero</groupId>
       <artifactId>todero-component-api</artifactId>
       <version>${todero.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>com.shellaia</groupId>
-      <artifactId>spotify-core</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>com.social100.todero</groupId>
-      <artifactId>processor</artifactId>
-      <version>${todero.version}</version>
-      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.social100.todero</groupId>
@@ -43,16 +36,6 @@
       </exclusions>
     </dependency>
     <dependency>
-      <groupId>com.sparkjava</groupId>
-      <artifactId>spark-core</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-api</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>
@@ -60,11 +43,7 @@
       <groupId>com.google.code.gson</groupId>
       <artifactId>gson</artifactId>
     </dependency>
-    <dependency>
-      <groupId>org.projectlombok</groupId>
-      <artifactId>lombok</artifactId>
-      <scope>provided</scope>
-    </dependency>
+
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -72,6 +51,7 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
   <build>
     <plugins>
       <plugin>
@@ -80,13 +60,6 @@
         <version>3.11.0</version>
         <configuration>
           <release>${maven.compiler.release}</release>
-          <annotationProcessorPaths>
-            <path>
-              <groupId>com.social100.todero</groupId>
-              <artifactId>processor</artifactId>
-              <version>${todero.version}</version>
-            </path>
-          </annotationProcessorPaths>
         </configuration>
       </plugin>
       <plugin>
