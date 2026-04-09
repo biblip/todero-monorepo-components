@@ -14,6 +14,7 @@ import com.social100.todero.common.ai.llm.LLMInstance;
 import com.social100.todero.common.ai.llm.LLMProviderDefinition;
 import com.social100.todero.common.ai.llm.LLMRegistry;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.base.ComponentManagerInterface;
@@ -40,6 +41,27 @@ import org.junit.jupiter.api.Test;
 class AgentDJSpotifyEventExecutionTest {
 
   private static final ObjectMapper JSON = new ObjectMapper();
+  private static final String TEXT_PLAIN_UTF8 = "text/plain; charset=utf-8";
+
+  private static void completeWire(CommandContext context,
+                                   String channel,
+                                   String outcome,
+                                   String responseReason,
+                                   String body,
+                                   String errorCode,
+                                   String authOutcome) {
+    AiatpIO.Headers headers = new AiatpIO.Headers();
+    headers.set("Content-Type", TEXT_PLAIN_UTF8);
+    context.complete(AiatpResponse.builder()
+        .channel(channel)
+        .outcome(outcome)
+        .responseReason(responseReason)
+        .errorCode(errorCode == null || errorCode.isBlank() ? null : errorCode)
+        .authOutcome(authOutcome == null || authOutcome.isBlank() ? null : authOutcome)
+        .headers(headers)
+        .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
+        .build());
+  }
 
   @Test
   void populatePlannerContextIncludesPlaybackFactsAndRecentSteps() throws Exception {
@@ -343,8 +365,8 @@ class AgentDJSpotifyEventExecutionTest {
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
           ctx.emitStatus("Open the Spotify link.", "progress");
-          ctx.completeJson(200,
-              "{\"ok\":true,\"message\":\"Authorization required.\",\"auth\":{\"required\":true,\"provider\":\"spotify\",\"sessionId\":\"sess-1\",\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"},\"channels\":{\"status\":{\"message\":\"Open the Spotify link.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
+          completeWire(ctx, "chat", "auth_handoff", "auth_pending", "Authorization required.", null, "AUTH_PENDING");
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
             AiatpIO.Body.ofString("auth-begin", StandardCharsets.UTF_8)))
@@ -354,8 +376,7 @@ class AgentDJSpotifyEventExecutionTest {
 
     assertTrue((Boolean) accessor(result, "executed"));
     JsonNode root = JSON.readTree((String) accessor(result, "rawOutput"));
-    assertEquals("spotify", root.path("auth").path("provider").asText());
-    assertEquals("sess-1", root.path("auth").path("sessionId").asText());
+    assertEquals("sess-1", root.path("session").path("sessionId").asText());
   }
 
   @Test
@@ -366,6 +387,7 @@ class AgentDJSpotifyEventExecutionTest {
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
           ctx.emitStatus("Authorization session created.", "progress");
           ctx.emitHtml("<a href=\"https://accounts.spotify.com/authorize\">Authorize Spotify</a>", "progress", "html", true);
+          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
           try {
             Thread.sleep(3500L);
           } catch (InterruptedException e) {
@@ -382,8 +404,7 @@ class AgentDJSpotifyEventExecutionTest {
     assertEquals("Authorization session created.", accessor(result, "output"));
     assertEquals("AWAIT_EXTERNAL_COMPLETION", String.valueOf(accessor(result, "responseOutcome")));
     JsonNode root = JSON.readTree((String) accessor(result, "rawOutput"));
-    assertEquals("await_external_completion", root.path("response").path("outcome").asText());
-    assertEquals("html", root.path("channels").path("html").path("mode").asText());
+    assertEquals("sess-1", root.path("session").path("sessionId").asText());
   }
 
   @Test
@@ -396,8 +417,8 @@ class AgentDJSpotifyEventExecutionTest {
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
           seenRequest.set(ctx.getAiatpRequest());
-          ctx.completeJson(200,
-              "{\"ok\":true,\"message\":\"Authorization required.\",\"auth\":{\"required\":true,\"provider\":\"spotify\",\"sessionId\":\"sess-1\",\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"},\"channels\":{\"status\":{\"message\":\"Open the Spotify link.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
+          completeWire(ctx, "chat", "auth_handoff", "auth_pending", "Authorization required.", null, "AUTH_PENDING");
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request(
             "ACTION",
@@ -417,7 +438,8 @@ class AgentDJSpotifyEventExecutionTest {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
-        .componentManager(new EventOnlyManager((cmd, ctx) -> ctx.completeJson(500, "{\"ok\":false,\"errorCode\":\"tool-execution-failed\",\"message\":\"No devices available.\",\"response\":{\"outcome\":\"failure\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"No devices available.\"},\"status\":{\"message\":\"No devices available.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}")))
+        .componentManager(new EventOnlyManager((cmd, ctx) ->
+            completeWire(ctx, "error", "failure", "execution_failed", "No devices available.", "tool-execution-failed", null)))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
             AiatpIO.Body.ofString("play enya", StandardCharsets.UTF_8)))
         .build();

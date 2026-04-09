@@ -155,25 +155,19 @@ public class AgentDJComponent {
     String prompt = requestBody(context);
     System.out.println("[DJ-AGENT] process received correlationId=" + correlationId + " prompt=" + prompt);
     if (!prompt.isEmpty()) {
-      if (usesUpstreamControl(context)) {
-        emitControlProgress(context, "Processing request...", correlationId, source);
-      } else {
-        context.emitStatus("Processing request...", "progress");
-      }
+      context.emitStatus("Processing request...", "progress");
     }
     if (prompt.isEmpty()) {
-      String envelope = renderContractEnvelope(
-          source,
-          correlationId,
+      completeWireTerminal(
+          context,
+          "error",
+          "failure",
           "invalid_request",
           "Prompt is required. Usage: process <goal>",
-          "Prompt is required. Usage: process <goal>",
-          null,
-          "none",
-          false
+          "invalid_request",
+          true,
+          null
       );
-      emitTerminalPayload(context, envelope, "failure", "invalid_request",
-          "Prompt is required. Usage: process <goal>", source, correlationId);
       return true;
     }
     WorkItemRecord rootWork;
@@ -181,18 +175,16 @@ public class AgentDJComponent {
       ensureOwnerLedger(context);
       rootWork = openRootLedgerWork(source, prompt, true, correlationId);
     } catch (Exception e) {
-      String envelope = renderContractEnvelope(
-          source,
-          correlationId,
+      completeWireTerminal(
+          context,
+          "error",
+          "failure",
           "ledger_unavailable",
           "Unable to create execution task in Agent Work Ledger: " + safeTrim(e.getMessage()),
-          "Agent Work Ledger initialization failed.",
-          null,
-          "none",
-          false
+          "ledger_unavailable",
+          false,
+          null
       );
-      emitTerminalPayload(context, envelope, "failure", "ledger_unavailable",
-          "Unable to create execution task in Agent Work Ledger: " + safeTrim(e.getMessage()), source, correlationId);
       return true;
     }
     CompletableFuture<LoopResult> future = CompletableFuture.supplyAsync(
@@ -205,28 +197,20 @@ public class AgentDJComponent {
       LoopResult result = future.get();
       System.out.println("[DJ-AGENT][EMIT] process result stopReason=" + result.stopReason
           + " steps=" + (result.toolSteps == null ? 0 : result.toolSteps.size()));
-      String envelope = renderLoopResultAsJson(result);
-      System.out.println("[DJ-AGENT][EMIT] process envelope ready bytes=" + envelope.length());
-      System.out.println("[DJ-AGENT][EMIT] process envelope preview=" + redactedForLogs(envelope));
-      emitLoopResult(context, result, envelope, source, correlationId);
-      System.out.println("[DJ-AGENT][EMIT] process envelope emitted");
-      context.emitThought(renderDecisionEventAsJson(result), "final");
+      emitWireFinal(context, result);
     } catch (Exception e) {
       String message = safeTrim(e.getMessage()).isEmpty() ? "Unexpected agent failure." : safeTrim(e.getMessage());
       System.out.println("[DJ-AGENT][EMIT] process exception message=" + safeTrim(e.getMessage()));
-      String envelope = renderContractEnvelope(
-          source,
-          correlationId,
+      completeWireTerminal(
+          context,
+          "error",
+          "failure",
           "agent_failed",
           message,
-          "Agent execution failed.",
-          null,
-          "none",
-          false
+          "agent_failed",
+          false,
+          null
       );
-      System.out.println("[DJ-AGENT][EMIT] process failure envelope bytes=" + envelope.length()
-          + " error=" + safeTrim(e.getMessage()));
-      emitTerminalPayload(context, envelope, "failure", "agent_failed", message, source, correlationId);
     }
     return true;
   }
@@ -243,19 +227,29 @@ public class AgentDJComponent {
           SPOTIFY_COMPONENT,
           buildCapabilitiesLlmClient(context)
       );
-      String payload = renderCapabilitiesEnvelope(manifest);
-      context.completeJson(200, payload);
-    } catch (Exception e) {
-      context.completeJson(500, renderContractEnvelope(
+      String payload = mapper.writeValueAsString(Map.of("manifest", manifest));
+      completeWireTerminal(
+          context,
+          "status",
+          "success",
           "capabilities",
-          newCorrelationId(),
+          payload,
+          null,
+          false,
+          null,
+          "application/json; charset=utf-8"
+      );
+    } catch (Exception e) {
+      completeWireTerminal(
+          context,
+          "error",
+          "failure",
           "capability_manifest_generate_failed",
           "DJ capability manifest could not be generated.",
-          "DJ capability manifest could not be generated.",
-          null,
-          "none",
-          false
-      ));
+          "capability_manifest_generate_failed",
+          false,
+          null
+      );
     }
     return true;
   }
@@ -433,7 +427,8 @@ public class AgentDJComponent {
           ? responseDispositionForSuccessfulTool(tool)
           : ToolResponseDisposition.CONTINUE;
       boolean completesAfterSuccessfulTool = disposition == ToolResponseDisposition.GOAL_COMPLETED;
-      if (interactiveRequest && !authRequiredToolResult && !completesAfterSuccessfulTool) {
+      // Wire-only: preserve tool output for the user even when the tool is terminal.
+      if (interactiveRequest && !authRequiredToolResult && !safeTrim(tool.output).isEmpty()) {
         emitToolProgressAsync(parentContext, tool, correlationId, step);
       }
 
@@ -632,6 +627,9 @@ public class AgentDJComponent {
                 "",
                 responseBody(result),
                 safeTrim(result.getErrorCode()),
+                safeTrim(result.getAuthOutcome()),
+                safeTrim(result.getOutcome()),
+                safeTrim(result.getResponseReason()),
                 responseStatus(result),
                 aggregate.snapshot()
             ));
@@ -654,20 +652,35 @@ public class AgentDJComponent {
       SpotifyExecutionResult executionResult = outFuture.get(TOOL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       String safeOutput = safeTrim(executionResult.body);
       System.out.println("Tool response [" + command + "]: " + redactedForLogs(safeOutput));
+      String authOutcome = safeTrim(executionResult.authOutcome);
+      String observedAuthJson = safeTrim(executionResult.snapshot == null ? "" : executionResult.snapshot.lastAuthJson());
+      String rawForTool = observedAuthJson.isEmpty() ? safeOutput : observedAuthJson;
       SpotifyEnvelope envelope = parseSpotifyEnvelope(safeOutput);
       String effectiveOutput = envelope.recognized ? envelope.message : safeOutput;
       boolean failed = executionResult.status >= 400
+          || "failure".equalsIgnoreCase(safeTrim(executionResult.outcome))
           || (envelope.recognized && !envelope.ok)
           || (!envelope.recognized && isExecutionFailure(executionResult.status, safeOutput));
       if (failed) {
         System.out.println("[DJ-AGENT] tool execution classified failure command=" + command + " status=" + executionResult.status + " body=" + redactedForLogs(safeOutput));
-        String errorCode = envelope.recognized && safeTrim(envelope.errorCode).length() > 0
-            ? envelope.errorCode
-            : "tool-execution-failed";
-        return ToolExecution.error(errorCode, command, args, effectiveOutput, safeOutput, envelope.responseOutcome);
+        String errorCode = safeTrim(executionResult.errorCode);
+        if (errorCode.isEmpty() && envelope.recognized && safeTrim(envelope.errorCode).length() > 0) {
+          errorCode = envelope.errorCode;
+        }
+        if (errorCode.isEmpty() && "AUTH_REQUIRED".equalsIgnoreCase(authOutcome)) {
+          errorCode = "auth_required";
+        }
+        if (errorCode.isEmpty()) {
+          errorCode = "tool-execution-failed";
+        }
+        ToolResponseOutcome responseOutcome = "AUTH_REQUIRED".equalsIgnoreCase(authOutcome)
+            ? ToolResponseOutcome.AWAIT_EXTERNAL_COMPLETION
+            : (envelope.recognized ? envelope.responseOutcome : ToolResponseOutcome.FAILURE);
+        return ToolExecution.error(errorCode, command, args, effectiveOutput, rawForTool, responseOutcome);
       }
       System.out.println("[DJ-AGENT] tool execution success command=" + command + " status=" + executionResult.status);
-      return new ToolExecution(true, command, args, effectiveOutput, "", safeOutput, envelope.responseOutcome);
+      ToolResponseOutcome responseOutcome = determineToolOutcome(command, envelope);
+      return new ToolExecution(true, command, args, effectiveOutput, "", rawForTool, responseOutcome);
     } catch (TimeoutException e) {
       SpotifyEventSnapshot snapshot = aggregate.snapshot();
       if ("auth-begin".equals(command) && hasObservedAuthHandoff(snapshot)) {
@@ -675,7 +688,8 @@ public class AgentDJComponent {
             safeTrim(snapshot.lastStatus()),
             safeTrim(snapshot.lastChat()),
             "Spotify authorization required. Open the authorization link, complete authentication, then retry your request.");
-        String rawOutput = renderObservedAuthHandoff(snapshot, handoffOutput);
+        // Preserve directive detail via last auth JSON only (no channels envelope).
+        String rawOutput = safeTrim(snapshot.lastAuthJson());
         System.out.println("[DJ-AGENT] tool execution timeout converted to auth handoff command=" + command
             + " after " + TOOL_TIMEOUT_SECONDS + "s");
         return new ToolExecution(true, command, args, handoffOutput, "", rawOutput, ToolResponseOutcome.AWAIT_EXTERNAL_COMPLETION);
@@ -710,11 +724,6 @@ public class AgentDJComponent {
     String channel = safeTrim(event.getChannel()).toLowerCase();
     String phase = safeTrim(event.getPhase()).toLowerCase();
     String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
-    if (usesUpstreamControl(parentContext)) {
-      System.out.println("[DJ-AGENT][EMIT] skip forward_tool_event reason=upstream_control channel=" + channel
-          + " phase=" + phase);
-      return;
-    }
     String emitPhase = "error".equals(phase) ? "error" : "progress";
     System.out.println("[DJ-AGENT][EMIT] forward_tool_event channel=" + channel
         + " phase=" + (phase.isEmpty() ? "<none>" : phase)
@@ -723,7 +732,15 @@ public class AgentDJComponent {
     switch (channel) {
       case "status" -> parentContext.emitStatus(body, emitPhase);
       case "chat" -> parentContext.emitChat(body, emitPhase);
-      case "html" -> parentContext.emitHtml(body, emitPhase, "html", true);
+      case "html" -> {
+        String mode = firstNonBlank(
+            event.getHeaders() == null ? null : event.getHeaders().getFirst("Html-Mode"),
+            "html"
+        );
+        boolean replace = event.getHeaders() == null
+            || !"false".equalsIgnoreCase(safeTrim(event.getHeaders().getFirst("Html-Replace")));
+        parentContext.emitHtml(body, emitPhase, mode, replace);
+      }
       case "auth" -> parentContext.emitAuthJson(body, emitPhase);
       case "error" -> parentContext.emitStatus(body, emitPhase);
       default -> {
@@ -782,6 +799,8 @@ public class AgentDJComponent {
     }
     try {
       JsonNode root = JSON.readTree(text);
+      // Wire-only: auth directive is carried as auth-channel JSON (no channels envelope).
+      // Legacy: some payloads may wrap directive under {"auth":{...}}.
       JsonNode auth = root.path("auth");
       JsonNode authNode = auth.isObject() ? auth : root;
       String provider = safeTrim(readPath(authNode, "provider"));
@@ -797,12 +816,13 @@ public class AgentDJComponent {
       );
       String completeCommand = firstNonBlank(
           readPath(authNode, "completeCommand"),
+          readPath(authNode, "auth-complete"),
           readPath(root, "completeCommand")
       );
-      boolean required = authNode.path("required").asBoolean(auth.isObject());
+      boolean required = authNode.path("required").asBoolean(true);
       boolean hasSecureEnvelope = authNode.path("secureEnvelope").isObject() || root.path("secureEnvelope").isObject();
       String authJson = auth.isObject() ? auth.toString() : (root.isObject() ? root.toString() : "");
-      boolean valid = required && !provider.isEmpty() && !sessionId.isEmpty() && !authorizeUrl.isEmpty();
+      boolean valid = required && !sessionId.isEmpty() && !authorizeUrl.isEmpty();
       return new AuthDirective(valid, provider, sessionId, authorizeUrl, completeCommand, hasSecureEnvelope, authJson);
     } catch (Exception ignored) {
       return AuthDirective.invalid();
@@ -1134,6 +1154,19 @@ public class AgentDJComponent {
       case "unsupported_operation", "unhandled_intent" -> ToolResponseOutcome.UNSUPPORTED_OPERATION;
       default -> ToolResponseOutcome.UNSPECIFIED;
     };
+  }
+
+  private static ToolResponseOutcome determineToolOutcome(String command, SpotifyEnvelope envelope) {
+    if (envelope != null && envelope.recognized && envelope.responseOutcome != null
+        && envelope.responseOutcome != ToolResponseOutcome.UNSPECIFIED) {
+      return envelope.responseOutcome;
+    }
+    String normalized = safeTrim(command).toLowerCase(Locale.ROOT);
+    if ("auth-begin".equals(normalized)) {
+      return ToolResponseOutcome.AWAIT_EXTERNAL_COMPLETION;
+    }
+    // Default: successful tool invocations are terminal (the agent may still emit tool output as events).
+    return ToolResponseOutcome.GOAL_COMPLETED;
   }
 
   private static ValidatedAction validateAndNormalizeAction(String command, String rawArgs) {
@@ -2213,8 +2246,6 @@ public class AgentDJComponent {
       JsonNode root = JSON.readTree(text);
       return firstNonBlank(
           safeTrim(readPath(root, "message")),
-          safeTrim(readPath(root, "channels.chat.message")),
-          safeTrim(readPath(root, "channels.status.message")),
           text
       );
     } catch (Exception ignored) {
@@ -2554,7 +2585,6 @@ public class AgentDJComponent {
     json.append("\"html\":").append(quoteJson(html)).append(',');
     json.append("\"response\":").append(renderResponseJson(result)).append(',');
     json.append("\"auth\":").append(renderAuthJson(result.toolSteps)).append(',');
-    json.append("\"channels\":").append(renderChannelsJson(result, user, html)).append(',');
     json.append("\"meta\":").append(renderMetaJson(result)).append(',');
     json.append("\"stopReason\":").append(quoteJson(result.stopReason.code)).append(',');
     json.append("\"stopMessage\":").append(quoteJson(result.stopReason.message)).append(',');
@@ -2603,287 +2633,139 @@ public class AgentDJComponent {
     }
   }
 
-  private static String renderContractEnvelope(String source,
-                                               String correlationId,
-                                               String error,
-                                               String message,
-                                               String statusMessage,
-                                               String html,
-                                               String htmlMode,
-                                               boolean htmlReplace) {
-    String normalizedMode = safeTrim(htmlMode).isEmpty() ? "none" : safeTrim(htmlMode);
-    return "{"
-        + "\"source\":" + quoteJson(source) + ","
-        + "\"correlationId\":" + quoteJson(correlationId) + ","
-        + "\"error\":" + quoteJson(error) + ","
-        + "\"message\":" + quoteJson(message) + ","
-        + "\"response\":{\"outcome\":" + quoteJson("failure".equals(safeTrim(error)) ? "failure" : "failure")
-        + ",\"completed\":true},"
-        + "\"channels\":{"
-        + "\"chat\":{\"message\":" + quoteJson(message) + "},"
-        + "\"status\":{\"message\":" + quoteJson(statusMessage) + "},"
-        + "\"thought\":{\"message\":" + quoteJson("source=" + safeTrim(source) + " correlationId=" + safeTrim(correlationId)) + "},"
-        + "\"html\":{"
-        + "\"html\":" + quoteJson(html) + ","
-        + "\"mode\":" + quoteJson(normalizedMode) + ","
-        + "\"replace\":" + htmlReplace
-        + "}"
-        + "}"
-        + "}";
+  private static void completeWireTerminal(CommandContext context,
+                                           String channel,
+                                           String outcome,
+                                           String responseReason,
+                                           String body,
+                                           String errorCode,
+                                           boolean errorReroutable,
+                                           String authOutcome) {
+    completeWireTerminal(context, channel, outcome, responseReason, body, errorCode, errorReroutable, authOutcome,
+        "text/plain; charset=utf-8");
   }
 
-  private static void completeEnvelopeFromJson(CommandContext context, String jsonBody) {
-    if (context == null || jsonBody == null || jsonBody.isBlank()) {
-      System.out.println("[DJ-AGENT][RESPONSE] skip reason=empty_context_or_body hasContext=" + (context != null)
-          + " bodyEmpty=" + (jsonBody == null || jsonBody.isBlank()));
+  private static void completeWireTerminal(CommandContext context,
+                                           String channel,
+                                           String outcome,
+                                           String responseReason,
+                                           String body,
+                                           String errorCode,
+                                           boolean errorReroutable,
+                                           String authOutcome,
+                                           String contentType) {
+    if (context == null) {
       return;
     }
-    try {
-      JsonNode root = JSON.readTree(jsonBody);
-      String responseOutcome = firstNonBlank(readPath(root, "response.outcome"), readPath(root, "meta.outcome"));
-      int status = "failure".equalsIgnoreCase(responseOutcome) ? 500 : 200;
-      context.completeJson(status, jsonBody);
-    } catch (Exception ignored) {
-      System.out.println("[DJ-AGENT][RESPONSE] error message=" + ignored.getMessage());
-      context.completeJson(500, jsonBody);
-    }
+    AiatpIO.Headers headers = new AiatpIO.Headers();
+    headers.set("Content-Type", safeTrim(contentType).isEmpty()
+        ? "text/plain; charset=utf-8"
+        : safeTrim(contentType));
+    AiatpResponse response = AiatpResponse.builder()
+        .channel(safeTrim(channel).isEmpty() ? "chat" : safeTrim(channel))
+        .outcome(safeTrim(outcome).isEmpty() ? "success" : safeTrim(outcome))
+        .responseReason(safeTrim(responseReason).isEmpty() ? "completed" : safeTrim(responseReason))
+        .errorCode(safeTrim(errorCode).isEmpty() ? null : safeTrim(errorCode))
+        .errorReroutable(errorReroutable ? Boolean.TRUE : null)
+        .authOutcome(safeTrim(authOutcome).isEmpty() ? null : safeTrim(authOutcome))
+        .headers(headers)
+        .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
+        .build();
+    context.complete(response);
   }
 
-    private void emitLoopResult(CommandContext context,
-                              LoopResult result,
-                              String jsonBody,
-                              String source,
-                              String correlationId) {
-    String authJson = renderAuthJson(result.toolSteps);
-    if (result != null && result.stopReason == StopReason.AUTH_REQUIRED && !hasValidAuthDirective(authJson)) {
-      String message = "Authorization handshake failed: component returned incomplete auth metadata.";
-      String envelope = renderContractEnvelope(source, correlationId, "auth_contract_invalid", message, message, null, "none", false);
-      emitTerminalPayload(context, envelope, "failure", "auth_contract_invalid", message, source, correlationId);
+  private void emitWireFinal(CommandContext context, LoopResult result) {
+    if (context == null || result == null) {
+      completeWireTerminal(context, "error", "failure", "agent_failed", "Agent failed.", "agent_failed", false, null);
       return;
     }
-    if (!usesUpstreamControl(context)) {
-      completeEnvelopeFromJson(context, jsonBody);
-      return;
+
+    CommandAgentResponse finalResponse = result.finalResponse;
+    String chat = finalResponse == null ? "" : safeTrim(finalResponse.getUser());
+    String html = finalResponse == null ? "" : safeTrim(finalResponse.getHtml());
+    if (!html.isEmpty()) {
+      context.emitHtml(html, "final", "html", true);
     }
-    String user = result.finalResponse == null ? null : safeTrim(result.finalResponse.getUser());
-    String html = result.finalResponse == null ? null : safeTrim(result.finalResponse.getHtml());
+
     String status = buildStatusMessage(findLastToolStep(result.toolSteps), result.stopReason);
-    String htmlMode = "none";
-    boolean htmlReplace = false;
-    ToolStep lastToolStep = findLastToolStep(result.toolSteps);
-    ToolChannels toolChannels = extractToolChannels(lastToolStep == null ? "" : safeTrim(lastToolStep.toolOutput));
-    if (!safeTrim(html).isEmpty()) {
-      htmlMode = "html";
-      htmlReplace = true;
+    if (!safeTrim(status).isEmpty()) {
+      context.emitStatus(status, "final");
+    }
+
+    // Preserve full detail as a thought JSON trace (wire-only; no "channels" envelope).
+    try {
+      Map<String, Object> trace = new LinkedHashMap<>();
+      trace.put("type", "dj.loop_result");
+      trace.put("correlationId", safeTrim(result.correlationId));
+      trace.put("stopReason", result.stopReason == null ? "" : safeTrim(result.stopReason.code));
+      trace.put("stopMessage", result.stopReason == null ? "" : safeTrim(result.stopReason.message));
+      trace.put("durationMs", result.totalDurationMs);
+      List<Map<String, Object>> steps = new ArrayList<>();
+      if (result.toolSteps != null) {
+        for (ToolStep step : result.toolSteps) {
+          if (step == null) continue;
+          Map<String, Object> s = new LinkedHashMap<>();
+          s.put("step", step.step);
+          s.put("agentAction", safeTrim(step.agentAction));
+          s.put("toolCommand", safeTrim(step.toolCommand));
+          s.put("toolArgs", safeTrim(step.toolArgs));
+          s.put("toolOutput", safeTrim(step.toolOutput));
+          s.put("planningDurationMs", step.planningDurationMs);
+          s.put("toolDurationMs", step.toolDurationMs);
+          s.put("stepDurationMs", step.stepDurationMs);
+          steps.add(s);
+        }
+      }
+      trace.put("toolSteps", steps);
+      trace.put("display", Map.of(
+          "chat", chat,
+          "status", status,
+          "htmlPresent", !html.isEmpty()
+      ));
+      context.emitThought(JSON.writeValueAsString(trace), "final");
+    } catch (Exception ignored) {
+      // best-effort; do not fail the request
     }
 
     String outcome = "success";
-    String stopCode = result.stopReason == null ? "completed" : safeTrim(result.stopReason.code);
-    String stopMessage = result.stopReason == null ? "" : safeTrim(result.stopReason.message);
-    String errorCode = "";
-    if (isAuthHandoff(result, authJson)) {
-      outcome = "auth_handoff";
-    } else if (isOutOfScopeResult(result)) {
-      outcome = "unhandled_intent";
-      stopCode = "out_of_scope";
+    String responseReason = "completed";
+    String errorCode = null;
+    boolean reroutable = false;
+    String authOutcome = null;
+    String normalizedStop = result.stopReason == null ? "" : safeTrim(result.stopReason.code);
+    if (StopReason.OUT_OF_SCOPE == result.stopReason || StopReason.UNSUPPORTED_ACTION == result.stopReason) {
+      outcome = "failure";
+      responseReason = "unsupported_operation";
       errorCode = "unsupported_operation";
+      reroutable = true;
+    } else if (StopReason.AUTH_REQUIRED == result.stopReason) {
+      outcome = "failure";
+      responseReason = "auth_required";
+      errorCode = "auth_required";
+      authOutcome = "AUTH_REQUIRED";
+    } else if (StopReason.AUTH_HANDOFF == result.stopReason) {
+      outcome = "auth_handoff";
+      responseReason = "auth_pending";
+      authOutcome = "AUTH_PENDING";
     } else if (isFailureStopReason(result.stopReason)) {
       outcome = "failure";
-      errorCode = stopCode;
+      responseReason = normalizedStop.isEmpty() ? "failed" : normalizedStop;
+      errorCode = normalizedStop.isEmpty() ? "tool_execution_failed" : normalizedStop;
     }
-    emitControlTerminal(context, outcome, stopCode, stopMessage, safeTrim(user), status,
-        safeTrim(html), htmlMode, htmlReplace, authJson, source, correlationId, errorCode);
-  }
 
-  private void emitTerminalPayload(CommandContext context,
-                                   String jsonBody,
-                                   String outcome,
-                                   String stopCode,
-                                   String stopMessage,
-                                   String source,
-                                   String correlationId) {
-    if (!usesUpstreamControl(context)) {
-      completeEnvelopeFromJson(context, jsonBody);
-      return;
-    }
-    try {
-      JsonNode root = JSON.readTree(jsonBody);
-      JsonNode channels = root.path("channels");
-      JsonNode chatNode = channels.path("chat");
-      JsonNode statusNode = channels.path("status");
-      JsonNode webviewNode = channels.path("html");
-      JsonNode authNode = root.path("auth");
-      String chat = readText(chatNode, "message");
-      String status = readText(statusNode, "message");
-      String html = webviewNode.isObject() ? readText(webviewNode, "html") : "";
-      String htmlMode = webviewNode.isObject() ? readText(webviewNode, "mode") : "none";
-      boolean htmlReplace = !webviewNode.isMissingNode() && webviewNode.path("replace").asBoolean(false);
-      String authJson = authNode.isObject() ? authNode.toString() : "";
-      String errorCode = "unhandled_intent".equals(outcome) ? "unsupported_operation"
-          : ("failure".equals(outcome) ? safeTrim(stopCode) : "");
-      emitControlTerminal(context, outcome, stopCode, stopMessage, chat, status, html, htmlMode, htmlReplace,
-          authJson, source, correlationId, errorCode);
-    } catch (Exception e) {
-      emitControlTerminal(context, "failure", "agent_error", safeTrim(e.getMessage()),
-          "", stopMessage, "", "none", false, "", source, correlationId, "agent_error");
-    }
-  }
-
-  private void emitControlProgress(CommandContext context,
-                                   String status,
-                                   String correlationId,
-                                   String source) {
-    context.emitControlJson(buildControlEnvelopeJson(
-        "progress",
-        "progress",
-        false,
-        "",
-        "",
-        safeTrim(status),
-        "",
-        "none",
-        false,
-        "",
-        source,
-        correlationId,
-        "",
-        ""), "progress", "delegate_progress");
-  }
-
-  private void emitControlTerminal(CommandContext context,
-                                   String outcome,
-                                   String stopCode,
-                                   String stopMessage,
-                                   String chat,
-                                   String status,
-                                   String html,
-                                   String htmlMode,
-                                   boolean htmlReplace,
-                                   String authJson,
-                                   String source,
-                                   String correlationId,
-                                   String errorCode) {
-    context.emitControlJson(buildControlEnvelopeJson(
-        "terminal",
+    String terminalBody = !chat.isEmpty()
+        ? chat
+        : firstNonBlank(status, result.stopReason == null ? "" : safeTrim(result.stopReason.message), "Completed.");
+    completeWireTerminal(
+        context,
+        "failure".equals(outcome) ? "error" : "chat",
         outcome,
-        true,
-        stopCode,
-        chat,
-        status,
-        html,
-        htmlMode,
-        htmlReplace,
-        authJson,
-        source,
-        correlationId,
+        responseReason,
+        terminalBody,
         errorCode,
-        stopMessage), "final", "delegate_terminal");
-  }
-
-  private String buildControlEnvelopeJson(String kind,
-                                          String outcome,
-                                          boolean terminal,
-                                          String stopCode,
-                                          String chat,
-                                          String status,
-                                          String html,
-                                          String htmlMode,
-                                          boolean htmlReplace,
-                                          String authJson,
-                                          String source,
-                                          String correlationId,
-                                          String errorCode,
-                                          String stopMessage) {
-    try {
-      ObjectNode root = JSON.createObjectNode();
-      root.put("kind", safeTrim(kind));
-      root.put("outcome", safeTrim(outcome).isEmpty() ? "success" : safeTrim(outcome));
-      root.put("terminal", terminal);
-      ObjectNode response = root.putObject("response");
-      response.put("outcome", switch (root.path("outcome").asText()) {
-        case "failure" -> "failure";
-        case "auth_handoff" -> "await_external_completion";
-        case "unhandled_intent" -> "unsupported_operation";
-        default -> "goal_completed";
-      });
-      response.put("completed", terminal);
-      ObjectNode payload = root.putObject("payload");
-      payload.put("stopReason", safeTrim(stopCode).isEmpty() ? "completed" : safeTrim(stopCode));
-      payload.put("message", safeTrim(stopMessage));
-      ObjectNode meta = root.putObject("meta");
-      meta.put("outcome", root.path("outcome").asText());
-      meta.put("stopReason", payload.path("stopReason").asText());
-      meta.put("source", safeTrim(source));
-      meta.put("correlationId", safeTrim(correlationId));
-      if (!safeTrim(errorCode).isEmpty()) {
-        meta.put("errorCode", safeTrim(errorCode));
-      } else if ("unhandled_intent".equals(root.path("outcome").asText())) {
-        meta.put("errorCode", "unsupported_operation");
-      }
-
-      ObjectNode projections = root.putObject("projections");
-      projections.putObject("chat").put("message", safeTrim(chat));
-      projections.putObject("status").put("message", safeTrim(status));
-      ObjectNode webviewProjection = projections.putObject("html");
-      if (safeTrim(html).isEmpty()) {
-        webviewProjection.putNull("html");
-      } else {
-        webviewProjection.put("html", safeTrim(html));
-      }
-      webviewProjection.put("mode", safeTrim(htmlMode).isEmpty() ? "none" : safeTrim(htmlMode));
-      webviewProjection.put("replace", htmlReplace);
-      if (hasAuthPayload(authJson)) {
-        try {
-          projections.set("auth", JSON.readTree(authJson));
-        } catch (Exception ignored) {
-          projections.put("auth_raw", safeTrim(authJson));
-        }
-      } else {
-        projections.putNull("auth");
-      }
-
-      ObjectNode channels = root.putObject("channels");
-      channels.putObject("chat").put("message", safeTrim(chat));
-      channels.putObject("status").put("message", safeTrim(status));
-      ObjectNode webviewChannels = channels.putObject("html");
-      if (safeTrim(html).isEmpty()) {
-        webviewChannels.putNull("html");
-      } else {
-        webviewChannels.put("html", safeTrim(html));
-      }
-      webviewChannels.put("mode", safeTrim(htmlMode).isEmpty() ? "none" : safeTrim(htmlMode));
-      webviewChannels.put("replace", htmlReplace);
-      if (hasAuthPayload(authJson)) {
-        try {
-          channels.set("auth", JSON.readTree(authJson));
-        } catch (Exception ignored) {
-          channels.put("auth_raw", safeTrim(authJson));
-        }
-      }
-      return root.toString();
-    } catch (Exception e) {
-      return "{\"kind\":\"terminal\",\"outcome\":\"failure\",\"terminal\":true,"
-          + "\"payload\":{\"stopReason\":\"agent_error\",\"message\":" + quoteJson(safeTrim(e.getMessage())) + "},"
-          + "\"meta\":{\"outcome\":\"failure\",\"stopReason\":\"agent_error\",\"source\":" + quoteJson(source)
-          + ",\"correlationId\":" + quoteJson(correlationId) + ",\"errorCode\":\"agent_error\"},"
-          + "\"channels\":{\"chat\":{\"message\":\"\"},\"status\":{\"message\":\"Agent failed.\"},"
-          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}";
-    }
-  }
-
-  private static boolean usesUpstreamControl(CommandContext context) {
-    AiatpRequest request = context == null ? null : context.getAiatpRequest();
-    if (request == null || request.getHeaders() == null) {
-      return false;
-    }
-    String value = request.getHeaders().getFirst(UPSTREAM_CONTROL_HEADER);
-    return value != null && "true".equalsIgnoreCase(value.trim());
-  }
-
-  private static boolean canEmitOwnedEvents(CommandContext context) {
-    return context != null
-        && !safeTrim(context.getId()).isEmpty()
-        && context.getAiatpRequest() != null;
+        reroutable,
+        authOutcome
+    );
   }
 
   private static boolean isOutOfScopeResult(LoopResult result) {
@@ -2921,40 +2803,6 @@ public class AgentDJComponent {
     String status = safeTrim(snapshot.lastStatus()).toLowerCase(Locale.ROOT);
     String chat = safeTrim(snapshot.lastChat()).toLowerCase(Locale.ROOT);
     return status.contains("authorization") || chat.contains("authorization");
-  }
-
-  private static String renderObservedAuthHandoff(SpotifyEventSnapshot snapshot, String message) {
-    try {
-      ObjectNode root = JSON.createObjectNode();
-      root.put("ok", true);
-      root.put("message", safeTrim(message));
-      ObjectNode response = root.putObject("response");
-      response.put("outcome", "await_external_completion");
-      response.put("completed", true);
-      ObjectNode channels = root.putObject("channels");
-      channels.putObject("chat").put("message", safeTrim(snapshot == null ? "" : snapshot.lastChat()));
-      channels.putObject("status").put("message", safeTrim(snapshot == null ? "" : snapshot.lastStatus()));
-      ObjectNode html = channels.putObject("html");
-      String htmlBody = safeTrim(snapshot == null ? "" : snapshot.lastHtml());
-      if (htmlBody.isEmpty()) {
-        html.putNull("html");
-        html.put("mode", "none");
-      } else {
-        html.put("html", htmlBody);
-        html.put("mode", "html");
-      }
-      html.put("replace", true);
-      String authJson = safeTrim(snapshot == null ? "" : snapshot.lastAuthJson());
-      if (!authJson.isEmpty()) {
-        try {
-          root.set("auth", JSON.readTree(authJson));
-        } catch (Exception ignored) {
-        }
-      }
-      return root.toString();
-    } catch (Exception ignored) {
-      return "";
-    }
   }
 
   private static boolean shouldAutoRetryAfterAuth(String authBeginArgs) {
@@ -3034,48 +2882,6 @@ public class AgentDJComponent {
       }
     }
     return "";
-  }
-
-  private static String renderChannelsJson(LoopResult result, String user, String html) {
-    ToolStep lastToolStep = findLastToolStep(result.toolSteps);
-    String command = lastToolStep == null ? "" : safeTrim(lastToolStep.toolCommand).toLowerCase();
-    ToolChannels toolChannels = extractToolChannels(lastToolStep == null ? "" : safeTrim(lastToolStep.toolOutput));
-    String status = buildStatusMessage(lastToolStep, result.stopReason);
-    String selectedHtml = safeTrim(html);
-    boolean authBeginHtml = "auth-begin".equals(command)
-        && toolChannels.html != null
-        && !toolChannels.html.isBlank()
-        && "html".equalsIgnoreCase(safeTrim(toolChannels.htmlMode));
-    if (selectedHtml.isEmpty() && authBeginHtml) {
-      selectedHtml = safeTrim(toolChannels.html);
-    }
-    boolean hasHtml = selectedHtml != null && !selectedHtml.isBlank();
-    String mode;
-    boolean replace;
-    if (hasHtml) {
-      if (authBeginHtml) {
-        mode = safeTrim(toolChannels.htmlMode).isEmpty() ? "html" : safeTrim(toolChannels.htmlMode);
-        replace = toolChannels.htmlReplace != null ? toolChannels.htmlReplace : true;
-      } else {
-        mode = "html";
-        replace = true;
-      }
-    } else {
-      mode = "none";
-      replace = false;
-    }
-
-    String thought = buildThoughtSummary(result, lastToolStep);
-    return "{"
-        + "\"chat\":{\"message\":" + quoteJson(safeTrim(user)) + "},"
-        + "\"status\":{\"message\":" + quoteJson(status) + "},"
-        + "\"thought\":{\"message\":" + quoteJson(thought) + "},"
-        + "\"html\":{"
-        + "\"html\":" + quoteJson(hasHtml ? selectedHtml : null) + ","
-        + "\"mode\":" + quoteJson(mode) + ","
-        + "\"replace\":" + replace
-        + "}"
-        + "}";
   }
 
   private static String buildThoughtSummary(LoopResult result, ToolStep lastToolStep) {
@@ -3204,53 +3010,12 @@ public class AgentDJComponent {
     return "";
   }
 
-  private static ToolChannels extractToolChannels(String toolOutput) {
-    if (toolOutput == null || toolOutput.isBlank()) {
-      return ToolChannels.EMPTY;
-    }
-    try {
-      JsonNode root = JSON.readTree(toolOutput);
-      JsonNode channels = root.path("channels");
-      if (!channels.isObject()) {
-        return ToolChannels.EMPTY;
-      }
-      String status = readText(channels.path("status"), "message");
-      String chat = readText(channels.path("chat"), "message");
-      JsonNode htmlChannel = channels.path("html");
-      String html = htmlChannel.isObject() ? readText(htmlChannel, "html") : "";
-      String mode = htmlChannel.isObject() ? readText(htmlChannel, "mode") : "";
-      Boolean replace = null;
-      if (htmlChannel.isObject() && htmlChannel.has("replace")) {
-        JsonNode replaceNode = htmlChannel.path("replace");
-        if (replaceNode.isBoolean()) {
-          replace = replaceNode.asBoolean();
-        } else {
-          String replaceText = safeTrim(replaceNode.asText(""));
-          if (!replaceText.isEmpty()) {
-            if ("true".equalsIgnoreCase(replaceText)) {
-              replace = true;
-            } else if ("false".equalsIgnoreCase(replaceText)) {
-              replace = false;
-            }
-          }
-        }
-      }
-      return new ToolChannels(status, chat, html, mode, replace);
-    } catch (Exception ignored) {
-      return ToolChannels.EMPTY;
-    }
-  }
-
   private static String extractToolMessage(String toolOutput) {
+    // Wire-only: tools typically return plain text.
     if (toolOutput == null || toolOutput.isBlank()) {
       return "";
     }
-    try {
-      JsonNode root = JSON.readTree(toolOutput);
-      return safeTrim(root.path("message").asText(""));
-    } catch (Exception ignored) {
-      return "";
-    }
+    return safeTrim(toolOutput);
   }
 
   private static String normalizeActionSignature(String action) {
@@ -3394,68 +3159,17 @@ public class AgentDJComponent {
         + " rawEmpty=" + raw.isEmpty()
         + " contextId=" + (contextId.isEmpty() ? "<none>" : contextId)
         + " X-Request-Id=" + (headerRequestId.isEmpty() ? "<none>" : headerRequestId));
-    String status = "";
-    String chat = "";
-    String html = "";
-    String mode = "";
-    Boolean replace = null;
-    String authJson = "";
-
-    if (!raw.isEmpty()) {
-      ToolChannels channels = extractToolChannels(raw);
-      status = safeTrim(channels.statusMessage);
-      chat = safeTrim(channels.chatMessage);
-      html = safeTrim(channels.html);
-      mode = safeTrim(channels.htmlMode);
-      replace = channels.htmlReplace;
-      if (status.isEmpty()) {
-        String message = extractToolMessage(raw);
-        status = safeTrim(message);
-      }
-      authJson = extractAuthJson(raw);
-    } else if (!output.isEmpty()) {
-      status = output;
+    // Wire-only: tool progress is conveyed via tool events (status/chat/html/auth) forwarded by forwardSpotifyEvent.
+    // We keep a minimal status hint here for interactive console users.
+    if (!output.isEmpty()) {
+      context.emitStatus(output, "progress");
     }
-
-    if (usesUpstreamControl(context)) {
-      String effectiveMode = mode.isEmpty() ? (html.isEmpty() ? "none" : "html") : mode;
-      boolean effectiveReplace = replace != null ? replace : !html.isEmpty();
-      context.emitControlJson(buildControlEnvelopeJson(
-          "progress",
-          "progress",
-          false,
-          "",
-          chat,
-          status,
-          html,
-          effectiveMode,
-          effectiveReplace,
-          authJson,
-          "tool_progress",
-          correlationId,
-          "",
-          ""
-      ), "progress", "delegate_progress");
-      return;
+    if (!raw.isEmpty() && raw.trim().startsWith("{")) {
+      // If auth-begin timed out but we observed a directive, keep it available.
+      context.emitAuthJson(raw, "progress");
     }
-    if (!status.isEmpty()) {
-      context.emitStatus(status, "progress");
-    }
-    if (!chat.isEmpty()) {
-      context.emitChat(chat, "progress");
-    }
-    if (!html.isEmpty() || "suggestions_from_toolsteps".equalsIgnoreCase(mode)) {
-      String effectiveMode = mode.isEmpty() ? "html" : mode;
-      boolean effectiveReplace = replace != null ? replace : true;
-      context.emitHtml(html, "progress", effectiveMode, effectiveReplace);
-    }
-    if (!authJson.isBlank()) {
-      context.emitAuthJson(authJson, "progress");
-    }
-    System.out.println("[DJ-AGENT][EMIT] tool_progress done hasStatus=" + !status.isEmpty()
-        + " hasChat=" + !chat.isEmpty()
-        + " hasHtml=" + (!html.isEmpty() || "suggestions_from_toolsteps".equalsIgnoreCase(mode))
-        + " hasAuth=" + !authJson.isBlank());
+    System.out.println("[DJ-AGENT][EMIT] tool_progress done hasStatus=" + !output.isEmpty()
+        + " hasAuth=" + (!raw.isEmpty() && raw.trim().startsWith("{")));
   }
 
   private void emitToolProgressAsync(CommandContext context, ToolExecution tool, String correlationId, int step) {
@@ -3474,6 +3188,14 @@ public class AgentDJComponent {
 
   private record ToolChannels(String statusMessage, String chatMessage, String html, String htmlMode, Boolean htmlReplace) {
     private static final ToolChannels EMPTY = new ToolChannels("", "", "", "", null);
+  }
+
+  /**
+   * Wire-only: tools no longer return a JSON envelope with "channels".
+   * This helper is retained for legacy code paths but intentionally does not parse or depend on JSON.
+   */
+  private static ToolChannels extractToolChannels(String toolOutput) {
+    return ToolChannels.EMPTY;
   }
 
   private static String renderDecisionEventAsJson(LoopResult result) {
@@ -3539,31 +3261,6 @@ public class AgentDJComponent {
       return a;
     }
     return a + " " + b;
-  }
-
-  private String renderCapabilitiesEnvelope(AgentCapabilityManifest manifest) {
-    try {
-      return "{"
-          + "\"status\":\"ok\","
-          + "\"source\":\"runtime_capabilities_action\","
-          + "\"channels\":{"
-          + "\"chat\":{\"message\":\"DJ agent capabilities ready.\"},"
-          + "\"status\":{\"message\":\"Capabilities ready.\"},"
-          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
-          + "},"
-          + "\"manifest\":" + mapper.writeValueAsString(manifest)
-          + "}";
-    } catch (Exception e) {
-      return "{"
-          + "\"status\":\"error\","
-          + "\"error\":\"capability_manifest_encode_failed\","
-          + "\"channels\":{"
-          + "\"chat\":{\"message\":\"DJ capability manifest could not be encoded.\"},"
-          + "\"status\":{\"message\":\"Capability manifest encoding failed.\"},"
-          + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
-          + "}"
-          + "}";
-    }
   }
 
   private static String safeTrim(String v) {
@@ -3844,6 +3541,9 @@ public class AgentDJComponent {
                                         String phase,
                                         String body,
                                         String errorCode,
+                                        String authOutcome,
+                                        String outcome,
+                                        String responseReason,
                                         int status,
                                         SpotifyEventSnapshot snapshot) {
   }

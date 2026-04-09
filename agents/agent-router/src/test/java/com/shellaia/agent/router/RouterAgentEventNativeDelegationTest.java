@@ -151,8 +151,7 @@ class RouterAgentEventNativeDelegationTest {
         "status".equals(wrapper.getAiatpEvent().getChannel())
             && "Rerouting to another agent.".equals(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8))));
     String responseBody = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
-    assertTrue(responseBody.contains("\"outcome\":\"unhandled_intent\""));
-    assertTrue(responseBody.contains("\"errorCode\":\"no_agent_support\""));
+    assertTrue(responseBody.contains("No available agent can handle"));
   }
 
   @Test

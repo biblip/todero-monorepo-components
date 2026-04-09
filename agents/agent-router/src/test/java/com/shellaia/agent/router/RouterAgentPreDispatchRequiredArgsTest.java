@@ -62,8 +62,7 @@ class RouterAgentPreDispatchRequiredArgsTest {
     router.process(context);
 
     String responseBody = AiatpIO.bodyToString(out.get().getBody(), StandardCharsets.UTF_8);
-    assertTrue(responseBody.contains("\"outcome\":\"unhandled_intent\""));
-    assertTrue(responseBody.contains("\"errorCode\":\"no_agent_support\""));
+    assertTrue(responseBody.contains("No routable agent found"));
     assertTrue(responseBody.contains("routingHints.skillSummary"));
   }
 

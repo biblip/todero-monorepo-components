@@ -98,7 +98,8 @@ public class RouterAgentComponent {
     if (stickyResetDirective.resetRequested()) {
       stickyBySession.remove(sessionId);
       if (stickyResetDirective.remainingPrompt().isBlank()) {
-        context.completeJson(200, infoEnvelopeJson("Sticky session cleared. Routing will restart on the next prompt."));
+        context.complete(wireTextResponse("chat", "success", "sticky_cleared",
+            "Sticky session cleared. Routing will restart on the next prompt.", null, null, null));
         return true;
       }
       prompt = stickyResetDirective.remainingPrompt();
@@ -112,10 +113,15 @@ public class RouterAgentComponent {
     while (true) {
       List<AgentCapability> agents = discoverAgents(context);
       if (agents.isEmpty()) {
-        context.completeJson(
-            200,
-            unhandledIntentEnvelopeJson(
-                "No routable agent found in runtime. Agents must expose routingHints.skillSummary."));
+        context.complete(wireTextResponse(
+            "error",
+            "failure",
+            "unhandled_intent",
+            "No routable agent found in runtime. Agents must expose routingHints.skillSummary.",
+            "unhandled_intent",
+            Boolean.FALSE,
+            null
+        ));
         return true;
       }
 
@@ -145,49 +151,54 @@ public class RouterAgentComponent {
       DelegatedAgentResult delegated = delegateToAgent(context, decision.route, "process", delegatedPrompt);
       if (delegated == null) {
         System.out.println("[ROUTER-AGENT] no response from agent=" + decision.route);
-        context.completeJson(500, failureEnvelopeJson(decision.route, "delegate_failed", "Agent did not return a response."));
+        context.complete(wireTextResponse("error", "failure", "delegate_failed",
+            "Agent did not return a response.", "delegate_failed", Boolean.FALSE, null));
         return true;
       }
 
       String delegatedBody = delegated.body();
       System.out.println("[ROUTER-AGENT] received response body=" + delegatedBody.substring(0, Math.min(256, delegatedBody.length())));
+      AiatpResponse delegatedResponse = delegated.response();
+      String delegatedErrorCode = delegatedResponse == null ? "" : safe(delegatedResponse.getErrorCode());
+      boolean delegatedReroutable = delegatedResponse != null && Boolean.TRUE.equals(delegatedResponse.getErrorReroutable());
       JsonNode delegatedJson = extractFirstJsonBlock(delegatedBody);
       if (opaqueAuthRelay) {
         System.out.println("[ROUTER-AGENT] opaque auth relay route=" + decision.route);
         stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
-        if (!completeDelegatedPayload(context, delegated, delegatedJson, delegatedBody)) {
-          context.completeJson(500, failureEnvelopeJson(decision.route, "protocol_error", "Delegated agent response is missing required channels metadata."));
+        if (delegatedResponse != null) {
+          context.complete(delegatedResponse);
+        } else {
+          context.complete(wireTextResponse("error", "failure", "delegate_failed",
+              "Delegated agent did not return a response.", "delegate_failed", Boolean.FALSE, null));
         }
         return true;
       }
 
-      if (indicatesFailureSignal(delegatedJson)) {
+      if (delegatedReroutable || indicatesFailureSignal(delegatedJson) || FAILURE_ERROR_CODES.contains(delegatedErrorCode)) {
         excludedAgents.add(decision.route);
         stickyBySession.remove(sessionId);
         if (excludeAgents(agents, excludedAgents).isEmpty()) {
-          context.completeJson(
-              200,
-              unhandledIntentEnvelopeJson(
-                  "No available agent can handle this request."));
+          context.complete(wireTextResponse("error", "failure", "unhandled_intent",
+              "No available agent can handle this request.", "unhandled_intent", Boolean.FALSE, null));
           return true;
         }
         rerouteAttempted = true;
         context.emitStatus("Rerouting to another agent.", "progress");
-        context.emitThought("reroute=true reason=failure_signal agent=" + safe(decision.route), "progress");
+        context.emitThought("reroute=true reason=reroutable_failure agent=" + safe(decision.route), "progress");
         System.out.println("[ROUTER-AGENT] fallback triggered by "
             + readPath(delegatedJson.path("meta"), "errorCode")
             + "; rerouting prompt: " + prompt);
         continue;
       }
 
-      if (delegatedJson == null || !delegatedJson.has("channels") || !delegatedJson.path("channels").isObject()) {
-        System.out.println("[ROUTER-AGENT] delegated response missing channels");
-        context.completeJson(500, failureEnvelopeJson(decision.route, "protocol_error", "Delegated agent response is missing required channels metadata."));
-        return true;
-      }
       stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
       System.out.println("[ROUTER-AGENT] final response reason=" + (rerouteAttempted ? "agent-fallback" : decision.reason));
-      completeDelegatedPayload(context, delegated, delegatedJson, delegatedBody);
+      if (delegatedResponse != null) {
+        context.complete(delegatedResponse);
+      } else {
+        context.complete(wireTextResponse("error", "failure", "delegate_failed",
+            "Delegated agent did not return a response.", "delegate_failed", Boolean.FALSE, null));
+      }
       return true;
     }
   }
@@ -197,33 +208,33 @@ public class RouterAgentComponent {
       description = "Return router capability manifest for discovery")
   public Boolean capabilities(CommandContext context) {
     AgentCapabilityManifest manifest = new RouterAgentCapabilities().manifest();
-    String payload = "{\"status\":\"ok\",\"channels\":{\"chat\":{\"message\":\"Router capabilities ready.\"},\"status\":{\"message\":\"Capabilities ready.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"manifest\":"
-        + toJson(manifest) + "}";
-    context.completeJson(200, payload);
+    String payload = "{\"manifest\":" + toJson(manifest) + "}";
+    context.complete(wireTextResponse("status", "success", "capabilities", payload, null, null, "application/json; charset=utf-8"));
     return true;
   }
 
-  private boolean completeDelegatedPayload(CommandContext context,
-                                         DelegatedAgentResult delegated,
-                                         JsonNode delegatedJson,
-                                         String delegatedBody) {
-    if (delegatedJson == null || delegated == null) {
-      return false;
-    }
-    JsonNode channels = delegatedJson.path("channels");
-    if (!channels.isObject()) {
-      return false;
-    }
-    if (delegated.response() != null) {
-      context.complete(delegated.response());
-      return true;
-    }
-    String fallback = delegatedBody == null ? "" : delegatedBody.trim();
-    if (fallback.isBlank()) {
-      return false;
-    }
-    context.completeJson(200, fallback);
-    return true;
+  // Wire-only: delegated payloads are forwarded as-is; router does not require JSON "channels" envelopes.
+
+  private static AiatpResponse wireTextResponse(String channel,
+                                                String outcome,
+                                                String responseReason,
+                                                String body,
+                                                String errorCode,
+                                                Boolean errorReroutable,
+                                                String contentType) {
+    AiatpIO.Headers headers = new AiatpIO.Headers();
+    headers.set("Content-Type", (contentType == null || contentType.isBlank())
+        ? "text/plain; charset=utf-8"
+        : contentType.trim());
+    return AiatpResponse.builder()
+        .channel(channel == null || channel.isBlank() ? "chat" : channel.trim())
+        .outcome(outcome == null || outcome.isBlank() ? "success" : outcome.trim())
+        .responseReason(responseReason == null || responseReason.isBlank() ? "completed" : responseReason.trim())
+        .errorCode(errorCode == null || errorCode.isBlank() ? null : errorCode.trim())
+        .errorReroutable(errorReroutable)
+        .headers(headers)
+        .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
+        .build();
   }
 
   private RouteDecision decideRoute(String prompt, StickyRoute sticky, List<AgentCapability> agents, Set<String> excludedAgents) {
@@ -872,6 +883,15 @@ public class RouterAgentComponent {
   }
 
   private StickyRoute updateSticky(String selectedAgent, String delegatedPrompt, JsonNode delegatedJson, StickyRoute current) {
+    if (delegatedJson == null || delegatedJson.isMissingNode() || delegatedJson.isNull()) {
+      return new StickyRoute(
+          selectedAgent,
+          System.currentTimeMillis(),
+          delegatedPrompt,
+          current == null ? "" : safe(current.lastTaskId),
+          current == null ? "" : safe(current.lastTaskAgent)
+      );
+    }
     String taskId = firstNonBlank(
         readPath(delegatedJson, "meta.entities.task_id"),
         readPath(delegatedJson, "meta.entities.taskId"),

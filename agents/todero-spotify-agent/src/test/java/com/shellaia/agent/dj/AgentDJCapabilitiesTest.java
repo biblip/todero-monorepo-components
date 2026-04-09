@@ -33,7 +33,7 @@ class AgentDJCapabilitiesTest {
   private static final ObjectMapper JSON = new ObjectMapper();
 
   @Test
-  void capabilitiesReturnsChannelsAndSkillSummary() throws Exception {
+  void capabilitiesReturnsManifestSkillSummary() throws Exception {
     AgentDJComponent component = new AgentDJComponent(new EmptyStorage());
     AtomicReference<AiatpResponse> out = new AtomicReference<>();
     CommandContext context = CommandContext.builder()
@@ -47,8 +47,9 @@ class AgentDJCapabilitiesTest {
 
     assertTrue(component.capabilities(context));
 
+    assertEquals("status", out.get().getChannel());
+    assertEquals("capabilities", out.get().getResponseReason());
     JsonNode root = JSON.readTree(AiatpIO.bodyToString(out.get().getBody(), StandardCharsets.UTF_8));
-    assertEquals("Capabilities ready.", root.path("channels").path("status").path("message").asText());
     assertEquals("Handles music playback, playlists, recommendations, and delegated Spotify authorization through a specialized DJ workflow.",
         root.path("manifest").path("routingHints").path("skillSummary").asText());
     assertEquals("Handles Spotify music playback and playlist workflows.",

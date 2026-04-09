@@ -8,6 +8,7 @@ import com.social100.processor.Action;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.model.component.ComponentNotReadyException;
@@ -312,7 +313,6 @@ public class SpotifyComponent {
         context.emitHtml(result.ctaHtml(), "progress", "html", true);
       }
       Map<String, Object> authPayload = new LinkedHashMap<>();
-      authPayload.put("provider", "spotify");
       authPayload.put("session", sessionMap(result.session()));
       authPayload.put("authorizeUrl", result.authorizeUrl());
       if (!result.authCompleteTarget().isEmpty()) {
@@ -323,20 +323,8 @@ public class SpotifyComponent {
       authPayload.put("relayPolicy", relayPolicyMap(result.relayPolicy()));
       authPayload.put("openExternally", true);
       authPayload.put("ctaLabel", "Authorize Spotify");
-      context.completeJson(200, responseJson(
-          "auth-begin",
-          args,
-          result.message(),
-          true,
-          null,
-          "await_external_completion",
-          null,
-          authPayload,
-          result.ctaHtml(),
-          result.ctaHtml() != null && !result.ctaHtml().isBlank() ? "html" : "none",
-          result.ctaHtml() != null && !result.ctaHtml().isBlank()
-      ));
-      return true;
+      context.emitAuthJson(GSON.toJson(authPayload), "progress");
+      return respond(context, "auth-begin", args, result.message(), true, null);
     } catch (ComponentNotReadyException e) {
       throw e;
     } catch (Exception e) {
@@ -367,20 +355,13 @@ public class SpotifyComponent {
           + " ok=" + result.ok()
           + " errorCode=" + trimToEmpty(result.errorCode())
           + " message=" + redact(result.message()));
-      context.completeJson(200, responseJson(
+      return respond(
+          context,
           "auth-complete",
           args,
           result.message(),
           result.ok(),
-          result.ok() ? null : "execution_failed",
-          result.ok() ? "goal_completed" : "failure",
-          null,
-          null,
-          null,
-          "none",
-          false
-      ));
-      return true;
+          result.ok() ? null : firstNonBlank(result.errorCode(), "execution_failed"));
     } catch (ComponentNotReadyException e) {
       throw e;
     } catch (Exception e) {
@@ -396,20 +377,7 @@ public class SpotifyComponent {
     Map<String, String> argMap = parseArgMap(args);
     String sessionId = value(argMap, "session-id", "sessionId");
     SpotifyPkceService.AuthSessionResult result = pkceService().authSession(sessionId);
-    context.completeJson(result.ok() ? 200 : 500, responseJson(
-        "auth-session",
-        args,
-        result.message(),
-        result.ok(),
-        result.ok() ? null : "execution_failed",
-        result.ok() ? "intermediate_result" : "failure",
-        null,
-        null,
-        null,
-        "none",
-        false
-    ));
-    return true;
+    return respond(context, "auth-session", args, result.message(), result.ok(), result.ok() ? null : "execution_failed");
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
@@ -420,20 +388,7 @@ public class SpotifyComponent {
     Map<String, String> argMap = parseArgMap(args);
     String sessionId = value(argMap, "session-id", "sessionId");
     SpotifyPkceService.AuthSessionResult result = pkceService().authCancel(sessionId);
-    context.completeJson(result.ok() ? 200 : 500, responseJson(
-        "auth-cancel",
-        args,
-        result.message(),
-        result.ok(),
-        result.ok() ? null : "execution_failed",
-        result.ok() ? "goal_completed" : "failure",
-        null,
-        null,
-        null,
-        "none",
-        false
-    ));
-    return true;
+    return respond(context, "auth-cancel", args, result.message(), result.ok(), result.ok() ? null : "execution_failed");
   }
 
   private static String urlEncode(String value) {
@@ -1410,70 +1365,79 @@ public class SpotifyComponent {
                           String message,
                           boolean ok,
                           String errorCode) {
-    context.completeJson(200, responseJson(
-        command,
-        args,
-        message,
-        ok,
-        errorCode,
-        classifyOutcome(command, ok),
-        null,
-        null,
-        null,
-        "none",
-        false
+    String normalizedCommand = command == null ? "" : command.trim().toLowerCase(Locale.ROOT);
+    String safeMessage = message == null ? "" : message;
+    String responseReason = ok ? "status_200" : firstNonBlank(errorCode, "execution_failed");
+    String channel = ok ? "chat" : "error";
+    String outcome = ok ? "success" : "failure";
+    String authOutcome = null;
+    Boolean reroutable = null;
+
+    // Auth-related outcomes are carried via headers, not JSON envelopes.
+    if ("auth-begin".equals(normalizedCommand) && ok) {
+      authOutcome = "AUTH_PENDING";
+      outcome = "auth_handoff";
+      responseReason = "auth_pending";
+      channel = "chat";
+    } else if ("auth-complete".equals(normalizedCommand)) {
+      authOutcome = ok ? "AUTH_COMPLETED" : "AUTH_FAILED";
+      responseReason = ok ? "auth_completed" : firstNonBlank(errorCode, "auth_failed");
+      channel = ok ? "chat" : "error";
+      outcome = ok ? "success" : "failure";
+    } else if (containsAuthorizationRequiredHint(safeMessage)) {
+      // Tool can signal auth required without forcing JSON envelopes.
+      authOutcome = "AUTH_REQUIRED";
+      responseReason = "auth_required";
+      channel = "error";
+      outcome = "failure";
+      if (errorCode == null || errorCode.isBlank()) {
+        errorCode = "auth_required";
+      }
+    }
+
+    context.complete(buildWireResponse(
+        channel,
+        outcome,
+        responseReason,
+        safeMessage,
+        "text/plain; charset=utf-8",
+        trimToEmpty(errorCode),
+        reroutable,
+        authOutcome
     ));
     return true;
   }
 
-  private String responseJson(String command,
-                              String args,
-                              String message,
-                              boolean ok,
-                              String errorCode,
-                              String responseOutcome,
-                              String statusMessage,
-                              Object authPayload,
-                              String html,
-                              String htmlMode,
-                              boolean htmlReplace) {
-    Map<String, Object> root = new LinkedHashMap<>();
-    String safeMessage = message == null ? "" : message;
-    String safeStatus = statusMessage == null || statusMessage.isBlank() ? safeMessage : statusMessage;
-    root.put("ok", ok);
-    root.put("message", safeMessage);
-    if (errorCode != null && !errorCode.isBlank()) {
-      root.put("errorCode", errorCode);
-    }
+  private static AiatpResponse buildWireResponse(String channel,
+                                                 String outcome,
+                                                 String responseReason,
+                                                 String body,
+                                                 String contentType,
+                                                 String errorCode,
+                                                 Boolean errorReroutable,
+                                                 String authOutcome) {
+    AiatpIO.Headers headers = new AiatpIO.Headers();
+    headers.set("Content-Type", contentType == null || contentType.isBlank()
+        ? "text/plain; charset=utf-8"
+        : contentType.trim());
+    return AiatpResponse.builder()
+        .channel(channel == null || channel.isBlank() ? "chat" : channel.trim())
+        .outcome(outcome == null || outcome.isBlank() ? "success" : outcome.trim())
+        .responseReason(responseReason == null || responseReason.isBlank() ? "completed" : responseReason.trim())
+        .errorCode(errorCode == null || errorCode.isBlank() ? null : errorCode.trim())
+        .errorReroutable(errorReroutable)
+        .authOutcome(authOutcome == null || authOutcome.isBlank() ? null : authOutcome.trim())
+        .headers(headers)
+        .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
+        .build();
+  }
 
-    Map<String, Object> response = new LinkedHashMap<>();
-    response.put("outcome", responseOutcome == null || responseOutcome.isBlank() ? "goal_completed" : responseOutcome);
-    response.put("command", command == null ? "" : command);
-    response.put("args", args == null ? "" : args);
-    response.put("completed", true);
-    root.put("response", response);
-
-    Map<String, Object> channels = new LinkedHashMap<>();
-    channels.put("chat", Map.of("message", safeMessage));
-    channels.put("status", Map.of("message", safeStatus));
-    Map<String, Object> htmlChannel = new LinkedHashMap<>();
-    htmlChannel.put("html", html == null || html.isBlank() ? null : html);
-    htmlChannel.put("mode", htmlMode == null || htmlMode.isBlank() ? "none" : htmlMode);
-    htmlChannel.put("replace", htmlReplace);
-    channels.put("html", htmlChannel);
-    root.put("channels", channels);
-
-    if (authPayload != null) {
-      root.put("auth", authPayload);
-    }
-
-    Map<String, Object> meta = new LinkedHashMap<>();
-    meta.put("outcome", response.get("outcome"));
-    if (errorCode != null && !errorCode.isBlank()) {
-      meta.put("errorCode", errorCode);
-    }
-    root.put("meta", meta);
-    return GSON.toJson(root);
+  private static boolean containsAuthorizationRequiredHint(String message) {
+    String lowered = trimToEmpty(message).toLowerCase(Locale.ROOT);
+    return lowered.contains("authorization is required")
+        || lowered.contains("auth required")
+        || lowered.contains("run auth-begin")
+        || lowered.contains("run auth-complete");
   }
 
   private static String classifyOutcome(String command, boolean ok) {
