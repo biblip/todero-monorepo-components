@@ -343,7 +343,7 @@ class AgentDJSpotifyEventExecutionTest {
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
-          ctx.emitStatus("Open the Spotify link.", "progress");
+          ctx.emitChat("Open the Spotify link.", "progress");
           ctx.completeJson(200, "{\"ok\":true,\"message\":\"Authorization required.\",\"response\":{\"outcome\":\"await_external_completion\",\"completed\":true},\"auth\":{\"session\":{\"sessionId\":\"sess-1\"}},\"channels\":{\"chat\":{\"message\":\"Authorization required.\"},\"status\":{\"message\":\"Open the Spotify link.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
@@ -364,8 +364,8 @@ class AgentDJSpotifyEventExecutionTest {
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
-          ctx.emitStatus("Open the Spotify link.", "progress");
-          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
+          ctx.emitChat("Open the Spotify link.", "progress");
+          ctx.emitChat("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
           completeWire(ctx, "chat", "auth_handoff", "auth_pending", "Authorization required.", null, "AUTH_PENDING");
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
@@ -385,9 +385,9 @@ class AgentDJSpotifyEventExecutionTest {
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
-          ctx.emitStatus("Authorization session created.", "progress");
+          ctx.emitChat("Authorization session created.", "progress");
           ctx.emitHtml("<a href=\"https://accounts.spotify.com/authorize\">Authorize Spotify</a>", "progress", "html", true);
-          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
+          ctx.emitChat("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
           try {
             Thread.sleep(3500L);
           } catch (InterruptedException e) {
@@ -417,7 +417,7 @@ class AgentDJSpotifyEventExecutionTest {
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
           seenRequest.set(ctx.getAiatpRequest());
-          ctx.emitAuthJson("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
+          ctx.emitChat("{\"session\":{\"sessionId\":\"sess-1\"},\"authorizeUrl\":\"https://accounts.spotify.com/authorize?x=1\"}", "progress");
           completeWire(ctx, "chat", "auth_handoff", "auth_pending", "Authorization required.", null, "AUTH_PENDING");
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request(

@@ -124,12 +124,7 @@ Key fields:
 
 ### Event helpers
 - `void emitChat(String message, String phase)`
-- `void emitStatus(String message, String phase)`
-- `void emitThought(String message, String phase)`
 - `void emitHtml(String html, String phase, String mode, boolean replace)`
-- `void emitAuthJson(String json, String phase)`
-- `void emitError(String message)`
-- `void emitControlJson(String json, String phase, String semanticType)`
 - `void emitCustom(String eventName, String channelName, String contentType, byte[] bytes, String phase)`
 - `AiatpEvent emitEvent(AiatpEvent event)`
 

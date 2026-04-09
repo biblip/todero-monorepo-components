@@ -288,7 +288,7 @@ public final class AgentDecisionLoop {
       boolean terminal = event.terminal();
       switch (channel) {
         case "status" -> {
-          context.emitStatus(body, emitPhase);
+          context.emitChat(body, emitPhase);
           if (terminal) {
             terminalStatusForwarded = true;
           }
@@ -306,13 +306,13 @@ public final class AgentDecisionLoop {
           }
         }
         case "auth" -> {
-          context.emitAuthJson(body, emitPhase);
+          context.emitChat(body, emitPhase);
           if (terminal) {
             terminalAuthForwarded = true;
           }
         }
         case "error" -> {
-          context.emitStatus(body, emitPhase);
+          context.emitChat(body, emitPhase);
           if (terminal) {
             terminalErrorForwarded = true;
           }

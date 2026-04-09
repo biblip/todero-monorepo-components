@@ -308,7 +308,7 @@ public class SpotifyComponent {
       String host = resolveRequestHost(context);
       String authCompleteTarget = buildAuthCompleteUrlTemplate(host, null, null);
       SpotifyPkceService.AuthBeginResult result = pkceService().authBegin(profile, redirectUri, owner, authCompleteTarget);
-      context.emitStatus(result.message(), "progress");
+      context.emitChat(result.message(), "progress");
       if (result.ctaHtml() != null && !result.ctaHtml().isBlank()) {
         context.emitHtml(result.ctaHtml(), "progress", "html", true);
       }
@@ -323,7 +323,7 @@ public class SpotifyComponent {
       authPayload.put("relayPolicy", relayPolicyMap(result.relayPolicy()));
       authPayload.put("openExternally", true);
       authPayload.put("ctaLabel", "Authorize Spotify");
-      context.emitAuthJson(GSON.toJson(authPayload), "progress");
+      context.emitChat(GSON.toJson(authPayload), "progress");
       return respond(context, "auth-begin", args, result.message(), true, null);
     } catch (ComponentNotReadyException e) {
       throw e;

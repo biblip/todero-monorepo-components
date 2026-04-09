@@ -155,7 +155,7 @@ public class AgentDJComponent {
     String prompt = requestBody(context);
     System.out.println("[DJ-AGENT] process received correlationId=" + correlationId + " prompt=" + prompt);
     if (!prompt.isEmpty()) {
-      context.emitStatus("Processing request...", "progress");
+      context.emitChat("Processing request...", "progress");
     }
     if (prompt.isEmpty()) {
       completeWireTerminal(
@@ -604,14 +604,11 @@ public class AgentDJComponent {
         AiatpIO.Body.ofString(spotifyArgs, StandardCharsets.UTF_8)
     );
     internalRequest = inheritParentRouting(parentContext, internalRequest);
-    internalRequest = AiatpRuntimeAdapter.withHeader(internalRequest, "X-Request-Id", internalRequestId);
     internalRequest = AiatpRuntimeAdapter.withHeader(
         internalRequest,
         CommandContext.HDR_INTERNAL_EVENT_DELIVERY,
         "local"
-    ).toBuilder()
-        .requestId(internalRequestId)
-        .build();
+    );
 
     CommandContext internalContext = parentContext.cloneBuilder()
         .aiatpRequest(internalRequest)
@@ -716,21 +713,15 @@ public class AgentDJComponent {
       return;
     }
     com.social100.todero.common.aiatpio.AiatpEvent event = wrapper.getAiatpEvent();
-    String eventRef = safeTrim(event.getReference());
-    boolean reqMatch = "REQ".equalsIgnoreCase(safeTrim(event.getScope())) && expectedRequestId.equals(eventRef);
-    if (!reqMatch) {
-      return;
-    }
     String channel = safeTrim(event.getChannel()).toLowerCase();
     String phase = safeTrim(event.getPhase()).toLowerCase();
     String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
     String emitPhase = "error".equals(phase) ? "error" : "progress";
     System.out.println("[DJ-AGENT][EMIT] forward_tool_event channel=" + channel
         + " phase=" + (phase.isEmpty() ? "<none>" : phase)
-        + " ref=" + eventRef
         + " bodyLen=" + body.length());
     switch (channel) {
-      case "status" -> parentContext.emitStatus(body, emitPhase);
+      case "status" -> parentContext.emitChat(body, emitPhase);
       case "chat" -> parentContext.emitChat(body, emitPhase);
       case "html" -> {
         String mode = firstNonBlank(
@@ -741,8 +732,8 @@ public class AgentDJComponent {
             || !"false".equalsIgnoreCase(safeTrim(event.getHeaders().getFirst("Html-Replace")));
         parentContext.emitHtml(body, emitPhase, mode, replace);
       }
-      case "auth" -> parentContext.emitAuthJson(body, emitPhase);
-      case "error" -> parentContext.emitStatus(body, emitPhase);
+      case "auth" -> parentContext.emitChat(body, emitPhase);
+      case "error" -> parentContext.emitChat(body, emitPhase);
       default -> {
         // ignore non-user channels
       }
@@ -756,8 +747,6 @@ public class AgentDJComponent {
       return;
     }
     com.social100.todero.common.aiatpio.AiatpEvent event = wrapper.getAiatpEvent();
-    String eventRef = safeTrim(event.getReference());
-    boolean reqMatch = "REQ".equalsIgnoreCase(safeTrim(event.getScope())) && expectedRequestId.equals(eventRef);
     String channel = safeTrim(event.getChannel()).toLowerCase();
     String phase = safeTrim(event.getPhase()).toLowerCase();
     String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
@@ -765,15 +754,9 @@ public class AgentDJComponent {
     if ("error".equals(channel) && errorCode.isEmpty()) {
       errorCode = "tool-execution-failed";
     }
-    if (!reqMatch && !"TRIGGER".equalsIgnoreCase(safeTrim(event.getScope()))) {
-      System.out.println("[DJ-AGENT][EVENT] skip reason=scope_mismatch scope=" + event.getScope()
-          + " ref=" + eventRef + " expected=" + expectedRequestId);
-      return;
-    }
     System.out.println("[DJ-AGENT][EVENT] observed scope=" + event.getScope()
         + " channel=" + channel
         + " phase=" + (phase.isEmpty() ? "<none>" : phase)
-        + " ref=" + (eventRef.isEmpty() ? "<none>" : eventRef)
         + " expectedRef=" + expectedRequestId);
     aggregate.record(channel, phase, body, errorCode);
   }
@@ -2689,7 +2672,7 @@ public class AgentDJComponent {
 
     String status = buildStatusMessage(findLastToolStep(result.toolSteps), result.stopReason);
     if (!safeTrim(status).isEmpty()) {
-      context.emitStatus(status, "final");
+      context.emitChat(status, "final");
     }
 
     // Preserve full detail as a thought JSON trace (wire-only; no "channels" envelope).
@@ -2722,7 +2705,7 @@ public class AgentDJComponent {
           "status", status,
           "htmlPresent", !html.isEmpty()
       ));
-      context.emitThought(JSON.writeValueAsString(trace), "final");
+      context.emitChat(JSON.writeValueAsString(trace), "final");
     } catch (Exception ignored) {
       // best-effort; do not fail the request
     }
@@ -3162,11 +3145,11 @@ public class AgentDJComponent {
     // Wire-only: tool progress is conveyed via tool events (status/chat/html/auth) forwarded by forwardSpotifyEvent.
     // We keep a minimal status hint here for interactive console users.
     if (!output.isEmpty()) {
-      context.emitStatus(output, "progress");
+      context.emitChat(output, "progress");
     }
     if (!raw.isEmpty() && raw.trim().startsWith("{")) {
       // If auth-begin timed out but we observed a directive, keep it available.
-      context.emitAuthJson(raw, "progress");
+      context.emitChat(raw, "progress");
     }
     System.out.println("[DJ-AGENT][EMIT] tool_progress done hasStatus=" + !output.isEmpty()
         + " hasAuth=" + (!raw.isEmpty() && raw.trim().startsWith("{")));
@@ -3561,7 +3544,12 @@ public class AgentDJComponent {
       if ("status".equals(channel) && !safeTrim(body).isEmpty()) {
         lastStatus = body;
       } else if ("chat".equals(channel) && !safeTrim(body).isEmpty()) {
-        lastChat = body;
+        AuthDirective authDirective = extractAuthDirectiveLoose(body);
+        if (authDirective.valid()) {
+          lastAuthJson = body;
+        } else {
+          lastChat = body;
+        }
       } else if ("html".equals(channel) && !safeTrim(body).isEmpty()) {
         lastHtml = body;
       } else if ("auth".equals(channel) && !safeTrim(body).isEmpty()) {

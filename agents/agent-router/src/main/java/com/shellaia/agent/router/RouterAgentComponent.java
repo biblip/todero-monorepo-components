@@ -88,7 +88,7 @@ public class RouterAgentComponent {
   public Boolean process(CommandContext context) {
     String prompt = requestBody(context);
     if (prompt.isEmpty()) {
-      context.emitError("Prompt is required. Usage: process <text>");
+      context.emitChat("Prompt is required. Usage: process <text>", "progress");
       return true;
     }
 
@@ -130,11 +130,11 @@ public class RouterAgentComponent {
           ? decideOpaqueRelayRoute(prompt, sticky, agents, excludedAgents)
           : decideRoute(prompt, sticky, agents, excludedAgents);
       System.out.println("[ROUTER-AGENT] decision route=" + decision.route + " reason=" + decision.reason + " switched=" + decision.switched);
-      context.emitThought("route=" + safe(decision.route)
+      context.emitChat("route=" + safe(decision.route)
           + " reason=" + safe(decision.reason)
           + " switched=" + decision.switched, "progress");
       if (decision.route == null || decision.route.isBlank()) {
-        context.emitError("Could not determine target agent.");
+        context.emitChat("Could not determine target agent.", "progress");
         return true;
       }
 
@@ -142,7 +142,7 @@ public class RouterAgentComponent {
       System.out.println("[ROUTER-AGENT] selected agent=" + (selectedAgent == null ? "null" : selectedAgent.name()));
       PreDispatchResult preDispatch = PreDispatchResult.allow(prompt, opaqueAuthRelay ? "opaque-auth-relay" : "generic-runtime-skill-routing");
       if (!preDispatch.allowed) {
-        context.emitError(preDispatch.message);
+        context.emitChat(preDispatch.message, "progress");
         return true;
       }
 
@@ -183,8 +183,8 @@ public class RouterAgentComponent {
           return true;
         }
         rerouteAttempted = true;
-        context.emitStatus("Rerouting to another agent.", "progress");
-        context.emitThought("reroute=true reason=reroutable_failure agent=" + safe(decision.route), "progress");
+        context.emitChat("Rerouting to another agent.", "progress");
+        context.emitChat("reroute=true reason=reroutable_failure agent=" + safe(decision.route), "progress");
         System.out.println("[ROUTER-AGENT] fallback triggered by "
             + readPath(delegatedJson.path("meta"), "errorCode")
             + "; rerouting prompt: " + prompt);
@@ -438,10 +438,9 @@ public class RouterAgentComponent {
     }
     AiatpEvent event = wrapper.getAiatpEvent();
     System.out.println("[ROUTER-AGENT][TRACE][delegate-event] delegatedRequestId=" + safe(delegatedRequest.getRequestId())
-        + " actualReference=" + safe(event == null ? null : event.getReference())
         + " channel=" + safe(event == null ? null : event.getChannel())
         + " semanticType=" + safe(event == null ? null : event.getSemanticType()));
-    if (!isMatchingDelegatedEvent(event, delegatedRequest.getRequestId())) {
+    if (event == null) {
       return;
     }
     if (isControlEvent(event)) {
@@ -457,14 +456,13 @@ public class RouterAgentComponent {
                                                       String message) {
     String json = failureEnvelopeJson(agentName, errorCode, message);
     AiatpResponse result = AiatpRuntimeAdapter.textResponse(
-            "error",
+            "chat",
             "failure",
             errorCode,
             json,
             "application/json; charset=utf-8")
         .toBuilder()
         .errorCode(errorCode)
-        .reference(delegatedRequest == null ? null : delegatedRequest.getRequestId())
         .build();
     return new DelegatedAgentResult(result, responseBody(result));
   }
@@ -483,11 +481,11 @@ public class RouterAgentComponent {
     }
     String status = readPath(delegatedJson, "channels.status.message");
     if (!status.isBlank()) {
-      context.emitStatus(status, "progress");
+      context.emitChat(status, "progress");
     }
     String thought = readPath(delegatedJson, "channels.thought.message");
     if (!thought.isBlank()) {
-      context.emitThought(thought, "progress");
+      context.emitChat(thought, "progress");
     }
     String chat = readPath(delegatedJson, "channels.chat.message");
     if (!chat.isBlank()) {
@@ -502,7 +500,7 @@ public class RouterAgentComponent {
     }
     JsonNode auth = delegatedJson.path("channels").path("auth");
     if (auth.isObject()) {
-      context.emitAuthJson(auth.toString(), "progress");
+      context.emitChat(auth.toString(), "progress");
     }
   }
 
@@ -514,8 +512,8 @@ public class RouterAgentComponent {
     String emitPhase = "error".equalsIgnoreCase(phase) ? "error" : "progress";
     String channel = safe(event.getChannel()).toLowerCase(Locale.ROOT);
     switch (channel) {
-      case "status" -> context.emitStatus(eventBody(event), emitPhase);
-      case "thought" -> context.emitThought(eventBody(event), emitPhase);
+      case "status" -> context.emitChat(eventBody(event), emitPhase);
+      case "thought" -> context.emitChat(eventBody(event), emitPhase);
       case "chat" -> context.emitChat(eventBody(event), emitPhase);
       case "html" -> {
         String mode = firstNonBlank(
@@ -524,21 +522,11 @@ public class RouterAgentComponent {
         boolean replace = event.getHeaders() == null || !"false".equalsIgnoreCase(safe(event.getHeaders().getFirst("Html-Replace")));
         context.emitHtml(eventBody(event), emitPhase, mode, replace);
       }
-      case "auth" -> context.emitAuthJson(eventBody(event), emitPhase);
-      case "error" -> context.emitStatus(eventBody(event), "error");
+      case "auth" -> context.emitChat(eventBody(event), emitPhase);
+      case "error" -> context.emitChat(eventBody(event), "error");
       default -> {
       }
     }
-  }
-
-  private static boolean isMatchingDelegatedEvent(AiatpEvent event, String expectedRequestId) {
-    if (event == null || expectedRequestId == null || expectedRequestId.isBlank()) {
-      return false;
-    }
-    if (!"REQ".equalsIgnoreCase(safe(event.getScope()))) {
-      return false;
-    }
-    return expectedRequestId.equals(safe(event.getReference()));
   }
 
   private static String eventBody(AiatpEvent event) {

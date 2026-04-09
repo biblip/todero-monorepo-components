@@ -49,8 +49,8 @@ class RouterAgentEventNativeDelegationTest {
     router.process(context);
 
     assertTrue(manager.processSawProgress.get());
-    assertEquals("status", last.get().getAiatpEvent().getChannel());
-    assertTrue(seen.stream().anyMatch(wrapper -> "status".equals(wrapper.getAiatpEvent().getChannel())));
+    assertEquals("chat", last.get().getAiatpEvent().getChannel());
+    assertTrue(seen.stream().anyMatch(wrapper -> "chat".equals(wrapper.getAiatpEvent().getChannel())));
     assertEquals("chat", response.get().getChannel());
     assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("\"done\""));
   }
@@ -74,7 +74,7 @@ class RouterAgentEventNativeDelegationTest {
     router.process(context);
 
     assertTrue(manager.capabilitiesSawProgress.get());
-    assertEquals("status", out.get().getAiatpEvent().getChannel());
+    assertEquals("chat", out.get().getAiatpEvent().getChannel());
     assertEquals("chat", response.get().getChannel());
     assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("\"done\""));
   }
@@ -105,30 +105,6 @@ class RouterAgentEventNativeDelegationTest {
   }
 
   @Test
-  void processConsumesDelegatedTerminalControlEnvelope() {
-    ControlEventManager manager = new ControlEventManager();
-    RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
-    List<AiatpIORequestWrapper> seen = new CopyOnWriteArrayList<>();
-    AtomicReference<AiatpResponse> response = new AtomicReference<>();
-
-    CommandContext context = CommandContext.builder()
-        .sourceId("sess-control-forward")
-        .componentManager(manager)
-        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.router/process",
-            AiatpIO.Body.ofString("suggest lions", StandardCharsets.UTF_8)))
-        .eventConsumer(seen::add)
-        .responseConsumer(response::set)
-        .build();
-
-    router.process(context);
-
-    assertTrue(manager.sawUpstreamControl.get());
-    assertTrue(seen.stream().anyMatch(wrapper -> "status".equals(wrapper.getAiatpEvent().getChannel())));
-    String responseBody = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
-    assertTrue(responseBody.contains("<html>done</html>"));
-  }
-
-  @Test
   void processFinalizesImmediatelyWhenOutOfScopeHasNoAlternateRoute() {
     OutOfScopeControlManager manager = new OutOfScopeControlManager(false);
     RouterAgentComponent router = new RouterAgentComponent(new EmptyStorage());
@@ -148,7 +124,7 @@ class RouterAgentEventNativeDelegationTest {
 
     assertEquals(1, manager.processExecuteCount);
     assertTrue(seen.stream().noneMatch(wrapper ->
-        "status".equals(wrapper.getAiatpEvent().getChannel())
+        "chat".equals(wrapper.getAiatpEvent().getChannel())
             && "Rerouting to another agent.".equals(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8))));
     String responseBody = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
     assertTrue(responseBody.contains("No available agent can handle"));
@@ -175,7 +151,7 @@ class RouterAgentEventNativeDelegationTest {
     assertEquals(1, manager.djProcessExecuteCount);
     assertEquals(1, manager.altProcessExecuteCount);
     assertTrue(seen.stream().anyMatch(wrapper ->
-        "status".equals(wrapper.getAiatpEvent().getChannel())
+        "chat".equals(wrapper.getAiatpEvent().getChannel())
             && "Rerouting to another agent.".equals(AiatpIO.bodyToString(wrapper.getAiatpEvent().getBody(), StandardCharsets.UTF_8))));
     assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("handled by alternate agent"));
   }
@@ -229,22 +205,22 @@ class RouterAgentEventNativeDelegationTest {
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
       if (!"com.shellaia.agent.dj".equals(componentName)) {
-        context.emitError("not_found");
+        context.emitChat("not_found", "error");
         return;
       }
       if ("capabilities".equals(command)) {
         capabilitiesSawProgress.set(true);
-        context.emitStatus("probing", "progress");
+        context.emitChat("probing", "progress");
         context.completeJson(200, "{\"channels\":{\"chat\":{\"message\":\"capabilities ready\"},\"status\":{\"message\":\"capabilities ready\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}},\"manifest\":{\"contractVersion\":1,\"agentName\":\"com.shellaia.agent.dj\",\"routingHints\":{\"skillSummary\":\"Handles music playback requests and playlist control.\"},\"commands\":[{\"name\":\"process\"},{\"name\":\"capabilities\"}]}}");
         return;
       }
       if ("process".equals(command)) {
         processSawProgress.set(true);
-        context.emitStatus("delegated-working", "progress");
+        context.emitChat("delegated-working", "progress");
         context.completeJson(200, "{\"channels\":{\"chat\":{\"message\":\"done\"},\"status\":{\"message\":\"ok\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
         return;
       }
-      context.emitError("not_found");
+      context.emitChat("not_found", "error");
     }
   }
 
@@ -283,62 +259,11 @@ class RouterAgentEventNativeDelegationTest {
     @Override
     public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
       if (!"com.shellaia.agent.dj".equals(componentName)) {
-        context.emitError("not_found");
+        context.emitChat("not_found", "error");
         return;
       }
-      context.emitStatus("delegated-working", "progress");
+      context.emitChat("delegated-working", "progress");
       context.emitHtml("<html>done</html>", "final", "html", true);
-    }
-  }
-
-  private static final class ControlEventManager implements ComponentManagerInterface {
-    private final AtomicBoolean sawUpstreamControl = new AtomicBoolean(false);
-
-    @Override
-    public List<String> generateAutocompleteStrings() {
-      return List.of();
-    }
-
-    @Override
-    public String getHelp(String componentName, String commandName, OutputType outputType) {
-      return "{}";
-    }
-
-    @Override
-    public List<ComponentDescriptor> getComponents(boolean includeHidden, ServerType typeFilter) {
-      return List.of(ComponentDescriptor.builder()
-          .name("com.shellaia.agent.dj")
-          .type(ServerType.AI)
-          .visible(false)
-          .agentCapabilityManifest(AgentCapabilityManifest.builder()
-              .contractVersion(1)
-              .agentName("com.shellaia.agent.dj")
-              .routingHints(java.util.Map.of(
-                  "skillSummary", "Handles music playback requests and delegated control responses."
-              ))
-              .build())
-          .build());
-    }
-
-    @Override
-    public ComponentDescriptor getComponent(String componentName, boolean includeHidden) {
-      return null;
-    }
-
-    @Override
-    public void execute(String componentName, String command, CommandContext context, boolean useComponentsAll) {
-      sawUpstreamControl.set("true".equalsIgnoreCase(
-          context.getAiatpRequest().getHeaders().getFirst("X-AIATP-Upstream-Control")));
-      context.emitControlJson(
-          "{\"kind\":\"progress\",\"outcome\":\"progress\",\"terminal\":false,"
-              + "\"channels\":{\"status\":{\"message\":\"planning\"},\"chat\":{\"message\":\"\"},"
-              + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}",
-          "progress",
-          "delegate_progress");
-      context.completeJson(200,
-          "{\"response\":{\"outcome\":\"goal_completed\",\"completed\":true},"
-              + "\"channels\":{\"status\":{\"message\":\"done\"},\"chat\":{\"message\":\"done\"},"
-              + "\"html\":{\"html\":\"<html>done</html>\",\"mode\":\"html\",\"replace\":true}}}");
     }
   }
 

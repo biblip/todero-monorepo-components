@@ -43,7 +43,7 @@ class SpotifyComponentLifecycleContractTest {
     assertFalse(component.execute("com.shellaia.spotify", "play", context));
 
     assertNotNull(seen.get());
-    assertEquals("error", seen.get().getChannel());
+    assertEquals("chat", seen.get().getChannel());
     assertEquals("failure", seen.get().getOutcome());
     String body = AiatpIO.bodyToString(seen.get().getBody(), StandardCharsets.UTF_8);
     assertTrue(body.contains("\"channels\""));
