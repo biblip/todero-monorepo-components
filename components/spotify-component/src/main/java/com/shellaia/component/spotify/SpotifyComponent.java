@@ -21,6 +21,7 @@ import com.shellaia.component.spotify.core.SpotifyPkceService;
 import com.social100.todero.processor.EventDefinition;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -50,6 +51,8 @@ public class SpotifyComponent {
   private static final Gson GSON = new Gson();
   private static final String DJ_AGENT = "com.shellaia.agent.dj";
   private static final long DEFAULT_NOTIFY_MIN_MS = 2500L;
+  private static final String COMPONENT_HTML_TEMPLATE =
+      loadResourceText("com/shellaia/component/spotify/component.html");
 
   private final Storage storage;
   private final Object initLock = new Object();
@@ -293,6 +296,49 @@ public class SpotifyComponent {
   public Boolean authStatusCommand(CommandContext context) {
     String args = readArgs(context);
     return respond(context, "auth-status", args, pkceService().authStatus());
+  }
+
+  @Action(group = SpotifyCommandService.MAIN_GROUP,
+      command = "html",
+      description = "Render an HTML page representing this component. Usage: html")
+  public Boolean htmlCommand(CommandContext context) {
+    String args = readArgs(context);
+    String host = resolveRequestHost(context);
+    String authStatus;
+    String readinessHint = null;
+    boolean ok = true;
+    try {
+      authStatus = pkceService().authStatus();
+    } catch (Exception e) {
+      ok = false;
+      authStatus = "Spotify component is not ready.";
+      readinessHint = redact(e.getMessage());
+    }
+
+    String title = "Spotify Component";
+    String heading = host == null || host.isBlank()
+        ? title
+        : title + " (" + escapeHtml(host) + ")";
+    String notReadyBlock = ok
+        ? ""
+        : "<div class=\"muted warn\">Not ready: " + escapeHtml(trimToEmpty(readinessHint)) + "</div>";
+    String html = COMPONENT_HTML_TEMPLATE
+        .replace("${TITLE}", escapeHtml(title))
+        .replace("${HEADING}", heading)
+        .replace("${NOT_READY_BLOCK}", notReadyBlock)
+        .replace("${AUTH_STATUS}", escapeHtml(authStatus));
+
+    context.complete(buildWireResponse(
+        "html",
+        ok ? "success" : "failure",
+        ok ? "completed" : "not_ready",
+        html,
+        "text/html; charset=utf-8",
+        ok ? null : "missing_configuration",
+        null,
+        null
+    ));
+    return true;
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
@@ -1420,13 +1466,10 @@ public class SpotifyComponent {
     headers.set("Content-Type", contentType == null || contentType.isBlank()
         ? "text/plain; charset=utf-8"
         : contentType.trim());
+    int statusCode = "failure".equalsIgnoreCase(trimToEmpty(outcome)) ? 500 : 200;
     return AiatpResponse.builder()
-        .channel(channel == null || channel.isBlank() ? "chat" : channel.trim())
-        .outcome(outcome == null || outcome.isBlank() ? "success" : outcome.trim())
-        .responseReason(responseReason == null || responseReason.isBlank() ? "completed" : responseReason.trim())
-        .errorCode(errorCode == null || errorCode.isBlank() ? null : errorCode.trim())
-        .errorReroutable(errorReroutable)
-        .authOutcome(authOutcome == null || authOutcome.isBlank() ? null : authOutcome.trim())
+        .statusCode(statusCode)
+        .reasonPhrase(responseReason == null || responseReason.isBlank() ? "completed" : responseReason.trim())
         .headers(headers)
         .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
         .build();
@@ -1438,6 +1481,20 @@ public class SpotifyComponent {
         || lowered.contains("auth required")
         || lowered.contains("run auth-begin")
         || lowered.contains("run auth-complete");
+  }
+
+  private static String loadResourceText(String path) {
+    if (path == null || path.isBlank()) {
+      throw new IllegalArgumentException("Resource path is blank.");
+    }
+    try (InputStream in = SpotifyComponent.class.getClassLoader().getResourceAsStream(path)) {
+      if (in == null) {
+        throw new IllegalStateException("Resource not found: " + path);
+      }
+      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      throw new IllegalStateException("Failed to load resource: " + path, e);
+    }
   }
 
   private static String classifyOutcome(String command, boolean ok) {

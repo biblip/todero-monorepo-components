@@ -43,6 +43,14 @@ class AgentDJSpotifyEventExecutionTest {
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final String TEXT_PLAIN_UTF8 = "text/plain; charset=utf-8";
 
+  private static String quoteJson(String value) {
+    try {
+      return JSON.writeValueAsString(value == null ? "" : value);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   private static void completeWire(CommandContext context,
                                    String channel,
                                    String outcome,
@@ -52,14 +60,22 @@ class AgentDJSpotifyEventExecutionTest {
                                    String authOutcome) {
     AiatpIO.Headers headers = new AiatpIO.Headers();
     headers.set("Content-Type", TEXT_PLAIN_UTF8);
+    boolean failure = "failure".equalsIgnoreCase(outcome);
+    String payload = "{"
+        + "\"ok\":" + (!failure) + ","
+        + "\"message\":" + quoteJson(body == null ? "" : body) + ","
+        + "\"errorCode\":" + (errorCode == null || errorCode.isBlank() ? "null" : quoteJson(errorCode)) + ","
+        + "\"response\":{\"outcome\":" + quoteJson(outcome == null || outcome.isBlank() ? "goal_completed" : outcome) + ",\"completed\":true},"
+        + "\"auth\":{"
+        + "\"required\":" + ("AUTH_REQUIRED".equalsIgnoreCase(authOutcome) ? "true" : "false") + ","
+        + "\"outcome\":" + (authOutcome == null || authOutcome.isBlank() ? "null" : quoteJson(authOutcome))
+        + "}"
+        + "}";
     context.complete(AiatpResponse.builder()
-        .channel(channel)
-        .outcome(outcome)
-        .responseReason(responseReason)
-        .errorCode(errorCode == null || errorCode.isBlank() ? null : errorCode)
-        .authOutcome(authOutcome == null || authOutcome.isBlank() ? null : authOutcome)
+        .statusCode("failure".equalsIgnoreCase(outcome) ? 500 : 200)
+        .reasonPhrase(responseReason == null || responseReason.isBlank() ? "completed" : responseReason)
         .headers(headers)
-        .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
+        .body(AiatpIO.Body.ofString(payload, StandardCharsets.UTF_8))
         .build());
   }
 

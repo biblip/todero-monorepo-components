@@ -509,7 +509,7 @@ public class TaskManagerAgentComponent {
       context.execute(TASK_MANAGER_COMPONENT, command, internalContext);
       com.social100.todero.common.aiatpio.AiatpResponse response = outFuture.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       String body = response == null || response.getBody() == null ? "" : AiatpIO.bodyToString(response.getBody(), StandardCharsets.UTF_8);
-      int status = response != null && "failure".equalsIgnoreCase(safe(response.getOutcome())) ? 500 : 200;
+      int status = response == null ? 500 : response.getStatusCode();
       return parseToolEnvelope(command, normalizedArgs, status, body);
     } catch (TimeoutException e) {
       return ToolCallResult.failure(command, normalizedArgs, "timeout", "Tool execution timed out.", "", "");

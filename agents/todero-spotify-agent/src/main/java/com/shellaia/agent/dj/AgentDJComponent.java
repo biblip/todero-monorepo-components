@@ -618,16 +618,18 @@ public class AgentDJComponent {
         })
         .responseConsumer(result -> {
           if (result != null) {
+            String reason = safeTrim(result.getReasonPhrase());
+            int status = responseStatus(result);
             outFuture.complete(new SpotifyExecutionResult(
                 "response",
-                safeTrim(result.getChannel()),
+                "",
                 "",
                 responseBody(result),
-                safeTrim(result.getErrorCode()),
-                safeTrim(result.getAuthOutcome()),
-                safeTrim(result.getOutcome()),
-                safeTrim(result.getResponseReason()),
-                responseStatus(result),
+                status >= 400 ? reason : "",
+                "auth_required".equalsIgnoreCase(reason) ? "AUTH_REQUIRED" : "",
+                status >= 400 ? "failure" : "success",
+                reason,
+                status,
                 aggregate.snapshot()
             ));
           }
@@ -660,7 +662,10 @@ public class AgentDJComponent {
           || (!envelope.recognized && isExecutionFailure(executionResult.status, safeOutput));
       if (failed) {
         System.out.println("[DJ-AGENT] tool execution classified failure command=" + command + " status=" + executionResult.status + " body=" + redactedForLogs(safeOutput));
-        String errorCode = safeTrim(executionResult.errorCode);
+        String errorCode = envelope.recognized ? safeTrim(envelope.errorCode) : "";
+        if (errorCode.isEmpty()) {
+          errorCode = safeTrim(executionResult.errorCode);
+        }
         if (errorCode.isEmpty() && envelope.recognized && safeTrim(envelope.errorCode).length() > 0) {
           errorCode = envelope.errorCode;
         }
@@ -714,11 +719,10 @@ public class AgentDJComponent {
     }
     com.social100.todero.common.aiatpio.AiatpEvent event = wrapper.getAiatpEvent();
     String channel = safeTrim(event.getChannel()).toLowerCase();
-    String phase = safeTrim(event.getPhase()).toLowerCase();
     String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
-    String emitPhase = "error".equals(phase) ? "error" : "progress";
+    String emitPhase = "progress";
     System.out.println("[DJ-AGENT][EMIT] forward_tool_event channel=" + channel
-        + " phase=" + (phase.isEmpty() ? "<none>" : phase)
+        + " phase=<wire-default>"
         + " bodyLen=" + body.length());
     switch (channel) {
       case "status" -> parentContext.emitChat(body, emitPhase);
@@ -748,8 +752,8 @@ public class AgentDJComponent {
     }
     com.social100.todero.common.aiatpio.AiatpEvent event = wrapper.getAiatpEvent();
     String channel = safeTrim(event.getChannel()).toLowerCase();
-    String phase = safeTrim(event.getPhase()).toLowerCase();
     String body = safeTrim(AiatpIO.bodyToString(event.getBody(), StandardCharsets.UTF_8));
+    String phase = "";
     String errorCode = "auth".equals(channel) ? extractAuthErrorCode(body) : "";
     if ("error".equals(channel) && errorCode.isEmpty()) {
       errorCode = "tool-execution-failed";
@@ -2645,12 +2649,8 @@ public class AgentDJComponent {
         ? "text/plain; charset=utf-8"
         : safeTrim(contentType));
     AiatpResponse response = AiatpResponse.builder()
-        .channel(safeTrim(channel).isEmpty() ? "chat" : safeTrim(channel))
-        .outcome(safeTrim(outcome).isEmpty() ? "success" : safeTrim(outcome))
-        .responseReason(safeTrim(responseReason).isEmpty() ? "completed" : safeTrim(responseReason))
-        .errorCode(safeTrim(errorCode).isEmpty() ? null : safeTrim(errorCode))
-        .errorReroutable(errorReroutable ? Boolean.TRUE : null)
-        .authOutcome(safeTrim(authOutcome).isEmpty() ? null : safeTrim(authOutcome))
+        .statusCode("failure".equalsIgnoreCase(safeTrim(outcome)) ? 500 : 200)
+        .reasonPhrase(safeTrim(responseReason).isEmpty() ? "completed" : safeTrim(responseReason))
         .headers(headers)
         .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
         .build();
@@ -3279,8 +3279,7 @@ public class AgentDJComponent {
     if (result == null) {
       return 500;
     }
-    String outcome = safeTrim(result.getOutcome()).toLowerCase();
-    return "failure".equals(outcome) ? 500 : 200;
+    return result.getStatusCode();
   }
 
   private String injectLedgerSummary(String prompt, String rootWorkId) {

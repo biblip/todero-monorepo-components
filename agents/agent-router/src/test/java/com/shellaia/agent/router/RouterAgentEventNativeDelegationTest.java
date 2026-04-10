@@ -51,7 +51,7 @@ class RouterAgentEventNativeDelegationTest {
     assertTrue(manager.processSawProgress.get());
     assertEquals("chat", last.get().getAiatpEvent().getChannel());
     assertTrue(seen.stream().anyMatch(wrapper -> "chat".equals(wrapper.getAiatpEvent().getChannel())));
-    assertEquals("chat", response.get().getChannel());
+    assertEquals(200, response.get().getStatusCode());
     assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("\"done\""));
   }
 
@@ -75,7 +75,7 @@ class RouterAgentEventNativeDelegationTest {
 
     assertTrue(manager.capabilitiesSawProgress.get());
     assertEquals("chat", out.get().getAiatpEvent().getChannel());
-    assertEquals("chat", response.get().getChannel());
+    assertEquals(200, response.get().getStatusCode());
     assertTrue(AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8).contains("\"done\""));
   }
 

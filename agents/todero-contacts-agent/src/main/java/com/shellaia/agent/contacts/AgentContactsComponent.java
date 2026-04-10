@@ -140,7 +140,7 @@ public class AgentContactsComponent {
       JsonNode root = parseJsonOrNull(toolBody);
       if (root != null && root.path("channels").isObject()) {
         context.completeJson(200, toolBody);
-      } else if ("failure".equalsIgnoreCase(safeTrim(toolResponse.getOutcome()))) {
+      } else if (toolResponse != null && toolResponse.getStatusCode() >= 400) {
         String message = safeTrim(toolBody).isBlank() ? "Contacts tool returned an error." : toolBody.trim();
         context.completeJson(500, renderEnvelope(message, message, null, "tool_failure"));
       } else {

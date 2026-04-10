@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${TITLE}</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;color:#0f172a;background:#ffffff;}
+    .card{border:1px solid #e2e8f0;border-radius:16px;padding:16px;max-width:880px;}
+    h1{font-size:20px;margin:0 0 8px 0;}
+    .muted{color:#64748b;font-size:12px;}
+    pre{white-space:pre-wrap;background:#0b1220;color:#e2e8f0;border-radius:12px;padding:12px;overflow:auto;}
+    code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
+    .actions{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;}
+    .pill{display:inline-block;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px;font-size:12px;color:#0f172a;text-decoration:none;}
+    .warn{margin-top:6px;color:#b91c1c;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${HEADING}</h1>
+    <div class="muted">This page is served by com.shellaia.spotify/html.</div>
+    ${NOT_READY_BLOCK}
+
+    <h2 style="font-size:14px;margin:14px 0 8px 0;">Auth Status</h2>
+    <pre><code>${AUTH_STATUS}</code></pre>
+
+    <div class="actions">
+      <span class="pill">auth-begin</span>
+      <span class="pill">auth-status</span>
+      <span class="pill">status</span>
+      <span class="pill">play</span>
+      <span class="pill">volume</span>
+    </div>
+  </div>
+</body>
+</html>

@@ -43,11 +43,9 @@ class SpotifyComponentLifecycleContractTest {
     assertFalse(component.execute("com.shellaia.spotify", "play", context));
 
     assertNotNull(seen.get());
-    assertEquals("chat", seen.get().getChannel());
-    assertEquals("failure", seen.get().getOutcome());
+    assertEquals(503, seen.get().getStatusCode());
+    assertEquals("status_503", seen.get().getReasonPhrase());
     String body = AiatpIO.bodyToString(seen.get().getBody(), StandardCharsets.UTF_8);
-    assertTrue(body.contains("\"channels\""));
-    assertTrue(body.contains("\"errorCode\":\"missing_configuration\""));
     assertTrue(body.contains("Spotify component is not ready"));
   }
 }

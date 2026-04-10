@@ -159,9 +159,9 @@ public class RouterAgentComponent {
       String delegatedBody = delegated.body();
       System.out.println("[ROUTER-AGENT] received response body=" + delegatedBody.substring(0, Math.min(256, delegatedBody.length())));
       AiatpResponse delegatedResponse = delegated.response();
-      String delegatedErrorCode = delegatedResponse == null ? "" : safe(delegatedResponse.getErrorCode());
-      boolean delegatedReroutable = delegatedResponse != null && Boolean.TRUE.equals(delegatedResponse.getErrorReroutable());
       JsonNode delegatedJson = extractFirstJsonBlock(delegatedBody);
+      String delegatedErrorCode = readPath(delegatedJson.path("meta"), "errorCode");
+      boolean delegatedReroutable = false;
       if (opaqueAuthRelay) {
         System.out.println("[ROUTER-AGENT] opaque auth relay route=" + decision.route);
         stickyBySession.put(sessionId, updateSticky(decision.route, delegatedPrompt, delegatedJson, sticky));
@@ -226,12 +226,10 @@ public class RouterAgentComponent {
     headers.set("Content-Type", (contentType == null || contentType.isBlank())
         ? "text/plain; charset=utf-8"
         : contentType.trim());
+    int statusCode = "failure".equalsIgnoreCase(outcome == null ? "" : outcome.trim()) ? 500 : 200;
     return AiatpResponse.builder()
-        .channel(channel == null || channel.isBlank() ? "chat" : channel.trim())
-        .outcome(outcome == null || outcome.isBlank() ? "success" : outcome.trim())
-        .responseReason(responseReason == null || responseReason.isBlank() ? "completed" : responseReason.trim())
-        .errorCode(errorCode == null || errorCode.isBlank() ? null : errorCode.trim())
-        .errorReroutable(errorReroutable)
+        .statusCode(statusCode)
+        .reasonPhrase(responseReason == null || responseReason.isBlank() ? "completed" : responseReason.trim())
         .headers(headers)
         .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
         .build();
@@ -407,7 +405,7 @@ public class RouterAgentComponent {
         "local");
     System.out.println("[ROUTER-AGENT][TRACE][delegate-request] agent=" + agentName
         + " command=" + command
-        + " requestId=" + safe(delegatedRequest.getRequestId())
+        + " target=" + safe(delegatedRequest.getTarget())
         + " upstreamControl=" + headerValue(delegatedRequest, UPSTREAM_CONTROL_HEADER)
         + " internalDelivery=" + headerValue(delegatedRequest, CommandContext.HDR_INTERNAL_EVENT_DELIVERY));
     CompletableFuture<DelegatedAgentResult> out = new CompletableFuture<>();
@@ -437,9 +435,8 @@ public class RouterAgentComponent {
       return;
     }
     AiatpEvent event = wrapper.getAiatpEvent();
-    System.out.println("[ROUTER-AGENT][TRACE][delegate-event] delegatedRequestId=" + safe(delegatedRequest.getRequestId())
-        + " channel=" + safe(event == null ? null : event.getChannel())
-        + " semanticType=" + safe(event == null ? null : event.getSemanticType()));
+    System.out.println("[ROUTER-AGENT][TRACE][delegate-event] delegatedTarget=" + safe(delegatedRequest.getTarget())
+        + " channel=" + safe(event == null ? null : event.getChannel()));
     if (event == null) {
       return;
     }
@@ -456,14 +453,10 @@ public class RouterAgentComponent {
                                                       String message) {
     String json = failureEnvelopeJson(agentName, errorCode, message);
     AiatpResponse result = AiatpRuntimeAdapter.textResponse(
-            "chat",
-            "failure",
-            errorCode,
-            json,
-            "application/json; charset=utf-8")
-        .toBuilder()
-        .errorCode(errorCode)
-        .build();
+        500,
+        errorCode,
+        json,
+        "application/json; charset=utf-8");
     return new DelegatedAgentResult(result, responseBody(result));
   }
 
@@ -508,8 +501,7 @@ public class RouterAgentComponent {
     if (context == null || event == null) {
       return;
     }
-    String phase = safe(event.getPhase());
-    String emitPhase = "error".equalsIgnoreCase(phase) ? "error" : "progress";
+    String emitPhase = "progress";
     String channel = safe(event.getChannel()).toLowerCase(Locale.ROOT);
     switch (channel) {
       case "status" -> context.emitChat(eventBody(event), emitPhase);
@@ -596,7 +588,7 @@ public class RouterAgentComponent {
                                                  ComponentDescriptor descriptor) {
     try {
       DelegatedAgentResult response = delegateToAgent(context, agentName, "capabilities", "");
-      if (response == null || "failure".equalsIgnoreCase(safe(response.outcome()))) {
+      if (response == null || response.isFailure()) {
         return null;
       }
       String body = response.body();
@@ -1209,8 +1201,8 @@ public class RouterAgentComponent {
 
   private record DelegatedAgentResult(AiatpResponse response,
                                       String body) {
-    private String outcome() {
-      return response == null ? "" : safe(response.getOutcome());
+    private boolean isFailure() {
+      return response == null || response.getStatusCode() >= 400;
     }
   }
 

@@ -47,8 +47,8 @@ class AgentDJCapabilitiesTest {
 
     assertTrue(component.capabilities(context));
 
-    assertEquals("status", out.get().getChannel());
-    assertEquals("capabilities", out.get().getResponseReason());
+    assertEquals(200, out.get().getStatusCode());
+    assertEquals("capabilities", out.get().getReasonPhrase());
     JsonNode root = JSON.readTree(AiatpIO.bodyToString(out.get().getBody(), StandardCharsets.UTF_8));
     assertEquals("Handles music playback, playlists, recommendations, and delegated Spotify authorization through a specialized DJ workflow.",
         root.path("manifest").path("routingHints").path("skillSummary").asText());

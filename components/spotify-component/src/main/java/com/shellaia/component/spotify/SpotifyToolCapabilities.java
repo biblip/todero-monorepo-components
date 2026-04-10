@@ -15,6 +15,7 @@ public final class SpotifyToolCapabilities implements ToolCapabilityProvider {
         .toolSummary("Spotify playback, device, queue, search resolution, playlist, and delegated authorization tool.")
         .commands(List.of(
             cmd("events", "Manage playback event streaming and optional DJ notifications."),
+            cmd("html", "Render an HTML page representing this component."),
             cmd("auth-status", "Inspect delegated Spotify authorization state."),
             cmd("auth-begin", "Begin delegated Spotify authorization."),
             cmd("auth-complete", "Complete delegated Spotify authorization."),
