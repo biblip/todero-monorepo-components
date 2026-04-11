@@ -9,20 +9,33 @@
       color-scheme: light dark;
       font-family: Arial, sans-serif;
     }
+    html, body {
+      height: 100%;
+    }
     body {
       margin: 0;
-      padding: 24px;
       background: #f5f7fb;
       color: #1f2937;
     }
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
     .card {
       max-width: 900px;
-      margin: 0 auto;
+      margin: 0 auto 20px auto;
       background: #ffffff;
       border: 1px solid #dbe3ef;
       border-radius: 16px;
       padding: 24px;
       box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+    .page {
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: 24px;
+      gap: 16px;
     }
     h1 {
       margin: 0 0 8px 0;
@@ -41,9 +54,6 @@
     .label {
       font-weight: 700;
     }
-    code, pre {
-      font-family: "SFMono-Regular", Consolas, monospace;
-    }
     .muted {
       color: #475569;
     }
@@ -54,25 +64,194 @@
       background: #eef6ff;
       border: 1px solid #bfdbfe;
     }
+    .bridge {
+      flex: 1 1 auto;
+      max-width: 900px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #dbe3ef;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      display: flex;
+      flex-direction: column;
+      min-height: 240px;
+    }
+    .bridge-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .pill {
+      display: inline-block;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: #0f172a;
+      background: #ffffff;
+    }
+    .btn {
+      border: 1px solid #0f172a;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn:hover {
+      background: #1e293b;
+    }
+    .btn.secondary {
+      background: #ffffff;
+      color: #0f172a;
+    }
+    .btn.secondary:hover {
+      background: #f1f5f9;
+    }
+    .feed {
+      flex: 1 1 auto;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      background: #0b1220;
+      color: #e2e8f0;
+      padding: 12px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .feed .meta {
+      color: #93c5fd;
+    }
+    .feed .warn {
+      color: #fca5a5;
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>${HEADING}</h1>
-    <p class="muted">${SUMMARY}</p>
-    <div class="grid">
-      <div class="label">Target component</div>
-      <div><code>${TARGET_COMPONENT}</code></div>
-      <div class="label">Requested path</div>
-      <div><code>${TARGET_PATH}</code></div>
-      <div class="label">Requested host</div>
-      <div><code>${HOST}</code></div>
-      <div class="label">Generated at</div>
-      <div><code>${GENERATED_AT}</code></div>
+  <div class="page">
+    <div class="card">
+      <h1>${HEADING}</h1>
+      <p class="muted">${SUMMARY}</p>
+      <div class="grid">
+        <div class="label">Target component</div>
+        <div><code>${TARGET_COMPONENT}</code></div>
+        <div class="label">Requested path</div>
+        <div><code>${TARGET_PATH}</code></div>
+        <div class="label">Requested host</div>
+        <div><code>${HOST}</code></div>
+        <div class="label">Generated at</div>
+        <div><code>${GENERATED_AT}</code></div>
+      </div>
+      <div class="note">
+        This HTML is served by <code>com.shellaia.renderer/html</code> because the requested component does not expose a native <code>html</code> action.
+      </div>
     </div>
-    <div class="note">
-      This HTML is served by <code>com.shellaia.renderer/html</code> because the requested component does not expose a native <code>html</code> action.
+
+    <div class="bridge">
+      <div class="bridge-head">
+        <span class="pill">Webview Bridge</span>
+        <span id="bridge-state" class="pill">checking...</span>
+        <button id="bridge-start" class="btn" type="button">Start feed</button>
+        <button id="bridge-clear" class="btn secondary" type="button">Clear</button>
+      </div>
+      <div class="muted" style="margin:0 0 10px 0;">
+        This renderer auto-subscribes to all AIATP events and responses (when supported by the Flutter webview bridge)
+        and appends them to a growing feed.
+      </div>
+      <div id="feed" class="feed">Waiting...</div>
     </div>
   </div>
+
+  <script>
+    (function () {
+      var feed = document.getElementById('feed');
+      var state = document.getElementById('bridge-state');
+      var startBtn = document.getElementById('bridge-start');
+      var clearBtn = document.getElementById('bridge-clear');
+      var started = false;
+
+      function bridgeAvailable() {
+        return !!(window.todero && typeof window.todero.subscribe === 'function');
+      }
+
+      function render(v) {
+        if (v === undefined) return 'undefined';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return v;
+        try { return JSON.stringify(v, null, 2); } catch (_) { return String(v); }
+      }
+
+      function append(line) {
+        var now = new Date().toISOString();
+        var next = '[' + now + '] ' + line;
+        if (!feed.textContent || feed.textContent === 'Waiting...') {
+          feed.textContent = next;
+        } else {
+          feed.textContent = feed.textContent + '\n' + next;
+        }
+        feed.scrollTop = feed.scrollHeight;
+      }
+
+      function setState() {
+        state.textContent = bridgeAvailable() ? 'bridge: ready' : 'bridge: unavailable';
+      }
+
+      function start() {
+        if (started) return;
+        started = true;
+        setState();
+        if (!bridgeAvailable()) {
+          append('bridge unavailable: cannot subscribe');
+          return;
+        }
+        // Subscribe to all events and all responses.
+        window.todero.subscribe({ kind: 'event' }).then(function (res) {
+          append('subscribed events: ' + render(res));
+        }).catch(function (e) {
+          append('subscribe events failed: ' + e);
+        });
+        window.todero.subscribe({ kind: 'response' }).then(function (res) {
+          append('subscribed responses: ' + render(res));
+        }).catch(function (e) {
+          append('subscribe responses failed: ' + e);
+        });
+        append('feed started');
+      }
+
+      window.__todero_onAiatpMessage = function (payload) {
+        // Payload is shaped by Flutter: { kind, receivedAtMs, event|response, context, ... }.
+        try {
+          if (!payload || typeof payload !== 'object') {
+            append('inbound: ' + render(payload));
+            return;
+          }
+          if (payload.kind === 'event' && payload.event) {
+            var ev = payload.event;
+            append('event scope=' + ev.scope + ' channel=' + ev.channel + ' body=' + render((ev.body || {}).text));
+            return;
+          }
+          if (payload.kind === 'response' && payload.response) {
+            var r = payload.response;
+            append('response status=' + r.statusCode + ' body=' + render((r.body || {}).text));
+            return;
+          }
+          append('inbound: ' + render(payload));
+        } catch (e) {
+          append('inbound handler error: ' + e);
+        }
+      };
+
+      startBtn.addEventListener('click', start);
+      clearBtn.addEventListener('click', function () { feed.textContent = 'Waiting...'; });
+      setState();
+      // Autostart after a short delay to allow the bridge shim to inject.
+      setTimeout(start, 250);
+    })();
+  </script>
 </body>
 </html>

@@ -17,7 +17,7 @@ import java.time.Instant;
 @AIAController(
     name = "com.shellaia.renderer",
     type = ServerType.AIA,
-    visible = false,
+    visible = true,
     description = "Fallback HTML renderer for components without native html actions"
 )
 public class RendererComponent {
