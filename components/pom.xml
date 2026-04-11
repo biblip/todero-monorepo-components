@@ -38,6 +38,7 @@
     <module>contacts-component</module>
     <module>dashboard-planner-component</module>
     <module>email-component</module>
+    <module>renderer-component</module>
     <module>simple-component</module>
     <module>ssh-component</module>
     <module>task-manager-component</module>

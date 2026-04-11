@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${TITLE}</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Arial, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #f5f7fb;
+      color: #1f2937;
+    }
+    .card {
+      max-width: 900px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #dbe3ef;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 28px;
+    }
+    p {
+      margin: 0 0 16px 0;
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 10px 16px;
+      margin-top: 20px;
+    }
+    .label {
+      font-weight: 700;
+    }
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+    .muted {
+      color: #475569;
+    }
+    .note {
+      margin-top: 24px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: #eef6ff;
+      border: 1px solid #bfdbfe;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${HEADING}</h1>
+    <p class="muted">${SUMMARY}</p>
+    <div class="grid">
+      <div class="label">Target component</div>
+      <div><code>${TARGET_COMPONENT}</code></div>
+      <div class="label">Requested path</div>
+      <div><code>${TARGET_PATH}</code></div>
+      <div class="label">Requested host</div>
+      <div><code>${HOST}</code></div>
+      <div class="label">Generated at</div>
+      <div><code>${GENERATED_AT}</code></div>
+    </div>
+    <div class="note">
+      This HTML is served by <code>com.shellaia.renderer/html</code> because the requested component does not expose a native <code>html</code> action.
+    </div>
+  </div>
+</body>
+</html>
