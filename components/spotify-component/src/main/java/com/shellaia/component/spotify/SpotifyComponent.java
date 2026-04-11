@@ -319,12 +319,14 @@ public class SpotifyComponent {
     String heading = host == null || host.isBlank()
         ? title
         : title + " (" + escapeHtml(host) + ")";
+    String generatedAt = Instant.now().toString();
     String notReadyBlock = ok
         ? ""
         : "<div class=\"muted warn\">Not ready: " + escapeHtml(trimToEmpty(readinessHint)) + "</div>";
     String html = COMPONENT_HTML_TEMPLATE
         .replace("${TITLE}", escapeHtml(title))
         .replace("${HEADING}", heading)
+        .replace("${GENERATED_AT}", escapeHtml(generatedAt))
         .replace("${NOT_READY_BLOCK}", notReadyBlock)
         .replace("${AUTH_STATUS}", escapeHtml(authStatus));
 

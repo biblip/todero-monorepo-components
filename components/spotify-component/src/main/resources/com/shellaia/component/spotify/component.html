@@ -14,12 +14,21 @@
     .actions{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;}
     .pill{display:inline-block;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px;font-size:12px;color:#0f172a;text-decoration:none;}
     .warn{margin-top:6px;color:#b91c1c;}
+    .playground{margin-top:16px;}
+    .playground-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .input{flex:1 1 420px;border:1px solid #cbd5e1;border-radius:10px;padding:10px 12px;font-size:14px;}
+    .button{border:1px solid #0f172a;background:#0f172a;color:#ffffff;border-radius:10px;padding:10px 14px;font-size:13px;cursor:pointer;}
+    .button:hover{background:#1e293b;}
+    .result{margin-top:10px;min-height:48px;}
+    .link-row{margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+    .link{color:#2563eb;text-decoration:underline;word-break:break-all;}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>${HEADING}</h1>
     <div class="muted">This page is served by com.shellaia.spotify/html.</div>
+    <div class="muted">Generated at ${GENERATED_AT}</div>
     ${NOT_READY_BLOCK}
 
     <h2 style="font-size:14px;margin:14px 0 8px 0;">Auth Status</h2>
@@ -32,6 +41,107 @@
       <span class="pill">play</span>
       <span class="pill">volume</span>
     </div>
+
+    <div class="playground">
+      <h2 style="font-size:14px;margin:14px 0 8px 0;">JavaScript Playground</h2>
+      <div class="muted">Runs JavaScript in this page context.</div>
+      <div class="playground-row" style="margin-top:8px;">
+        <input id="js-input" class="input" type="text" placeholder="document.title" />
+        <button id="js-run" class="button" type="button">Run JavaScript</button>
+      </div>
+      <pre class="result"><code id="js-result">Ready.</code></pre>
+    </div>
+
+    <div class="playground">
+      <h2 style="font-size:14px;margin:14px 0 8px 0;">URL Launcher</h2>
+      <div class="muted">Updates an HTML link and opens the same URL with JavaScript.</div>
+      <div class="playground-row" style="margin-top:8px;">
+        <input id="url-input" class="input" type="text" placeholder="https://open.spotify.com/" />
+        <button id="url-open" class="button" type="button">Open via JavaScript</button>
+      </div>
+      <div class="link-row">
+        <a id="url-link" class="link" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Open via HTML link</a>
+      </div>
+      <pre class="result"><code id="url-result">Ready.</code></pre>
+    </div>
   </div>
+  <script>
+    (function () {
+      var input = document.getElementById('js-input');
+      var result = document.getElementById('js-result');
+      var button = document.getElementById('js-run');
+      var urlInput = document.getElementById('url-input');
+      var urlLink = document.getElementById('url-link');
+      var urlButton = document.getElementById('url-open');
+      var urlResult = document.getElementById('url-result');
+
+      function render(value) {
+        if (value === undefined) {
+          return 'undefined';
+        }
+        if (typeof value === 'string') {
+          return value;
+        }
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch (_) {
+          return String(value);
+        }
+      }
+
+      function execute() {
+        var source = input.value.trim();
+        if (!source) {
+          result.textContent = 'Enter JavaScript to execute.';
+          return;
+        }
+        try {
+          var value = Function('"use strict"; return (' + source + ');')();
+          result.textContent = render(value);
+        } catch (expressionError) {
+          try {
+            var effectValue = Function('"use strict"; ' + source)();
+            result.textContent = render(effectValue);
+          } catch (statementError) {
+            result.textContent = 'Error: ' + statementError;
+          }
+        }
+      }
+
+      function syncUrl() {
+        var raw = urlInput.value.trim();
+        var nextUrl = raw || 'https://open.spotify.com/';
+        urlLink.href = nextUrl;
+        urlLink.textContent = 'Open via HTML link';
+        urlResult.textContent = 'Current URL: ' + nextUrl;
+        return nextUrl;
+      }
+
+      function openUrl() {
+        var nextUrl = syncUrl();
+        try {
+          window.open(nextUrl, '_blank', 'noopener');
+          urlResult.textContent = 'Opened via JavaScript: ' + nextUrl;
+        } catch (error) {
+          urlResult.textContent = 'Error: ' + error;
+        }
+      }
+
+      button.addEventListener('click', execute);
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          execute();
+        }
+      });
+      urlInput.addEventListener('input', syncUrl);
+      urlInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          openUrl();
+        }
+      });
+      urlButton.addEventListener('click', openUrl);
+      syncUrl();
+    }());
+  </script>
 </body>
 </html>
