@@ -16,6 +16,7 @@ public final class SpotifyToolCapabilities implements ToolCapabilityProvider {
         .commands(List.of(
             cmd("events", "Manage playback event streaming and optional DJ notifications."),
             cmd("html", "Render an HTML page representing this component."),
+            cmd("emit", "Emit a demo AIATP event on a selected channel (chat|html|thought)."),
             cmd("auth-status", "Inspect delegated Spotify authorization state."),
             cmd("auth-begin", "Begin delegated Spotify authorization."),
             cmd("auth-complete", "Complete delegated Spotify authorization."),

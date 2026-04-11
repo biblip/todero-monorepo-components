@@ -344,6 +344,49 @@ public class SpotifyComponent {
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
+      command = "emit",
+      description = "Emit a demo AIATP event on the requested channel (chat|html|thought). Usage: emit?channel=chat|html|thought&message=<text>")
+  public Boolean emitCommand(CommandContext context) {
+    String args = readArgs(context);
+    Map<String, String> query = readQueryArgs(context);
+    String channel = value(query, "channel", "c");
+    String message = value(query, "message", "m");
+    if (channel == null || channel.isBlank()) {
+      channel = "chat";
+    }
+    channel = channel.trim().toLowerCase(Locale.ROOT);
+    if (!channel.equals("chat") && !channel.equals("html") && !channel.equals("thought")) {
+      return usage(context, args, "emit", "emit?channel=chat|html|thought&message=hello");
+    }
+    if (message == null || message.isBlank()) {
+      message = "demo message from com.shellaia.spotify/emit channel=" + channel + " at " + Instant.now();
+    }
+
+    String contentType = "text/plain; charset=utf-8";
+    byte[] payload = message.getBytes(StandardCharsets.UTF_8);
+    if (channel.equals("html")) {
+      contentType = "text/html; charset=utf-8";
+      String html = "<!doctype html><html><body style=\"font-family:system-ui;\">"
+          + "<h3>Spotify emit(html)</h3>"
+          + "<div><b>Message:</b> " + escapeHtml(message) + "</div>"
+          + "<div class=\"muted\">Generated at " + escapeHtml(Instant.now().toString()) + "</div>"
+          + "</body></html>";
+      payload = html.getBytes(StandardCharsets.UTF_8);
+    }
+
+    // Use one registered event name while letting the channel vary.
+    context.emitCustom(
+        SpotifyEvent.BRIDGE_DEMO.name(),
+        channel,
+        contentType,
+        payload,
+        "progress"
+    );
+
+    return respond(context, "emit", args, "Emitted event name=" + SpotifyEvent.BRIDGE_DEMO.name() + " channel=" + channel);
+  }
+
+  @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "auth-begin",
       description = "Start delegated Spotify auth session. Usage: auth-begin [redirect-profile=app|console] [owner=<binding>]")
   public Boolean authBeginCommand(CommandContext context) {
@@ -1647,8 +1690,10 @@ public class SpotifyComponent {
     status("Built-in status channel event"),
     chat("Build-in chat channel event"),
     html("Built-in html channel event"),
+    thought("Arbitrary thought channel event (demo)"),
     auth("Built-in auth channel event"),
     error("Built-in error channel event"),
+    BRIDGE_DEMO("Webview bridge demo event (channel is controlled by caller)"),
     PLAYBACK_STATUS("Periodic Spotify playback status event (legacy text mode)"),
     PLAYBACK_EVENT_V2("Typed Spotify playback event stream with state and delta payload");
 

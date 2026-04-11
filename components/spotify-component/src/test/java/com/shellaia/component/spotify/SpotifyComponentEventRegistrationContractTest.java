@@ -16,8 +16,10 @@ class SpotifyComponentEventRegistrationContractTest {
         "chat",
         "status",
         "html",
+        "thought",
         "auth",
         "error",
+        "BRIDGE_DEMO",
         "PLAYBACK_STATUS",
         "PLAYBACK_EVENT_V2"
     );

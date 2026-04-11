@@ -22,6 +22,11 @@
     .result{margin-top:10px;min-height:48px;}
     .link-row{margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
     .link{color:#2563eb;text-decoration:underline;word-break:break-all;}
+    .grid{margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;}
+    .kv{border:1px solid #e2e8f0;border-radius:12px;padding:10px 12px;background:#ffffff;}
+    .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin-bottom:6px;font-weight:700;}
+    .v{font-size:13px;word-break:break-word;color:#0f172a;}
+    .log{max-height:240px;overflow:auto;}
   </style>
 </head>
 <body>
@@ -53,6 +58,55 @@
     </div>
 
     <div class="playground">
+      <h2 style="font-size:14px;margin:14px 0 8px 0;">Todero Webview Bridge (AIATP)</h2>
+      <div class="muted">Showcase: subscribe to events/responses and call actions via Flutter.</div>
+      <div class="grid">
+        <div class="kv">
+          <div class="k">Bridge Detected</div>
+          <div id="bridge-present" class="v">Checking...</div>
+        </div>
+        <div class="kv">
+          <div class="k">Active Context</div>
+          <div id="bridge-context" class="v">Loading...</div>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:10px;">
+        <button id="bridge-refresh" class="button" type="button">Refresh Context</button>
+        <button id="bridge-subscribe-events" class="button" type="button">Subscribe: all events</button>
+        <button id="bridge-subscribe-responses" class="button" type="button">Subscribe: all responses</button>
+        <button id="bridge-subscribe-chat" class="button" type="button">Subscribe: chat channel</button>
+        <button id="bridge-subscribe-html" class="button" type="button">Subscribe: html channel</button>
+        <button id="bridge-subscribe-thought" class="button" type="button">Subscribe: thought channel</button>
+        <button id="bridge-clear" class="button" type="button">Clear subscriptions</button>
+      </div>
+      <div class="playground" style="margin-top:12px;">
+        <h2 style="font-size:14px;margin:14px 0 8px 0;">Call Action</h2>
+        <div class="muted">Action runs only on the active tab component. Params become query params.</div>
+        <div class="playground-row" style="margin-top:8px;">
+          <input id="call-action" class="input" type="text" placeholder="status | play | volume | auth-begin | auth-status" />
+          <button id="call-run" class="button" type="button">Call</button>
+        </div>
+        <div class="actions" style="margin-top:10px;">
+          <button id="emit-chat" class="button" type="button">Emit(chat)</button>
+          <button id="emit-html" class="button" type="button">Emit(html)</button>
+          <button id="emit-thought" class="button" type="button">Emit(thought)</button>
+        </div>
+        <div class="playground-row" style="margin-top:8px;">
+          <input id="call-params" class="input" type="text" placeholder='Params JSON (optional), e.g. {"q":"enya","limit":5}' />
+        </div>
+        <div class="playground-row" style="margin-top:8px;">
+          <input id="call-body" class="input" type="text" placeholder="Body (optional), e.g. Enya Caribbean Blue" />
+        </div>
+        <pre class="result"><code id="call-result">Ready.</code></pre>
+      </div>
+      <div class="playground" style="margin-top:12px;">
+        <h2 style="font-size:14px;margin:14px 0 8px 0;">Inbound Feed</h2>
+        <div class="muted">Messages arrive only for the active tab connection, and only when subscribed.</div>
+        <pre class="result log"><code id="bridge-log">Waiting...</code></pre>
+      </div>
+    </div>
+
+    <div class="playground">
       <h2 style="font-size:14px;margin:14px 0 8px 0;">URL Launcher</h2>
       <div class="muted">Updates an HTML link and opens the same URL with JavaScript.</div>
       <div class="playground-row" style="margin-top:8px;">
@@ -74,6 +128,24 @@
       var urlLink = document.getElementById('url-link');
       var urlButton = document.getElementById('url-open');
       var urlResult = document.getElementById('url-result');
+      var bridgePresent = document.getElementById('bridge-present');
+      var bridgeContext = document.getElementById('bridge-context');
+      var bridgeRefresh = document.getElementById('bridge-refresh');
+      var bridgeSubEvents = document.getElementById('bridge-subscribe-events');
+      var bridgeSubResponses = document.getElementById('bridge-subscribe-responses');
+      var bridgeSubChat = document.getElementById('bridge-subscribe-chat');
+      var bridgeSubHtml = document.getElementById('bridge-subscribe-html');
+      var bridgeSubThought = document.getElementById('bridge-subscribe-thought');
+      var bridgeClear = document.getElementById('bridge-clear');
+      var bridgeLog = document.getElementById('bridge-log');
+      var callAction = document.getElementById('call-action');
+      var callParams = document.getElementById('call-params');
+      var callBody = document.getElementById('call-body');
+      var callRun = document.getElementById('call-run');
+      var callResult = document.getElementById('call-result');
+      var emitChatBtn = document.getElementById('emit-chat');
+      var emitHtmlBtn = document.getElementById('emit-html');
+      var emitThoughtBtn = document.getElementById('emit-thought');
 
       function render(value) {
         if (value === undefined) {
@@ -87,6 +159,17 @@
         } catch (_) {
           return String(value);
         }
+      }
+
+      function appendLog(line) {
+        var now = new Date().toISOString();
+        var next = '[' + now + '] ' + line;
+        if (!bridgeLog.textContent || bridgeLog.textContent === 'Waiting...') {
+          bridgeLog.textContent = next;
+        } else {
+          bridgeLog.textContent = bridgeLog.textContent + '\n' + next;
+        }
+        bridgeLog.scrollTop = bridgeLog.scrollHeight;
       }
 
       function execute() {
@@ -107,6 +190,134 @@
           }
         }
       }
+
+      function bridgeAvailable() {
+        return !!(window.todero && typeof window.todero.getContext === 'function');
+      }
+
+      function setBridgePresent() {
+        bridgePresent.textContent = bridgeAvailable() ? 'yes (window.todero)' : 'no';
+      }
+
+      function refreshBridgeContext() {
+        setBridgePresent();
+        if (!bridgeAvailable()) {
+          bridgeContext.textContent = 'n/a (bridge not present)';
+          return Promise.resolve();
+        }
+        return window.todero.getContext().then(function (ctx) {
+          bridgeContext.textContent = render(ctx);
+        }).catch(function (e) {
+          bridgeContext.textContent = 'Error: ' + e;
+        });
+      }
+
+      function subscribe(filter) {
+        if (!bridgeAvailable()) {
+          appendLog('bridge not available: cannot subscribe');
+          return;
+        }
+        window.todero.subscribe(filter).then(function (res) {
+          appendLog('subscribe ok id=' + (res && res.id ? res.id : 'n/a') + ' filter=' + render(filter));
+        }).catch(function (e) {
+          appendLog('subscribe error: ' + e);
+        });
+      }
+
+      function clearSubscriptions() {
+        if (!bridgeAvailable()) {
+          appendLog('bridge not available: cannot clear');
+          return;
+        }
+        window.todero.clearSubscriptions().then(function () {
+          appendLog('subscriptions cleared');
+        }).catch(function (e) {
+          appendLog('clearSubscriptions error: ' + e);
+        });
+      }
+
+      function parseParamsJson() {
+        var raw = (callParams.value || '').trim();
+        if (!raw) return null;
+        try {
+          return JSON.parse(raw);
+        } catch (e) {
+          throw new Error('Params must be valid JSON. Example: {"q":"enya","limit":5}');
+        }
+      }
+
+      function doCallAction() {
+        callResult.textContent = 'Calling...';
+        if (!bridgeAvailable()) {
+          callResult.textContent = 'Bridge not available (window.todero missing).';
+          return;
+        }
+        var action = (callAction.value || '').trim();
+        if (!action) {
+          callResult.textContent = 'Action is required.';
+          return;
+        }
+        var params;
+        try {
+          params = parseParamsJson();
+        } catch (e) {
+          callResult.textContent = 'Error: ' + e.message;
+          return;
+        }
+        var body = (callBody.value || '');
+        window.todero.callAction({
+          action: action,
+          params: params,
+          body: body
+        }).then(function (res) {
+          callResult.textContent = render(res);
+          appendLog('callAction resolved action=' + action + ' status=' + (res && res.response ? res.response.statusCode : 'n/a'));
+        }).catch(function (e) {
+          callResult.textContent = 'Error: ' + e;
+          appendLog('callAction error: ' + e);
+        });
+      }
+
+      function emitDemo(channel) {
+        if (!bridgeAvailable()) {
+          appendLog('bridge not available: cannot emit');
+          return;
+        }
+        window.todero.callAction({
+          action: 'emit',
+          params: { channel: channel, message: 'hello from spotify html emit(' + channel + ')' },
+          body: ''
+        }).then(function (res) {
+          appendLog('emit(' + channel + ') -> ' + render(res && res.response ? res.response.statusCode : res));
+        }).catch(function (e) {
+          appendLog('emit(' + channel + ') error: ' + e);
+        });
+      }
+
+      // Inbound messages from Flutter arrive here.
+      window.__todero_onAiatpMessage = function (payload) {
+        try {
+          var kind = payload && payload.kind ? payload.kind : 'unknown';
+          if (kind === 'event' && payload.event) {
+            appendLog(
+              'event scope=' + payload.event.scope +
+              ' channel=' + payload.event.channel +
+              ' contentType=' + ((payload.event.body && payload.event.body.contentType) || 'n/a') +
+              ' body=' + render(payload.event.body ? payload.event.body.text : null)
+            );
+          } else if (kind === 'response' && payload.response) {
+            appendLog(
+              'response status=' + payload.response.statusCode +
+              ' reason=' + payload.response.reasonPhrase +
+              ' body=' + render(payload.response.body ? payload.response.body.text : null)
+            );
+          } else {
+            appendLog('message ' + render(payload));
+          }
+        } catch (e) {
+          appendLog('onAiatpMessage error: ' + e);
+        }
+      };
 
       function syncUrl() {
         var raw = urlInput.value.trim();
@@ -133,6 +344,38 @@
           execute();
         }
       });
+      bridgeRefresh.addEventListener('click', function () {
+        refreshBridgeContext();
+      });
+      bridgeSubEvents.addEventListener('click', function () {
+        subscribe({ kind: 'event' });
+      });
+      bridgeSubResponses.addEventListener('click', function () {
+        subscribe({ kind: 'response' });
+      });
+      bridgeSubChat.addEventListener('click', function () {
+        subscribe({ kind: 'event', channel: 'chat' });
+      });
+      bridgeSubHtml.addEventListener('click', function () {
+        subscribe({ kind: 'event', channel: 'html' });
+      });
+      bridgeSubThought.addEventListener('click', function () {
+        subscribe({ kind: 'event', channel: 'thought' });
+      });
+      bridgeClear.addEventListener('click', function () {
+        clearSubscriptions();
+      });
+      callRun.addEventListener('click', function () {
+        doCallAction();
+      });
+      callAction.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          doCallAction();
+        }
+      });
+      emitChatBtn.addEventListener('click', function () { emitDemo('chat'); });
+      emitHtmlBtn.addEventListener('click', function () { emitDemo('html'); });
+      emitThoughtBtn.addEventListener('click', function () { emitDemo('thought'); });
       urlInput.addEventListener('input', syncUrl);
       urlInput.addEventListener('keydown', function (event) {
         if (event.key === 'Enter') {
@@ -141,6 +384,8 @@
       });
       urlButton.addEventListener('click', openUrl);
       syncUrl();
+      setBridgePresent();
+      refreshBridgeContext();
     }());
   </script>
 </body>
