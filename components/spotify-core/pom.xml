@@ -13,6 +13,11 @@
   <packaging>jar</packaging>
   <name>spotify-core</name>
 
+  <properties>
+    <!-- This module is a library (not installable as a runtime component). -->
+    <todero.runtime.kind>library</todero.runtime.kind>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.social100.todero</groupId>
