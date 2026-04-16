@@ -4,6 +4,10 @@ package com.shellaia.component.simple;
 import com.social100.processor.AIAController;
 import com.social100.processor.Action;
 import com.social100.todero.common.ai.timer.BackgroundTaskRunner;
+import com.social100.todero.common.clock.AlarmInfo;
+import com.social100.todero.common.clock.AlarmScheduleRequest;
+import com.social100.todero.common.clock.ClockConfig;
+import com.social100.todero.common.clock.WakeupHandler;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.aiatpio.AiatpIO;
@@ -12,17 +16,24 @@ import com.social100.todero.processor.EventDefinition;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 @AIAController(name = "com.shellaia.simple",
     type = ServerType.AIA,
     visible = true,
     description = "Simple Component",
     events = SimpleComponent.SimpleEvent.class)
-public class SimpleComponent {
+public class SimpleComponent implements WakeupHandler {
   final static String MAIN_GROUP = "Main";
   private CommandContext globalContext = null;
   BackgroundTaskRunner backgroundTaskRunner = null;
+  private final AtomicLong liveWakeupCount = new AtomicLong(0L);
+  private volatile Instant lastLiveWakeupAt;
+  private volatile String lastAlarmMessage = "";
+  private volatile Instant lastAlarmAt;
 
   public SimpleComponent(Storage storage) {
   }
@@ -108,7 +119,134 @@ public class SimpleComponent {
     return true;
   }
 
+  @Action(group = MAIN_GROUP,
+      command = "clock_status",
+      description = "Shows current clock config, alarms, and last wakeup/alarm observations")
+  public Boolean clockStatus(CommandContext context) {
+    ClockConfig config = context.clock().getConfig();
+    List<AlarmInfo> alarms = context.clock().listAlarms();
+    String message = "{"
+        + "\"config\":{"
+        + "\"enabled\":" + config.enabled() + ","
+        + "\"liveEnabled\":" + config.liveEnabled() + ","
+        + "\"liveIntervalMs\":" + config.liveIntervalMs()
+        + "},"
+        + "\"liveWakeupCount\":" + liveWakeupCount.get() + ","
+        + "\"lastLiveWakeupAt\":" + quoteJson(lastLiveWakeupAt == null ? "" : lastLiveWakeupAt.toString()) + ","
+        + "\"lastAlarmAt\":" + quoteJson(lastAlarmAt == null ? "" : lastAlarmAt.toString()) + ","
+        + "\"lastAlarmMessage\":" + quoteJson(lastAlarmMessage) + ","
+        + "\"alarms\":" + alarmsToJson(alarms)
+        + "}";
+    respondText(context, 200, message);
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "clock_live_on",
+      description = "Enables live wakeups. Usage body: optional intervalMs, default 5000")
+  public Boolean clockLiveOn(CommandContext context) {
+    long intervalMs = parseLongOrDefault(requestBody(context), 5000L);
+    context.clock().setConfig(new ClockConfig(true, true, Math.max(1L, intervalMs)));
+    respondText(context, 200, "clock live enabled intervalMs=" + Math.max(1L, intervalMs));
+    System.out.println("clock_live_on, setting things up");
+    context.emitChat("simple live wakeup starting", "progress");
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "clock_live_off",
+      description = "Disables all clock activity for this component")
+  public Boolean clockLiveOff(CommandContext context) {
+    context.clock().setConfig(ClockConfig.disabled());
+    respondText(context, 200, "clock disabled for com.shellaia.simple");
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "clock_alarm_after",
+      description = "Schedules one alarm. Query params: delayMs, action(optional). Body becomes alarm message")
+  public Boolean clockAlarmAfter(CommandContext context) {
+    context.clock().setConfig(ensureClockEnabled(context.clock().getConfig()));
+    long delayMs = queryLong(context, "delayMs", 5000L);
+    String action = queryString(context, "action", "clock_alarm_target");
+    String body = requestBody(context);
+    String alarmId = context.clock().scheduleAlarm(new AlarmScheduleRequest(
+        action,
+        body == null || body.isBlank() ? "simple one-shot alarm" : body,
+        null,
+        delayMs,
+        null,
+        Map.of(),
+        true
+    ));
+    respondText(context, 200, "scheduled one-shot alarmId=" + alarmId + " delayMs=" + delayMs + " action=" + action);
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "clock_alarm_every",
+      description = "Schedules a recurring alarm. Query params: everyMs(required), delayMs(optional), action(optional)")
+  public Boolean clockAlarmEvery(CommandContext context) {
+    context.clock().setConfig(ensureClockEnabled(context.clock().getConfig()));
+    long everyMs = queryLong(context, "everyMs", 10000L);
+    long delayMs = queryLong(context, "delayMs", everyMs);
+    String action = queryString(context, "action", "clock_alarm_target");
+    String body = requestBody(context);
+    String alarmId = context.clock().scheduleAlarm(new AlarmScheduleRequest(
+        action,
+        body == null || body.isBlank() ? "simple recurring alarm" : body,
+        null,
+        delayMs,
+        Math.max(1L, everyMs),
+        Map.of(),
+        true
+    ));
+    respondText(context, 200, "scheduled recurring alarmId=" + alarmId
+        + " delayMs=" + delayMs + " everyMs=" + Math.max(1L, everyMs) + " action=" + action);
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "clock_alarm_list",
+      description = "Lists alarms owned by this component")
+  public Boolean clockAlarmList(CommandContext context) {
+    respondText(context, 200, alarmsToJson(context.clock().listAlarms()));
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "clock_alarm_cancel",
+      description = "Cancels one alarm. Usage body: alarmId")
+  public Boolean clockAlarmCancel(CommandContext context) {
+    String alarmId = requestBody(context).trim();
+    boolean cancelled = !alarmId.isEmpty() && context.clock().cancelAlarm(alarmId);
+    respondText(context, cancelled ? 200 : 404,
+        cancelled ? "cancelled alarmId=" + alarmId : "alarm not found: " + alarmId);
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "clock_alarm_target",
+      description = "Target action used by the simple clock examples")
+  public Boolean clockAlarmTarget(CommandContext context) {
+    String body = requestBody(context);
+    lastAlarmMessage = body == null ? "" : body;
+    lastAlarmAt = Instant.now();
+    context.emitChat("simple alarm fired: " + lastAlarmMessage, "progress");
+    respondText(context, 200, "alarm target executed message=" + lastAlarmMessage);
+    return true;
+  }
+
+  @Override
+  public void onLiveWakeup(CommandContext context) {
+    long count = liveWakeupCount.incrementAndGet();
+    lastLiveWakeupAt = Instant.now();
+    System.out.println("simple live wakeup #" + count + "  progress");
+    context.emitChat("simple live wakeup #" + count, "progress");
+  }
+
   public enum SimpleEvent implements EventDefinition {
+    chat("Build-in chat event"),
     SIMPLE_EVENT("A event to demo"),
     OTHER_EVENT("Other event to demo");
 
@@ -131,6 +269,56 @@ public class SimpleComponent {
     }
     String body = AiatpIO.bodyToString(context.getAiatpRequest().getBody(), StandardCharsets.UTF_8);
     return body == null ? "" : body;
+  }
+
+  private static ClockConfig ensureClockEnabled(ClockConfig current) {
+    if (current != null && current.enabled()) {
+      return current;
+    }
+    return ClockConfig.liveOnly(5000L);
+  }
+
+  private static String queryString(CommandContext context, String key, String fallback) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getQueryParams() == null) {
+      return fallback;
+    }
+    String value = context.getAiatpRequest().getQueryParams().getFirst(key);
+    return value == null || value.isBlank() ? fallback : value.trim();
+  }
+
+  private static long queryLong(CommandContext context, String key, long fallback) {
+    return parseLongOrDefault(queryString(context, key, Long.toString(fallback)), fallback);
+  }
+
+  private static long parseLongOrDefault(String raw, long fallback) {
+    if (raw == null || raw.isBlank()) {
+      return fallback;
+    }
+    try {
+      return Long.parseLong(raw.trim());
+    } catch (NumberFormatException ignored) {
+      return fallback;
+    }
+  }
+
+  private static String alarmsToJson(List<AlarmInfo> alarms) {
+    StringBuilder out = new StringBuilder("[");
+    for (int i = 0; i < alarms.size(); i++) {
+      AlarmInfo alarm = alarms.get(i);
+      if (i > 0) {
+        out.append(',');
+      }
+      out.append('{')
+          .append("\"alarmId\":").append(quoteJson(alarm.alarmId())).append(',')
+          .append("\"action\":").append(quoteJson(alarm.action())).append(',')
+          .append("\"message\":").append(quoteJson(alarm.message())).append(',')
+          .append("\"nextFireAt\":").append(quoteJson(alarm.nextFireAt() == null ? "" : alarm.nextFireAt().toString())).append(',')
+          .append("\"everyMs\":").append(alarm.everyMs() == null ? "null" : alarm.everyMs()).append(',')
+          .append("\"enabled\":").append(alarm.enabled())
+          .append('}');
+    }
+    out.append(']');
+    return out.toString();
   }
 
   private static void respondText(CommandContext context, int status, String message) {
