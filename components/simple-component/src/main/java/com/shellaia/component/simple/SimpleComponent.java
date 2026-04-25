@@ -142,30 +142,34 @@ public class SimpleComponent implements WakeupHandler {
   }
 
   @Action(group = MAIN_GROUP,
-      command = "clock_live_on",
-      description = "Enables live wakeups. Usage body: optional intervalMs, default 5000")
-  public Boolean clockLiveOn(CommandContext context) {
-    long intervalMs = parseLongOrDefault(requestBody(context), 5000L);
+      command = "wakeup_on",
+      description = "Enables live wakeups. Usage body: optional intervalMs, default 60000")
+  public Boolean wakeupOn(CommandContext context) {
+    long intervalMs = parseLongOrDefault(requestBody(context), 60000L);
     context.clock().setConfig(new ClockConfig(true, true, Math.max(1L, intervalMs)));
-    respondText(context, 200, "clock live enabled intervalMs=" + Math.max(1L, intervalMs));
-    System.out.println("clock_live_on, setting things up");
+    respondText(context, 200, "wakeup enabled intervalMs=" + Math.max(1L, intervalMs));
+    System.out.println("wakeup_on, setting things up");
     context.emitChat("simple live wakeup starting", "progress");
+    globalContext = context;
     return true;
   }
 
   @Action(group = MAIN_GROUP,
-      command = "clock_live_off",
-      description = "Disables all clock activity for this component")
-  public Boolean clockLiveOff(CommandContext context) {
-    context.clock().setConfig(ClockConfig.disabled());
-    respondText(context, 200, "clock disabled for com.shellaia.simple");
+      command = "wakeup_off",
+      description = "Disables live wakeups but leaves alarms available")
+  public Boolean wakeupOff(CommandContext context) {
+    ClockConfig current = context.clock().getConfig();
+    long intervalMs = current == null ? 60000L : Math.max(1L, current.liveIntervalMs());
+    context.clock().setConfig(new ClockConfig(true, false, intervalMs));
+    respondText(context, 200, "wakeup disabled for com.shellaia.simple");
+    globalContext = null;
     return true;
   }
 
   @Action(group = MAIN_GROUP,
-      command = "clock_alarm_after",
+      command = "alarm_after",
       description = "Schedules one alarm. Query params: delayMs, action(optional). Body becomes alarm message")
-  public Boolean clockAlarmAfter(CommandContext context) {
+  public Boolean alarmAfter(CommandContext context) {
     context.clock().setConfig(ensureClockEnabled(context.clock().getConfig()));
     long delayMs = queryLong(context, "delayMs", 5000L);
     String action = queryString(context, "action", "clock_alarm_target");
@@ -184,9 +188,9 @@ public class SimpleComponent implements WakeupHandler {
   }
 
   @Action(group = MAIN_GROUP,
-      command = "clock_alarm_every",
+      command = "alarm_every",
       description = "Schedules a recurring alarm. Query params: everyMs(required), delayMs(optional), action(optional)")
-  public Boolean clockAlarmEvery(CommandContext context) {
+  public Boolean alarmEvery(CommandContext context) {
     context.clock().setConfig(ensureClockEnabled(context.clock().getConfig()));
     long everyMs = queryLong(context, "everyMs", 10000L);
     long delayMs = queryLong(context, "delayMs", everyMs);
@@ -207,17 +211,17 @@ public class SimpleComponent implements WakeupHandler {
   }
 
   @Action(group = MAIN_GROUP,
-      command = "clock_alarm_list",
+      command = "alarm_list",
       description = "Lists alarms owned by this component")
-  public Boolean clockAlarmList(CommandContext context) {
+  public Boolean alarmList(CommandContext context) {
     respondText(context, 200, alarmsToJson(context.clock().listAlarms()));
     return true;
   }
 
   @Action(group = MAIN_GROUP,
-      command = "clock_alarm_cancel",
+      command = "alarm_cancel",
       description = "Cancels one alarm. Usage body: alarmId")
-  public Boolean clockAlarmCancel(CommandContext context) {
+  public Boolean alarmCancel(CommandContext context) {
     String alarmId = requestBody(context).trim();
     boolean cancelled = !alarmId.isEmpty() && context.clock().cancelAlarm(alarmId);
     respondText(context, cancelled ? 200 : 404,
@@ -232,6 +236,7 @@ public class SimpleComponent implements WakeupHandler {
     String body = requestBody(context);
     lastAlarmMessage = body == null ? "" : body;
     lastAlarmAt = Instant.now();
+    System.out.println("simple alarm fired: " + lastAlarmMessage + "   progress");
     context.emitChat("simple alarm fired: " + lastAlarmMessage, "progress");
     respondText(context, 200, "alarm target executed message=" + lastAlarmMessage);
     return true;
@@ -242,7 +247,9 @@ public class SimpleComponent implements WakeupHandler {
     long count = liveWakeupCount.incrementAndGet();
     lastLiveWakeupAt = Instant.now();
     System.out.println("simple live wakeup #" + count + "  progress");
-    context.emitChat("simple live wakeup #" + count, "progress");
+    if (globalContext != null) {
+      globalContext.emitChat("simple live wakeup #" + count, "progress");
+    }
   }
 
   public enum SimpleEvent implements EventDefinition {
@@ -275,7 +282,7 @@ public class SimpleComponent implements WakeupHandler {
     if (current != null && current.enabled()) {
       return current;
     }
-    return ClockConfig.liveOnly(5000L);
+    return new ClockConfig(true, false, 60000L);
   }
 
   private static String queryString(CommandContext context, String key, String fallback) {
