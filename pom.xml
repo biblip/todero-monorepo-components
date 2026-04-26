@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.shellaia</groupId>
   <artifactId>shellaia-components</artifactId>
-  <version>0.1.14-SNAPSHOT</version>
+  <version>0.1.16-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>shellaia-components</name>
   <modules>
@@ -13,7 +13,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
-    <nexus.baseUrl>http://localhost:8081</nexus.baseUrl>
+    <nexus.baseUrl>https://nexus.shellaia.com</nexus.baseUrl>
     <todero.version>1.0-SNAPSHOT</todero.version>
     <dotenv.version>5.2.2</dotenv.version>
     <spark.version>2.9.4</spark.version>
@@ -167,9 +167,5 @@
       <id>nexus-releases</id>
       <url>${nexus.baseUrl}/repository/maven-releases/</url>
     </repository>
-    <snapshotRepository>
-      <id>nexus-snapshots</id>
-      <url>${nexus.baseUrl}/repository/maven-snapshots/</url>
-    </snapshotRepository>
   </distributionManagement>
 </project>

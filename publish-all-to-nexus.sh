@@ -2,28 +2,29 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-nexus_root_default="$(cd "${repo_dir}/.." && pwd)/nexus"
-nexus_root="${NEXUS_PROJECT_DIR:-${nexus_root_default}}"
-nexus_host="${NEXUS_HOST:-http://localhost:8081}"
-credentials_file="${NEXUS_CREDENTIALS_FILE:-${nexus_root}/provisioning/output/ci-publisher.credentials}"
+if [[ -f "${repo_dir}/.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${repo_dir}/.env"
+fi
+nexus_host="${NEXUS_HOST:-https://nexus.shellaia.com}"
+credentials_file="${NEXUS_CREDENTIALS_FILE:-}"
 run_tests="${RUN_TESTS:-false}"
 
 usage() {
   cat <<'EOF'
 Usage: ./publish-all-to-nexus.sh [--with-tests] [--version <x.y.z>] [--dry-run]
 
-Publishes all modules in todero-monorepo-components to the local Nexus instance.
+Publishes release modules in todero-monorepo-components to the Nexus server.
 By default, the release version is derived from the root pom.xml version:
 - if the current version is x.y.z-SNAPSHOT, it publishes x.y.z
 - if the current version is x.y.z, it publishes x.y.z
-After a successful publish, the script leaves the Maven project on the next patch snapshot.
+After a successful publish, the script leaves the Maven project on the next patch snapshot locally, but it does not deploy snapshots.
 
 Environment overrides:
   CI_NEXUS_USER                  Nexus username
   CI_NEXUS_PASSWORD              Nexus password
-  NEXUS_HOST                     Defaults to http://localhost:8081
-  NEXUS_PROJECT_DIR              Defaults to ../nexus
-  NEXUS_CREDENTIALS_FILE         Defaults to ../nexus/provisioning/output/ci-publisher.credentials
+  NEXUS_HOST                     Defaults to https://nexus.shellaia.com
+  NEXUS_CREDENTIALS_FILE         Optional file with username= and password= entries
   RUN_TESTS=true                 Same as --with-tests
 EOF
 }
@@ -110,7 +111,7 @@ Dry run only.
 Current project version: ${current_project_version}
 Publish version: ${publish_version}
 Next project snapshot version: ${next_snapshot_version}
-Deploy target: distributionManagement in pom.xml via ${nexus_host}
+Deploy target: release distributionManagement in pom.xml via ${nexus_host}
 Credentials lookup path: ${credentials_file}
 EOF
   exit 0
@@ -167,22 +168,25 @@ cat > "${tmp_settings}" <<EOF
   <servers>
     <server>
       <id>nexus-releases</id>
-      <username>${nexus_user}</username>
-      <password>${nexus_secret}</password>
-    </server>
-    <server>
-      <id>nexus-snapshots</id>
-      <username>${nexus_user}</username>
-      <password>${nexus_secret}</password>
-    </server>
-    <server>
-      <id>nexus-public</id>
-      <username>${nexus_user}</username>
-      <password>${nexus_secret}</password>
+      <username>__NEXUS_USER__</username>
+      <password>__NEXUS_PASSWORD__</password>
     </server>
   </servers>
 </settings>
 EOF
+
+python3 - "${tmp_settings}" "${nexus_user}" "${nexus_secret}" <<'PY'
+import sys
+from xml.sax.saxutils import escape
+
+path, user, password = sys.argv[1:4]
+with open(path, "r", encoding="utf-8") as fh:
+    text = fh.read()
+text = text.replace("__NEXUS_USER__", escape(user))
+text = text.replace("__NEXUS_PASSWORD__", escape(password))
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text)
+PY
 
 set_version() {
   local version="$1"
@@ -222,5 +226,5 @@ restore_needed="false"
 cat <<EOF
 Published version: ${publish_version}
 Project version set to: ${next_snapshot_version}
-Deployment repositories: ${nexus_host%/}/repository/maven-releases/ and ${nexus_host%/}/repository/maven-snapshots/
+Deployment repository: ${nexus_host%/}/repository/maven-releases/
 EOF
