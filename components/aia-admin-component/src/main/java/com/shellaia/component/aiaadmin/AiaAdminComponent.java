@@ -3,6 +3,7 @@ package com.shellaia.component.aiaadmin;
 import com.social100.processor.AIAController;
 import com.social100.processor.Action;
 import com.social100.todero.common.aiatpio.AiatpIO;
+import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.base.ComponentManagerInterface;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
@@ -465,44 +466,18 @@ public class AiaAdminComponent {
 
   private static void respondText(CommandContext context, int status, String message) {
     String safeMessage = message == null ? "" : message;
-    context.completeJson(status, "{"
-        + "\"ok\":" + (status < 400) + ","
-        + "\"message\":" + quoteJson(safeMessage) + ","
-        + "\"channels\":{"
-        + "\"chat\":{\"message\":" + quoteJson(safeMessage) + "},"
-        + "\"status\":{\"message\":" + quoteJson(safeMessage) + "},"
-        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
-        + "}"
-        + "}");
+    context.complete(buildTextResponse(status, safeMessage, "text/plain; charset=utf-8"));
   }
 
-  private static String quoteJson(String value) {
-    if (value == null) {
-      return "null";
-    }
-    StringBuilder out = new StringBuilder(value.length() + 2);
-    out.append('"');
-    for (int i = 0; i < value.length(); i++) {
-      char c = value.charAt(i);
-      switch (c) {
-        case '"' -> out.append("\\\"");
-        case '\\' -> out.append("\\\\");
-        case '\b' -> out.append("\\b");
-        case '\f' -> out.append("\\f");
-        case '\n' -> out.append("\\n");
-        case '\r' -> out.append("\\r");
-        case '\t' -> out.append("\\t");
-        default -> {
-          if (c < 0x20) {
-            out.append(String.format("\\u%04x", (int) c));
-          } else {
-            out.append(c);
-          }
-        }
-      }
-    }
-    out.append('"');
-    return out.toString();
+  private static AiatpResponse buildTextResponse(int statusCode, String body, String contentType) {
+    AiatpIO.Headers headers = new AiatpIO.Headers();
+    headers.set("Content-Type", contentType);
+    return AiatpResponse.builder()
+        .statusCode(statusCode)
+        .reasonPhrase(statusCode >= 400 ? "error" : "completed")
+        .headers(headers)
+        .body(AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8))
+        .build();
   }
 
   private static String requestBody(CommandContext context) {

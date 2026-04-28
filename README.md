@@ -54,7 +54,7 @@ Publish all components, agents, preprocessors, and postprocessors to the Nexus s
 
 ```sh
 cd todero-monorepo-components
-./publish-all-to-nexus.sh
+./publish-nexus.sh
 ```
 
 Behavior:
@@ -80,15 +80,15 @@ cp .env.example .env
 set -a
 source .env
 set +a
-./publish-all-to-nexus.sh
+./publish-nexus.sh
 ```
 
 Useful options:
 
 ```sh
-./publish-all-to-nexus.sh --with-tests
-./publish-all-to-nexus.sh --version 0.1.7
-./publish-all-to-nexus.sh --dry-run
+./publish-nexus.sh --with-tests
+./publish-nexus.sh --version 0.1.7
+./publish-nexus.sh --dry-run
 ```
 
 ## Publish releases with `mvn deploy`

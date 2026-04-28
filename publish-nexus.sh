@@ -12,13 +12,18 @@ run_tests="${RUN_TESTS:-false}"
 
 usage() {
   cat <<'EOF'
-Usage: ./publish-all-to-nexus.sh [--with-tests] [--version <x.y.z>] [--dry-run]
+Usage: ./publish-nexus.sh [--release] [--with-tests] [--version <x.y.z>] [--dry-run]
 
-Publishes release modules in todero-monorepo-components to the Nexus server.
-By default, the release version is derived from the root pom.xml version:
-- if the current version is x.y.z-SNAPSHOT, it publishes x.y.z
-- if the current version is x.y.z, it publishes x.y.z
-After a successful publish, the script leaves the Maven project on the next patch snapshot locally, but it does not deploy snapshots.
+Publishes modules in todero-monorepo-components to the Nexus server.
+
+Default behavior (no flags): publish SNAPSHOTs
+  - Does not change versions.
+  - Deploys using altDeploymentRepository to ${nexus.baseUrl}/repository/maven-snapshots/
+
+Release behavior (--release): publish RELEASES
+  - If the current version is x.y.z-SNAPSHOT, it publishes x.y.z
+  - If the current version is x.y.z, it publishes x.y.z
+  - After a successful publish, leaves the Maven project on the next patch snapshot locally.
 
 Environment overrides:
   CI_NEXUS_USER                  Nexus username
@@ -31,9 +36,14 @@ EOF
 
 publish_version=""
 dry_run="false"
+mode="snapshot"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --release)
+      mode="release"
+      shift
+      ;;
     --with-tests)
       run_tests="true"
       shift
@@ -84,34 +94,44 @@ PY
 )"
 
 if [[ -z "${publish_version}" ]]; then
-  if [[ "${current_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT$ ]]; then
-    publish_version="${current_project_version%-SNAPSHOT}"
+  if [[ "${mode}" == "release" ]]; then
+    if [[ "${current_project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT$ ]]; then
+      publish_version="${current_project_version%-SNAPSHOT}"
+    else
+      publish_version="${current_project_version}"
+    fi
   else
     publish_version="${current_project_version}"
   fi
 fi
 
-if [[ ! "${publish_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Release version must look like 1.2.3. Resolved: ${publish_version}" >&2
-  exit 1
-fi
+next_snapshot_version=""
+if [[ "${mode}" == "release" ]]; then
+  if [[ ! "${publish_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Release version must look like 1.2.3. Resolved: ${publish_version}" >&2
+    exit 1
+  fi
 
-next_version="$(
-  python3 - "${publish_version}" <<'PY'
+  next_version="$(
+    python3 - "${publish_version}" <<'PY'
 import sys
 major, minor, patch = map(int, sys.argv[1].split("."))
 print(f"{major}.{minor}.{patch + 1}")
 PY
-)"
-next_snapshot_version="${next_version}-SNAPSHOT"
+  )"
+  next_snapshot_version="${next_version}-SNAPSHOT"
+fi
 
 if [[ "${dry_run}" == "true" ]]; then
   cat <<EOF
 Dry run only.
 Current project version: ${current_project_version}
 Publish version: ${publish_version}
-Next project snapshot version: ${next_snapshot_version}
-Deploy target: release distributionManagement in pom.xml via ${nexus_host}
+Mode: ${mode}
+Next project snapshot version: ${next_snapshot_version:-n/a}
+Deploy target:
+  - snapshot: ${nexus_host%/}/repository/maven-snapshots/ (altDeploymentRepository)
+  - release: ${nexus_host%/}/repository/maven-releases/ (distributionManagement)
 Credentials lookup path: ${credentials_file}
 EOF
   exit 0
@@ -171,6 +191,11 @@ cat > "${tmp_settings}" <<EOF
       <username>__NEXUS_USER__</username>
       <password>__NEXUS_PASSWORD__</password>
     </server>
+    <server>
+      <id>nexus-snapshots</id>
+      <username>__NEXUS_USER__</username>
+      <password>__NEXUS_PASSWORD__</password>
+    </server>
   </servers>
 </settings>
 EOF
@@ -208,23 +233,38 @@ restore_original_version() {
 restore_needed="true"
 trap 'restore_original_version; cleanup' EXIT
 
-set_version "${publish_version}"
+if [[ "${mode}" == "release" ]]; then
+  set_version "${publish_version}"
+fi
 
 deploy_goal=(clean deploy)
 if [[ "${run_tests}" != "true" ]]; then
   deploy_goal+=(-DskipTests)
 fi
 
-mvn -f "${repo_dir}/pom.xml" \
-  -s "${tmp_settings}" \
-  -Dnexus.baseUrl="${nexus_host%/}" \
-  "${deploy_goal[@]}"
+if [[ "${mode}" == "snapshot" ]]; then
+  mvn -f "${repo_dir}/pom.xml" \
+    -s "${tmp_settings}" \
+    -Dnexus.baseUrl="${nexus_host%/}" \
+    "-DaltDeploymentRepository=nexus-snapshots::default::${nexus_host%/}/repository/maven-snapshots/" \
+    "${deploy_goal[@]}"
+else
+  mvn -f "${repo_dir}/pom.xml" \
+    -s "${tmp_settings}" \
+    -Dnexus.baseUrl="${nexus_host%/}" \
+    "${deploy_goal[@]}"
+fi
 
-set_version "${next_snapshot_version}"
-restore_needed="false"
+if [[ "${mode}" == "release" ]]; then
+  set_version "${next_snapshot_version}"
+  restore_needed="false"
+fi
 
 cat <<EOF
 Published version: ${publish_version}
-Project version set to: ${next_snapshot_version}
-Deployment repository: ${nexus_host%/}/repository/maven-releases/
+Mode: ${mode}
+Project version set to: ${next_snapshot_version:-${current_project_version}}
+Deployment repository:
+  - snapshot: ${nexus_host%/}/repository/maven-snapshots/
+  - release: ${nexus_host%/}/repository/maven-releases/
 EOF

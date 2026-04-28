@@ -5,16 +5,20 @@ workspace_dir="${1:-./workspace}"
 component_name="${2:-com.shellaia.agent.dj}"
 command_name="${3:-process}"
 body_value="${4:-get status}"
+#modules_to_copy=(
+#  "components/aia-protocol-component"
+#  "components/contacts-component"
+#  "components/dashboard-planner-component"
+#  "components/email-component"
+#  "components/simple-component"
+#  "components/ssh-component"
+#  "components/todero-spotify-component"
+#  "components/vlc-component"
+#  "agents/todero-spotify-agent"
+#)
+
 modules_to_copy=(
-  "components/aia-protocol-component"
-  "components/contacts-component"
-  "components/dashboard-planner-component"
-  "components/email-component"
-  "components/simple-component"
-  "components/ssh-component"
-  "components/todero-spotify-component"
-  "components/vlc-component"
-  "agents/todero-spotify-agent"
+  "components/aia-admin-component"
 )
 
 latest_jar() {

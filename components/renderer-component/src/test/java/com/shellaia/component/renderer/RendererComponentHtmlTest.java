@@ -37,9 +37,10 @@ class RendererComponentHtmlTest {
     assertEquals(200, response.get().getStatusCode());
     assertEquals("text/html; charset=utf-8", response.get().getHeaders().getFirst("Content-Type"));
     String body = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
-    assertTrue(body.contains("com.shellaia.contacts"));
-    assertTrue(body.contains("/com.shellaia.contacts/html"));
-    assertTrue(body.contains("brumor.pbxkey.com"));
+    // The renderer fallback HTML is intentionally minimal; it primarily provides the webview bridge feed.
+    assertTrue(body.contains("Webview Bridge"));
+    assertTrue(body.contains("Waiting..."));
+    assertTrue(body.contains("__todero_onAiatpMessage"));
   }
 
   @Test
@@ -61,8 +62,8 @@ class RendererComponentHtmlTest {
 
     assertNotNull(response.get());
     String body = AiatpIO.bodyToString(response.get().getBody(), StandardCharsets.UTF_8);
-    assertTrue(body.contains("/"));
-    assertTrue(body.contains("unknown"));
+    assertTrue(body.contains("Webview Bridge"));
+    assertTrue(body.contains("Waiting..."));
   }
   private static AiatpIO.Headers headers(String host) {
     AiatpIO.Headers headers = new AiatpIO.Headers();
