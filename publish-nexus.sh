@@ -12,7 +12,7 @@ run_tests="${RUN_TESTS:-false}"
 
 usage() {
   cat <<'EOF'
-Usage: ./publish-nexus.sh [--release] [--with-tests] [--version <x.y.z>] [--dry-run]
+Usage: ./publish-nexus.sh [--release] [--with-tests] [--version <x.y.z>] [--module <maven-module> ...] [--dry-run]
 
 Publishes modules in todero-monorepo-components to the Nexus server.
 
@@ -24,6 +24,13 @@ Release behavior (--release): publish RELEASES
   - If the current version is x.y.z-SNAPSHOT, it publishes x.y.z
   - If the current version is x.y.z, it publishes x.y.z
   - After a successful publish, leaves the Maven project on the next patch snapshot locally.
+
+Module selection:
+  - Default: deploys the full reactor (all modules).
+  - Use one or more --module flags to deploy only specific modules (plus dependencies via -am).
+    Examples:
+      --module components/renderer-component
+      --module components/aia-admin-component --module components/renderer-component
 
 Environment overrides:
   CI_NEXUS_USER                  Nexus username
@@ -37,6 +44,7 @@ EOF
 publish_version=""
 dry_run="false"
 mode="snapshot"
+declare -a selected_modules=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,6 +58,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --version)
       publish_version="${2:-}"
+      shift 2
+      ;;
+    --module)
+      selected_modules+=("${2:-}")
       shift 2
       ;;
     --dry-run)
@@ -123,11 +135,16 @@ PY
 fi
 
 if [[ "${dry_run}" == "true" ]]; then
+  modules_label="(all modules)"
+  if [[ ${#selected_modules[@]} -gt 0 ]]; then
+    modules_label="$(printf "%s" "${selected_modules[*]}")"
+  fi
   cat <<EOF
 Dry run only.
 Current project version: ${current_project_version}
 Publish version: ${publish_version}
 Mode: ${mode}
+Modules: ${modules_label}
 Next project snapshot version: ${next_snapshot_version:-n/a}
 Deploy target:
   - snapshot: ${nexus_host%/}/repository/maven-snapshots/ (altDeploymentRepository)
@@ -242,16 +259,23 @@ if [[ "${run_tests}" != "true" ]]; then
   deploy_goal+=(-DskipTests)
 fi
 
+deploy_modules=()
+if [[ ${#selected_modules[@]} -gt 0 ]]; then
+  deploy_modules=(-pl "$(IFS=,; echo "${selected_modules[*]}")" -am)
+fi
+
 if [[ "${mode}" == "snapshot" ]]; then
   mvn -f "${repo_dir}/pom.xml" \
     -s "${tmp_settings}" \
     -Dnexus.baseUrl="${nexus_host%/}" \
     "-DaltDeploymentRepository=nexus-snapshots::default::${nexus_host%/}/repository/maven-snapshots/" \
+    "${deploy_modules[@]}" \
     "${deploy_goal[@]}"
 else
   mvn -f "${repo_dir}/pom.xml" \
     -s "${tmp_settings}" \
     -Dnexus.baseUrl="${nexus_host%/}" \
+    "${deploy_modules[@]}" \
     "${deploy_goal[@]}"
 fi
 

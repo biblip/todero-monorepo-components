@@ -6,9 +6,11 @@
     <version>0.1.19-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
-  <artifactId>aia-protocol-component</artifactId>
+
+  <artifactId>terminal-component</artifactId>
   <packaging>jar</packaging>
-  <name>aia-protocol-component</name>
+  <name>terminal-component</name>
+
   <dependencies>
     <dependency>
       <groupId>com.social100.todero</groupId>
@@ -22,23 +24,21 @@
       <version>${todero.version}</version>
       <scope>provided</scope>
     </dependency>
+
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna</artifactId>
+      <version>5.15.0</version>
+    </dependency>
+
     <dependency>
       <groupId>com.social100.todero</groupId>
       <artifactId>todero-component-testkit</artifactId>
       <version>${todero.version}</version>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>com.social100.todero</groupId>
-      <artifactId>todero-remote-client</artifactId>
-      <version>${todero.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.projectlombok</groupId>
-      <artifactId>lombok</artifactId>
-      <scope>provided</scope>
-    </dependency>
   </dependencies>
+
   <build>
     <plugins>
       <plugin>

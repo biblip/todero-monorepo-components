@@ -3,7 +3,7 @@
   <parent>
     <groupId>com.shellaia</groupId>
     <artifactId>shellaia-components</artifactId>
-    <version>0.1.18-SNAPSHOT</version>
+    <version>0.1.19-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>components</artifactId>
@@ -35,6 +35,7 @@
     <module>spotify-core</module>
     <module>aia-admin-component</module>
     <module>aia-protocol-component</module>
+    <module>terminal-component</module>
     <module>renderer-component</module>
     <module>simple-component</module>
     <module>ssh-component</module>
