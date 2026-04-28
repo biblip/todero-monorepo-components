@@ -33,5 +33,6 @@
   </build>
   <modules>
     <module>todero-spotify-agent</module>
+    <module>todero-term-agent</module>
   </modules>
 </project>
