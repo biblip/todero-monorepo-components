@@ -29,6 +29,13 @@
     .term-area { flex: 1; min-height: 0; }
     .term { height: 100%; background: #0b1220; width:100%; }
     pre.plain { margin: 0; padding: 10px; height: 100%; width:100%; overflow:auto; background:#0b1220; color:#e2e8f0; white-space: pre; font-size: 12px; line-height: 1.4; }
+    .snapshot { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; flex: 1; min-height: 0; flex-direction: column; }
+    .snapshot-head { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; padding: 10px 10px; border-bottom:1px solid #e2e8f0; }
+    .snapshot pre { margin: 0; padding: 10px; flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: auto; scrollbar-color: #94a3b8 #0b1220; background:#0b1220; color:#f8fafc; white-space: pre-wrap; font-size: 12px; line-height: 1.4; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .snapshot pre::-webkit-scrollbar { width: 12px; height: 12px; }
+    .snapshot pre::-webkit-scrollbar-track { background: #0b1220; }
+    .snapshot pre::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; border: 2px solid #0b1220; }
+    .snapshot pre::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
     code { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
     .scroll { overflow: auto; flex: 1; min-height: 0; border: 1px solid #e2e8f0; border-radius: 12px; }
     .sessions-table button { padding: 4px 8px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; font-size: 12px; }
@@ -105,6 +112,14 @@
             <pre id="plain" class="plain" style="display:none;"></pre>
           </div>
         </div>
+
+        <div id="scrollback-snapshot" class="snapshot" style="display:none;">
+          <div class="snapshot-head">
+            <span class="muted">Read-only server scrollback snapshot via <code>screen_scrollback</code>.</span>
+            <button id="btn-hide-scrollback" class="button secondary" type="button">Hide</button>
+          </div>
+          <pre id="scrollback-pre"></pre>
+        </div>
       </div>
     </div>
   </div>
@@ -129,12 +144,16 @@
     var btnCtrlC = document.getElementById('btn-ctrlc');
     var btnClose = document.getElementById('btn-close');
     var btnKill = document.getElementById('btn-kill');
+    var btnHideScrollback = document.getElementById('btn-hide-scrollback');
     var sinceFrameEl = document.getElementById('since-frame');
     var statusEl = document.getElementById('status');
 
     var openName = document.getElementById('open-name');
+    var termWrap = document.querySelector('.term-wrap');
     var termDiv = document.getElementById('term');
     var plainPre = document.getElementById('plain');
+    var scrollbackSnapshot = document.getElementById('scrollback-snapshot');
+    var scrollbackPre = document.getElementById('scrollback-pre');
 
     var activeId = null;
     var pollTimer = null;
@@ -144,6 +163,10 @@
     var inputFlushTimer = null;
     var xterm = null;
     var subscribed = false;
+    var scrollbackVisible = false;
+    var scrollbackLoading = false;
+    var scrollbackExitAtMs = 0;
+    var scrollbackWheelCooldownMs = 350;
 
     function getBridge() {
       if (window.todero) return { api: window.todero, owner: window };
@@ -163,6 +186,28 @@
 
     function setBridgeState() {
       bridgeEl.textContent = bridgeAvailable() ? 'bridge: ready' : 'bridge: unavailable';
+    }
+
+    function currentStatusLabel() {
+      if (!activeId) return 'no session';
+      return eventsOn ? 'events' : (pollTimer ? 'polling' : 'idle');
+    }
+
+    function setScrollbackVisible(visible) {
+      scrollbackVisible = !!visible;
+      scrollbackSnapshot.style.display = scrollbackVisible ? 'flex' : 'none';
+      if (termWrap) termWrap.style.display = scrollbackVisible ? 'none' : 'flex';
+      if (scrollbackVisible) {
+        scrollbackPre.scrollTop = scrollbackPre.scrollHeight;
+        requestAnimationFrame(function () {
+          scrollbackPre.scrollTop = scrollbackPre.scrollHeight;
+        });
+        statusEl.textContent = 'scrollback ready';
+      } else {
+        scrollbackExitAtMs = Date.now();
+        scrollbackPre.textContent = '';
+        statusEl.textContent = currentStatusLabel();
+      }
     }
 
     function bytesToB64(bytes) {
@@ -334,6 +379,7 @@
       sinceFrameEl.textContent = '0';
       if (xterm) xterm.reset();
       plainPre.textContent = '';
+      setScrollbackVisible(false);
       statusEl.textContent = activeId ? 'idle' : 'no session';
       if (activeId) startAuto();
     }
@@ -429,6 +475,49 @@
       });
     }
 
+    function showScrollback() {
+      if (!activeId) {
+        statusEl.textContent = 'no session';
+        return Promise.resolve();
+      }
+      if (scrollbackVisible || scrollbackLoading) return Promise.resolve();
+      scrollbackLoading = true;
+      statusEl.textContent = 'loading scrollback';
+      return call('screen_scrollback', null, activeId + ' 262144').then(function (res) {
+        var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
+        var parsed;
+        try {
+          parsed = JSON.parse(txt);
+        } catch (_) {
+          throw new Error('invalid screen_scrollback response');
+        }
+        if (!parsed || !parsed.dataB64) throw new Error('invalid response');
+        var bytes = b64ToBytes(parsed.dataB64);
+        scrollbackPre.textContent = new TextDecoder().decode(bytes);
+        setScrollbackVisible(true);
+      }).catch(function (e) {
+        scrollbackPre.textContent = 'Error: ' + String(e);
+        setScrollbackVisible(true);
+        statusEl.textContent = 'scrollback failed';
+      }).finally(function () {
+        scrollbackLoading = false;
+      });
+    }
+
+    function keyEventAction(ev) {
+      if (!ev || ev.altKey || ev.ctrlKey || ev.metaKey) return null;
+      if (ev.key === 'Enter') return { closeOnly: true };
+      if (ev.key === ' ') return { closeOnly: true };
+      if (ev.key === 'Backspace') return { closeOnly: true };
+      if (typeof ev.key === 'string' && ev.key.length === 1) return null;
+      return null;
+    }
+
+    function isScrollbackAtBottom() {
+      var remaining = scrollbackPre.scrollHeight - scrollbackPre.clientHeight - scrollbackPre.scrollTop;
+      return remaining <= 2;
+    }
+
     window.__todero_onAiatpMessage = function (payload) {
       try {
         if (!payload || typeof payload !== 'object') return;
@@ -470,11 +559,36 @@
     btnStart.addEventListener('click', function () { if (activeId) startAuto(); });
     btnStop.addEventListener('click', function () { stopAll(); statusEl.textContent = activeId ? 'stopped' : 'no session'; });
     btnCtrlC.addEventListener('click', function () { if (activeId) call('write', null, activeId + ' Aw=='); });
+    btnHideScrollback.addEventListener('click', function () { setScrollbackVisible(false); });
     btnClose.addEventListener('click', function () { if (!activeId) return; var old = activeId; setActive(null); call('close', null, old).then(refreshSessions); });
     btnKill.addEventListener('click', function () { if (!activeId) return; var old = activeId; setActive(null); call('kill', null, old).then(refreshSessions); });
     sessionSelect.addEventListener('change', function () { var id = (sessionSelect.value || '').trim(); if (id) setActive(id); });
     rendererSel.addEventListener('change', function () { setRenderer(); if (activeId) startAuto(); });
     transportSel.addEventListener('change', function () { if (activeId) startAuto(); });
+    if (termWrap) {
+      termWrap.addEventListener('wheel', function (ev) {
+        if (!activeId || scrollbackVisible) return;
+        if ((Date.now() - scrollbackExitAtMs) < scrollbackWheelCooldownMs) return;
+        if (!ev || ev.deltaY === 0) return;
+        if (ev.deltaY > 0) return;
+        ev.preventDefault();
+        showScrollback();
+      }, { passive: false });
+    }
+    if (scrollbackPre) {
+      scrollbackPre.addEventListener('scroll', function () {
+        if (!scrollbackVisible) return;
+        if (!isScrollbackAtBottom()) return;
+        setScrollbackVisible(false);
+      });
+    }
+    window.addEventListener('keydown', function (ev) {
+      if (!scrollbackVisible) return;
+      var action = keyEventAction(ev);
+      if (!action) return;
+      ev.preventDefault();
+      setScrollbackVisible(false);
+    });
 
     setBridgeState();
     setRenderer();

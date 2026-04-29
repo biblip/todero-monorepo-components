@@ -125,6 +125,11 @@ public class AgentTermComponent {
     return forwardRawArgs(context, "screen_diff");
   }
 
+  @Action(group = MAIN_GROUP, command = "screen_scrollback", description = "Get screen scrollback text. Usage: screen_scrollback <idOrName> [maxBytes]")
+  public Boolean screenScrollback(CommandContext context) {
+    return forwardRawArgs(context, "screen_scrollback");
+  }
+
   @Action(group = MAIN_GROUP, command = "close", description = "Close session. Usage: close <idOrName>")
   public Boolean close(CommandContext context) {
     return forwardSingleTarget(context, "close");
@@ -256,6 +261,11 @@ public class AgentTermComponent {
       long maxBytes = planned.maxBytes <= 0 ? 65536 : planned.maxBytes;
       long sinceFrame = planned.sinceFrameId < 0 ? 0 : planned.sinceFrameId;
       return executeTermResponse(parentContext, "screen_diff", id + " " + sinceFrame + " " + maxBytes, true);
+    }
+
+    if ("screen_scrollback".equals(command)) {
+      long maxBytes = planned.maxBytes <= 0 ? 262144 : planned.maxBytes;
+      return executeTermResponse(parentContext, "screen_scrollback", id + " " + maxBytes, true);
     }
 
     if ("close".equals(command) || "kill".equals(command)) {

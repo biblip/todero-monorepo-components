@@ -30,6 +30,7 @@ public final class TermAgentCapabilities implements AgentCapabilityProvider {
             command("events", List.of("ON|OFF", "<idOrName>")),
             command("screen_text", List.of("<idOrName>")),
             command("screen_diff", List.of("<idOrName>", "<sinceFrameId>")),
+            command("screen_scrollback", List.of("<idOrName>")),
             command("resize", List.of("<idOrName>", "<cols>", "<rows>")),
             command("close", List.of("<idOrName>")),
             command("kill", List.of("<idOrName>")),
