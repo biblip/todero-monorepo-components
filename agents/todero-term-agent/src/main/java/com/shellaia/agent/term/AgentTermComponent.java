@@ -18,7 +18,6 @@ import com.social100.todero.common.storage.Storage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.Normalizer;
 import java.time.Instant;
@@ -45,6 +44,7 @@ public class AgentTermComponent {
 
   private static final int DEFAULT_COLS = 120;
   private static final int DEFAULT_ROWS = 30;
+  private static final String MAC_ZSH = "/bin/zsh";
 
   private static final String HTML_TEMPLATE_PATH = "com/shellaia/agent/term/component.html";
   private static final String XTERM_JS_PATH = "com/shellaia/agent/term/web/xterm.js";
@@ -61,7 +61,6 @@ public class AgentTermComponent {
     t.setDaemon(true);
     return t;
   });
-  @SuppressWarnings("unused")
   private final Storage storage;
 
   public AgentTermComponent(Storage storage) {
@@ -95,22 +94,11 @@ public class AgentTermComponent {
     if (rawName.isEmpty()) {
       return respondError(context, "name is required");
     }
-    String sanitized = sanitizeName(rawName);
-    if (sanitized.isEmpty()) {
-      return respondError(context, "invalid name");
+    try {
+      return passthrough(context, "open", buildOpenBody(rawName).toString());
+    } catch (RuntimeException e) {
+      return respondError(context, e.getMessage());
     }
-    Path cwd = Path.of(System.getProperty("user.home"), "term", sanitized);
-    if (!Files.exists(cwd) || !Files.isDirectory(cwd)) {
-      return respondError(context, "cwd does not exist: " + cwd);
-    }
-    ObjectNode body = JSON.createObjectNode();
-    body.put("name", rawName);
-    body.put("cwd", cwd.toString());
-    body.put("cols", DEFAULT_COLS);
-    body.put("rows", DEFAULT_ROWS);
-    body.put("screen_mode", true);
-    body.putArray("env").addObject().put("k", "TERM").put("v", "xterm-256color");
-    return passthrough(context, "open", body.toString());
   }
 
   @Action(group = MAIN_GROUP, command = "write", description = "Write to session. Usage: write <idOrName> <dataB64>")
@@ -221,27 +209,15 @@ public class AgentTermComponent {
       if (name.isEmpty()) {
         return buildJsonResponse(400, "{\"ok\":false,\"error\":\"open_requires_name\"}");
       }
-      // Reuse open path (fixed defaults + cwd policy).
-      ObjectNode body = JSON.createObjectNode();
-      body.put("name", name);
-      String sanitized = sanitizeName(name);
-      if (sanitized.isEmpty()) {
-        return buildJsonResponse(400, "{\"ok\":false,\"error\":\"invalid_name\"}");
+      try {
+        return executeTermResponse(parentContext, "open", buildOpenBody(name).toString(), true);
+      } catch (RuntimeException e) {
+        return buildJsonResponse(400, "{\"ok\":false,\"error\":\"open_prepare_failed\",\"message\":\"" + escapeJson(e.getMessage()) + "\"}");
       }
-      Path cwd = Path.of(System.getProperty("user.home"), "term", sanitized);
-      if (!Files.exists(cwd) || !Files.isDirectory(cwd)) {
-        return buildJsonResponse(400, "{\"ok\":false,\"error\":\"cwd_missing\",\"cwd\":\"" + escapeJson(cwd.toString()) + "\"}");
-      }
-      body.put("cwd", cwd.toString());
-      body.put("cols", DEFAULT_COLS);
-      body.put("rows", DEFAULT_ROWS);
-      body.put("screen_mode", true);
-      body.putArray("env").addObject().put("k", "TERM").put("v", "xterm-256color");
-      return executeTermResponse(parentContext, "open", body.toString());
     }
 
     if ("sessions".equals(command)) {
-      return executeTermResponse(parentContext, "sessions", "");
+      return executeTermResponse(parentContext, "sessions", "", true);
     }
 
     // Everything below needs a session target.
@@ -254,13 +230,13 @@ public class AgentTermComponent {
     }
 
     if ("ctrlc".equals(command)) {
-      return executeTermResponse(parentContext, "write", id + " " + Base64.getEncoder().encodeToString(new byte[] { 3 }));
+      return executeTermResponse(parentContext, "write", id + " " + Base64.getEncoder().encodeToString(new byte[] { 3 }), true);
     }
 
     if ("write_text".equals(command)) {
-      String text = planned.text == null ? "" : planned.text;
+      String text = composeWriteText(planned.text, planned.submit);
       String b64 = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
-      return executeTermResponse(parentContext, "write", id + " " + b64);
+      return executeTermResponse(parentContext, "write", id + " " + b64, true);
     }
 
     if ("write_b64".equals(command)) {
@@ -268,28 +244,28 @@ public class AgentTermComponent {
       if (b64.isEmpty()) {
         return buildJsonResponse(400, "{\"ok\":false,\"error\":\"missing_dataB64\"}");
       }
-      return executeTermResponse(parentContext, "write", id + " " + b64);
+      return executeTermResponse(parentContext, "write", id + " " + b64, true);
     }
 
     if ("screen_text".equals(command)) {
       long maxBytes = planned.maxBytes <= 0 ? 65536 : planned.maxBytes;
-      return executeTermResponse(parentContext, "screen_text", id + " " + maxBytes);
+      return executeTermResponse(parentContext, "screen_text", id + " " + maxBytes, true);
     }
 
     if ("screen_diff".equals(command)) {
       long maxBytes = planned.maxBytes <= 0 ? 65536 : planned.maxBytes;
       long sinceFrame = planned.sinceFrameId < 0 ? 0 : planned.sinceFrameId;
-      return executeTermResponse(parentContext, "screen_diff", id + " " + sinceFrame + " " + maxBytes);
+      return executeTermResponse(parentContext, "screen_diff", id + " " + sinceFrame + " " + maxBytes, true);
     }
 
     if ("close".equals(command) || "kill".equals(command)) {
-      return executeTermResponse(parentContext, command, id);
+      return executeTermResponse(parentContext, command, id, true);
     }
 
     if ("resize".equals(command)) {
       int cols = planned.cols <= 0 ? DEFAULT_COLS : planned.cols;
       int rows = planned.rows <= 0 ? DEFAULT_ROWS : planned.rows;
-      return executeTermResponse(parentContext, "resize", id + " " + cols + " " + rows);
+      return executeTermResponse(parentContext, "resize", id + " " + cols + " " + rows, true);
     }
 
     return buildJsonResponse(400, "{\"ok\":false,\"error\":\"unsupported_command\"}");
@@ -309,6 +285,7 @@ public class AgentTermComponent {
         "rows", DEFAULT_ROWS,
         "screen_mode", true,
         "term", "xterm-256color",
+        "program", MAC_ZSH,
         "cwd_policy", "~/term/<sanitizedName>"
     ));
     try {
@@ -328,6 +305,7 @@ public class AgentTermComponent {
     out.name = readText(root, "name");
     out.text = readText(root, "text");
     out.dataB64 = readText(root, "dataB64");
+    out.submit = readBoolean(root, "submit", false);
     out.maxBytes = readLong(root, "maxBytes", 0);
     out.sinceFrameId = readLong(root, "sinceFrameId", 0);
     out.cols = (int) readLong(root, "cols", 0);
@@ -346,6 +324,18 @@ public class AgentTermComponent {
     if (v.isNumber()) return v.asLong();
     if (v.isTextual()) {
       try { return Long.parseLong(v.asText().trim()); } catch (NumberFormatException ignored) { return fallback; }
+    }
+    return fallback;
+  }
+
+  private static boolean readBoolean(JsonNode node, String field, boolean fallback) {
+    JsonNode v = node.path(field);
+    if (v == null || v.isMissingNode() || v.isNull()) return fallback;
+    if (v.isBoolean()) return v.asBoolean();
+    if (v.isTextual()) {
+      String text = safeTrim(v.asText()).toLowerCase(Locale.ROOT);
+      if ("true".equals(text)) return true;
+      if ("false".equals(text)) return false;
     }
     return fallback;
   }
@@ -375,6 +365,7 @@ public class AgentTermComponent {
     String name;
     String text;
     String dataB64;
+    boolean submit;
     long sinceFrameId;
     long maxBytes;
     int cols;
@@ -403,19 +394,23 @@ public class AgentTermComponent {
   }
 
   private Boolean passthrough(CommandContext context, String cmd, String body) {
-    AiatpResponse resp = executeTermResponse(context, cmd, body);
+    AiatpResponse resp = executeTermResponse(context, cmd, body, false);
     context.complete(resp);
     return true;
   }
 
   private static String executeTerm(CommandContext parentContext, String cmd, String body) {
-    AiatpResponse resp = executeTermResponse(parentContext, cmd, body);
+    AiatpResponse resp = executeTermResponse(parentContext, cmd, body, true);
     if (resp == null || resp.getBody() == null) return "";
     String text = AiatpIO.bodyToString(resp.getBody(), StandardCharsets.UTF_8);
     return text == null ? "" : text;
   }
 
   private static AiatpResponse executeTermResponse(CommandContext parentContext, String cmd, String body) {
+    return executeTermResponse(parentContext, cmd, body, false);
+  }
+
+  private static AiatpResponse executeTermResponse(CommandContext parentContext, String cmd, String body, boolean internalLocal) {
     CompletableFuture<AiatpResponse> out = new CompletableFuture<>();
     AiatpRequest internalReq = AiatpRuntimeAdapter.request(
         "ACTION",
@@ -423,7 +418,9 @@ public class AgentTermComponent {
         AiatpIO.Body.ofString(body == null ? "" : body, StandardCharsets.UTF_8)
     );
     internalReq = inheritParentRouting(parentContext, internalReq);
-    internalReq = AiatpRuntimeAdapter.withHeader(internalReq, CommandContext.HDR_INTERNAL_EVENT_DELIVERY, "local");
+    if (internalLocal) {
+      internalReq = AiatpRuntimeAdapter.withHeader(internalReq, CommandContext.HDR_INTERNAL_EVENT_DELIVERY, "local");
+    }
 
     CommandContext internalContext = parentContext.cloneBuilder()
         .aiatpRequest(internalReq)
@@ -484,6 +481,43 @@ public class AgentTermComponent {
     String out = normalized.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
     out = out.replaceAll("-{2,}", "-").trim();
     return out;
+  }
+
+  static String composeWriteText(String text, boolean submit) {
+    String base = text == null ? "" : text;
+    return submit ? (base + "\r") : base;
+  }
+
+  private ObjectNode buildOpenBody(String rawName) {
+    String sanitized = sanitizeName(rawName);
+    if (sanitized.isEmpty()) {
+      throw new IllegalArgumentException("invalid name");
+    }
+    Path cwd = deriveAgentCwd(sanitized);
+    ObjectNode body = JSON.createObjectNode();
+    body.put("name", rawName);
+    body.put("cwd", cwd.toString());
+    body.put("cols", DEFAULT_COLS);
+    body.put("rows", DEFAULT_ROWS);
+    body.put("screen_mode", true);
+    body.putArray("env").addObject().put("k", "TERM").put("v", "xterm-256color");
+    applyDefaultProgram(body);
+    return body;
+  }
+
+  static Path deriveAgentCwd(String sanitized) {
+    return Path.of(System.getProperty("user.home"), "term", sanitized);
+  }
+
+  private static void applyDefaultProgram(ObjectNode body) {
+    // Prefer /bin/zsh when available (macOS default); otherwise let the native library choose its default shell.
+    try {
+      if (java.nio.file.Files.exists(Path.of(MAC_ZSH))) {
+        body.put("program", MAC_ZSH);
+        body.putArray("argv").add(MAC_ZSH).add("-i");
+      }
+    } catch (Exception ignored) {
+    }
   }
 
   private static String requestBody(CommandContext context) {

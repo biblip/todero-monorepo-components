@@ -11,14 +11,18 @@ Constraints:
 - If the user didn't specify a session, select one from `sessions_json` and set `target` to its `id` or `name`.
 - Prefer `id` when available.
 - For opening sessions: only require `name` (the runtime will derive cwd and apply fixed defaults).
-- For sending input: prefer `write_text` and put the literal text in `text` (include newlines if needed).
+- For sending input: prefer `write_text` and put the literal text in `text`.
+- For `write_text`, decide whether the terminal should also receive Enter now:
+  - `"submit": true` means append a terminal Enter keystroke after `text`.
+  - `"submit": false` means type/paste only and do not execute yet.
 - To send Ctrl-C: use `ctrlc`.
 - To show what's on screen: use `screen_text` or `screen_diff`.
 
 Supported commands:
 - open: { "command":"open", "name":"My Session Name" }
 - sessions: { "command":"sessions" }
-- write_text: { "command":"write_text", "target":"<id-or-name>", "text":"ls -al\\n" }
+- write_text: { "command":"write_text", "target":"<id-or-name>", "text":"ls -al", "submit":true }
+- write_text: { "command":"write_text", "target":"<id-or-name>", "text":"git commit -m \"", "submit":false }
 - write_b64: { "command":"write_b64", "target":"<id-or-name>", "dataB64":"..." }
 - ctrlc: { "command":"ctrlc", "target":"<id-or-name>" }
 - screen_text: { "command":"screen_text", "target":"<id-or-name>", "maxBytes":65536 }
@@ -28,4 +32,3 @@ Supported commands:
 - kill: { "command":"kill", "target":"<id-or-name>" }
 
 Output JSON now.
-

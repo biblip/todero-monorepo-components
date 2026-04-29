@@ -18,6 +18,8 @@ import com.social100.todero.common.storage.Storage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -107,7 +109,8 @@ public class TermComponent {
       respondJson(context, 400, Json.obj(Map.of("ok", false, "message", "cwd is required")));
       return false;
     }
-    if (!isCwdAllowed(cwd)) {
+    Path allowedRoot = resolveAllowedRootForCwd(cwd);
+    if (allowedRoot == null) {
       respondJson(context, 400, Json.obj(Map.of(
           "ok", false,
           "message", "cwd is not allowed by TODERO_TERM_ALLOWED_WORKSPACES"
@@ -118,9 +121,9 @@ public class TermComponent {
     long idleTimeoutMs = parseLong(extractJsonNumber(body, "idleTimeoutMs"), defaultIdleTimeoutMs());
     idleTimeoutMs = clamp(idleTimeoutMs, 10_000L, 24L * 60L * 60L * 1000L);
 
-    String configJson = mergeConfig(body, cwd);
-
     try {
+      Path preparedCwd = prepareCwd(cwd, allowedRoot);
+      String configJson = mergeConfig(body, preparedCwd.toString());
       NativeTerm nativeTerm = ensureNative();
       var handle = nativeTerm.createFromJson(configJson);
       Session session = new Session(id, sessionName, handle, nativeTerm, idleTimeoutMs);
@@ -743,21 +746,97 @@ public class TermComponent {
   }
 
   private boolean isCwdAllowed(String cwd) {
-    if (cwd == null || cwd.isBlank()) return false;
+    return resolveAllowedRootForCwd(cwd) != null;
+  }
+
+  static boolean isPathUnderRoot(Path cwd, Path allowedRoot) {
+    return cwd != null && allowedRoot != null && cwd.startsWith(allowedRoot);
+  }
+
+  static Path normalizeAbsolutePath(String rawPath) {
+    if (rawPath == null || rawPath.isBlank()) {
+      return null;
+    }
+    try {
+      Path path = Path.of(rawPath.trim());
+      if (!path.isAbsolute()) {
+        return null;
+      }
+      return path.normalize();
+    } catch (RuntimeException e) {
+      return null;
+    }
+  }
+
+  static Path canonicalCandidatePath(String rawPath) {
+    Path normalized = normalizeAbsolutePath(rawPath);
+    if (normalized == null) {
+      return null;
+    }
+    Path existing = normalized;
+    while (existing != null && !Files.exists(existing)) {
+      existing = existing.getParent();
+    }
+    if (existing == null) {
+      return null;
+    }
+    try {
+      Path canonicalExisting = existing.toRealPath();
+      Path relative = existing.relativize(normalized);
+      return canonicalExisting.resolve(relative).normalize();
+    } catch (IOException | RuntimeException e) {
+      return null;
+    }
+  }
+
+  static Path canonicalAbsolutePath(String rawPath) {
+    if (rawPath == null || rawPath.isBlank()) {
+      return null;
+    }
+    try {
+      Path path = Path.of(rawPath.trim());
+      if (!path.isAbsolute()) {
+        return null;
+      }
+      return path.toRealPath();
+    } catch (IOException | RuntimeException e) {
+      return null;
+    }
+  }
+
+  private Path resolveAllowedRootForCwd(String cwd) {
+    Path candidateCwd = canonicalCandidatePath(cwd);
+    if (candidateCwd == null) {
+      return null;
+    }
     String raw = env("TODERO_TERM_ALLOWED_WORKSPACES");
     if (raw == null || raw.isBlank()) {
-      return false;
+      return null;
     }
     String normalized = raw.replace('\n', ';');
     for (String entry : normalized.split(";")) {
       if (entry == null) continue;
       String trimmed = entry.trim();
       if (trimmed.isEmpty()) continue;
-      if (cwd.startsWith(trimmed)) {
-        return true;
+      Path allowedPath = canonicalAbsolutePath(trimmed);
+      if (allowedPath != null && isPathUnderRoot(candidateCwd, allowedPath)) {
+        return allowedPath;
       }
     }
-    return false;
+    return null;
+  }
+
+  static Path prepareCwd(String cwd, Path allowedRoot) throws IOException {
+    Path candidateCwd = canonicalCandidatePath(cwd);
+    if (candidateCwd == null || allowedRoot == null || !isPathUnderRoot(candidateCwd, allowedRoot)) {
+      throw new IOException("cwd is not allowed by TODERO_TERM_ALLOWED_WORKSPACES");
+    }
+    Files.createDirectories(candidateCwd);
+    Path canonicalCwd = candidateCwd.toRealPath();
+    if (!isPathUnderRoot(canonicalCwd, allowedRoot)) {
+      throw new IOException("resolved cwd escaped allowed workspace root");
+    }
+    return canonicalCwd;
   }
 
   private String mergeConfig(String body, String cwd) {
