@@ -41,6 +41,7 @@ public class AgentTermComponent {
   private static final String MAIN_GROUP = "Main";
   private static final String TERM_COMPONENT = "com.shellaia.term";
   private static final long TOOL_TIMEOUT_SECONDS = 3;
+  private static final String LOG_PREFIX = "[TERM_AGENT]";
 
   private static final int DEFAULT_COLS = 120;
   private static final int DEFAULT_ROWS = 30;
@@ -184,6 +185,7 @@ public class AgentTermComponent {
     if (prompt.isEmpty()) {
       return respondError(context, "prompt is required");
     }
+    log("process begin prompt_len=" + prompt.length() + " prompt_preview=\"" + elide(prompt, 120) + "\"");
 
     CompletableFuture<AiatpResponse> future = CompletableFuture.supplyAsync(() -> {
       String sessionsJson = executeTerm(context, "sessions", "");
@@ -192,6 +194,10 @@ public class AgentTermComponent {
       if (planned == null) {
         return buildJsonResponse(400, "{\"ok\":false,\"error\":\"invalid_llm_response\"}");
       }
+      log("process planned command=" + safeTrim(planned.command)
+          + " target=" + safeTrim(planned.target)
+          + " name=" + safeTrim(planned.name)
+          + " submit=" + planned.submit);
       return executePlanned(context, planned);
     }, cognitionExecutor);
 
@@ -254,9 +260,7 @@ public class AgentTermComponent {
     }
 
     if ("write_text".equals(command)) {
-      String text = composeWriteText(planned.text, planned.submit);
-      String b64 = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
-      return executeTermResponse(parentContext, "write", id + " " + b64, true);
+      return sendTextPaced(parentContext, id, planned.text, planned.submit);
     }
 
     if ("write_b64".equals(command)) {
@@ -298,10 +302,14 @@ public class AgentTermComponent {
 
   private String planActionWithLlm(CommandContext parentContext, String prompt, String sessionsJson) {
     AgentContext agentContext = new AgentContext();
+    log("llm bind_agent_registry");
     parentContext.bindAgentLlmRegistry(agentContext);
     LLMClient llm = agentContext.systemLlm()
         .map(instance -> instance.client())
-        .orElseThrow(() -> new IllegalStateException("No system-wide LLM available for com.shellaia.agent.term"));
+        .orElseThrow(() -> {
+          log("llm missing_system_llm");
+          return new IllegalStateException("No system-wide LLM available for com.shellaia.agent.term");
+        });
 
     Map<String, Object> ctx = new LinkedHashMap<>();
     ctx.put("sessions_json", safeTrim(sessionsJson));
@@ -315,10 +323,24 @@ public class AgentTermComponent {
     ));
     try {
       String contextJson = JSON.writeValueAsString(ctx);
+      log("llm chat begin ctx_len=" + contextJson.length());
       return llm.chat(PROCESS_PROMPT, prompt, contextJson);
     } catch (Exception e) {
+      log("llm chat failed type=" + e.getClass().getName() + " msg=" + safeTrim(String.valueOf(e.getMessage())));
+      e.printStackTrace(System.out);
       throw new IllegalStateException("LLM plan failed");
     }
+  }
+
+  private static void log(String message) {
+    System.out.println(LOG_PREFIX + " " + message);
+  }
+
+  private static String elide(String text, int maxLen) {
+    if (text == null) return "";
+    String s = safeTrim(text).replace("\n", "\\n").replace("\r", "\\r");
+    if (s.length() <= maxLen) return s;
+    return s.substring(0, maxLen) + "...";
   }
 
   private static PlannedAction parsePlannedAction(String llmRaw) {
@@ -511,6 +533,35 @@ public class AgentTermComponent {
   static String composeWriteText(String text, boolean submit) {
     String base = text == null ? "" : text;
     return submit ? (base + "\r") : base;
+  }
+
+  private AiatpResponse sendTextPaced(CommandContext parentContext, String id, String text, boolean submit) {
+    String content = text == null ? "" : text;
+    String b64 = Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8));
+    AiatpResponse resp = executeTermResponse(parentContext, "write", id + " " + b64, true);
+    if (resp == null || resp.getStatusCode() >= 400) {
+      return resp == null ? buildJsonResponse(500, "{\"ok\":false,\"error\":\"tool_failed\"}") : resp;
+    }
+    if (submit) {
+      sleepQuietly(300L);
+      String enterB64 = Base64.getEncoder().encodeToString("\r".getBytes(StandardCharsets.UTF_8));
+      AiatpResponse enterResp = executeTermResponse(parentContext, "write", id + " " + enterB64, true);
+      if (enterResp == null || enterResp.getStatusCode() >= 400) {
+        return enterResp == null ? buildJsonResponse(500, "{\"ok\":false,\"error\":\"tool_failed\"}") : enterResp;
+      }
+    }
+    return buildJsonResponse(200, "{\"ok\":true}");
+  }
+
+  private static void sleepQuietly(long millis) {
+    if (millis <= 0) {
+      return;
+    }
+    try {
+      Thread.sleep(millis);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   private ObjectNode buildOpenBody(String rawName) {

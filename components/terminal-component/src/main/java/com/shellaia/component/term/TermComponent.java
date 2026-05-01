@@ -714,12 +714,26 @@ public class TermComponent {
   }
 
   private boolean requireInteractiveAccess(CommandContext context, Session session, String viewerId) {
+    // `com.shellaia.agent.term process` runs as an internal orchestration call (no UI viewer).
+    // When the agent dispatches tool calls with internal-local delivery, allow writes/ctrlc/etc
+    // even if the session is currently attached to a UI viewer.
+    if ((viewerId == null || viewerId.isBlank()) && isInternalLocalCall(context)) {
+      return true;
+    }
     ViewerLeaseResult result = session.ensureInteractiveAccess(viewerId, System.currentTimeMillis());
     if (result.ok()) {
       return true;
     }
     respondOwnershipError(context, result);
     return false;
+  }
+
+  private boolean isInternalLocalCall(CommandContext context) {
+    if (context == null || context.getAiatpRequest() == null || context.getAiatpRequest().getHeaders() == null) {
+      return false;
+    }
+    String mode = context.getAiatpRequest().getHeaders().getFirst(CommandContext.HDR_INTERNAL_EVENT_DELIVERY);
+    return mode != null && "local".equalsIgnoreCase(mode.trim());
   }
 
   private void respondOwnershipError(CommandContext context, ViewerLeaseResult result) {
