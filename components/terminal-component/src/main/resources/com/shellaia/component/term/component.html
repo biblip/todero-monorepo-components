@@ -27,10 +27,10 @@
     .term-wrap { border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; }
     .term-head { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding: 10px 10px; border-bottom:1px solid #e2e8f0; }
     .term { height: 100%; background: #0b1220; }
-    pre.plain { margin: 0; padding: 10px; height: 100%; overflow:auto; background:#0b1220; color:#e2e8f0; white-space: pre; font-size: 12px; line-height: 1.4; }
+    pre.plain { margin: 0; padding: 0; height: 100%; overflow:auto; background:#0b1220; color:#e2e8f0; white-space: pre; font-size: 12px; line-height: 1.4; }
     .snapshot { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; flex: 1; min-height: 0; flex-direction: column; }
     .snapshot-head { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; padding: 10px 10px; border-bottom:1px solid #e2e8f0; }
-    .snapshot pre { margin: 0; padding: 10px; flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: auto; scrollbar-color: #94a3b8 #0b1220; background:#0b1220; color:#f8fafc; white-space: pre-wrap; font-size: 12px; line-height: 1.4; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .snapshot pre { margin: 0; padding: 0; flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: auto; scrollbar-color: #94a3b8 #0b1220; background:#0b1220; color:#f8fafc; white-space: pre; font-size: 12px; line-height: 1.4; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .snapshot pre::-webkit-scrollbar { width: 12px; height: 12px; }
     .snapshot pre::-webkit-scrollbar-track { background: #0b1220; }
     .snapshot pre::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; border: 2px solid #0b1220; }
@@ -43,6 +43,8 @@
     .term-wrap { flex: 1; min-height: 0; display:flex; flex-direction:column; }
     .term-area { flex: 1; min-height: 0; }
     .term, pre.plain { width: 100%; }
+    .term, pre.plain, .term .xterm-viewport { scrollbar-width: none; }
+    .term::-webkit-scrollbar, pre.plain::-webkit-scrollbar, .term .xterm-viewport::-webkit-scrollbar { width: 0; height: 0; }
 
     /* xterm */
     ${XTERM_CSS}
@@ -179,9 +181,20 @@
     var scrollbackLoading = false;
     var scrollbackExitAtMs = 0;
     var scrollbackWheelCooldownMs = 350;
+    var viewerId = makeViewerId();
+    var heartbeatTimer = null;
+    var activeOwned = false;
+    var heartbeatIntervalMs = 10000;
 
     function bridgeAvailable() {
       return !!(window.todero && typeof window.todero.callAction === 'function' && typeof window.todero.subscribe === 'function');
+    }
+
+    function makeViewerId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return 'viewer_' + window.crypto.randomUUID();
+      }
+      return 'viewer_' + String(Date.now()) + '_' + String(Math.random()).slice(2);
     }
 
     function setBridgeState() {
@@ -290,14 +303,61 @@
     }
 
     function flushInput() {
-      if (!activeId) return;
+      if (!activeId || !activeOwned) return;
       if (!inputBuf) return;
       var bytes = new TextEncoder().encode(inputBuf);
       inputBuf = '';
       var b64 = bytesToB64(bytes);
-      call('write', null, activeId + ' ' + b64).catch(function (e) {
-        statusEl.textContent = 'write failed';
+      callJson('write', null, activeId + ' ' + viewerId + ' ' + b64).catch(function (e) {
+        handleOwnershipError(e, 'write failed');
       });
+    }
+
+    function attachActiveSession() {
+      if (!activeId) return Promise.reject('no session');
+      statusEl.textContent = 'attaching';
+      return callJson('attach', null, activeId + ' ' + viewerId).then(function () {
+        activeOwned = true;
+        startHeartbeat();
+      }).catch(function (e) {
+        handleOwnershipError(e, 'attach failed');
+        throw e;
+      });
+    }
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      heartbeatTimer = setInterval(function () {
+        if (!activeId || !activeOwned) return;
+        callJson('heartbeat', null, activeId + ' ' + viewerId).catch(function (e) {
+          handleOwnershipError(e, 'ownership lost');
+        });
+      }, heartbeatIntervalMs);
+    }
+
+    function stopHeartbeat() {
+      if (!heartbeatTimer) return;
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+
+    function detachSession(id) {
+      if (!id) return;
+      callJson('detach', null, id + ' ' + viewerId).catch(function () {});
+    }
+
+    function handleOwnershipError(err, fallbackStatus) {
+      stopHeartbeat();
+      activeOwned = false;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      if (eventsOn) {
+        eventsOn = false;
+      }
+      statusEl.textContent = err && err.code === 'ownership_lost' ? 'ownership lost' : fallbackStatus;
+      refreshSessions();
     }
 
     function call(action, params, body) {
@@ -305,6 +365,27 @@
         return Promise.reject('bridge unavailable');
       }
       return window.todero.callAction({ action: action, params: params || null, body: body || '' });
+    }
+
+    function callJson(action, params, body) {
+      return call(action, params, body).then(function (res) {
+        var txt = res && res.response && res.response.body ? res.response.body.text : '';
+        var parsed;
+        try {
+          parsed = txt ? JSON.parse(txt) : {};
+        } catch (_) {
+          throw new Error('invalid JSON response');
+        }
+        var status = 200;
+        if (res && typeof res.statusCode === 'number') status = res.statusCode;
+        else if (res && res.response && typeof res.response.statusCode === 'number') status = res.response.statusCode;
+        if (status >= 400 || (parsed && parsed.ok === false)) {
+          var err = new Error(parsed && parsed.message ? parsed.message : ('action failed: ' + action));
+          err.code = parsed && parsed.error ? parsed.error : '';
+          throw err;
+        }
+        return parsed;
+      });
     }
 
     function refreshSessions() {
@@ -346,19 +427,19 @@
       html += '<th style="width:70px;">Use</th>';
       html += '<th>Name</th>';
       html += '<th>Id</th>';
-      html += '<th>Idle</th>';
+      html += '<th>State</th>';
       html += '<th>Screen</th>';
       html += '</tr></thead><tbody>';
       for (var j = 0; j < items.length; j++) {
         var s = items[j];
         var isActive = activeId && s.id === activeId;
-        var idleFor = typeof s.idleForMs === 'number' ? Math.round(s.idleForMs / 1000) + 's' : '';
+        var state = s.state || (s.attached ? 'attached' : 'detached');
         var screen = s.screenEnabled ? ('on f=' + (s.frameId || '')) : 'off';
         html += '<tr>';
         html += '<td><button data-use="' + escapeHtml(s.id || '') + '" class="' + (isActive ? 'active' : '') + '">'+ (isActive ? 'Active' : 'Use') +'</button></td>';
         html += '<td>' + escapeHtml(s.name || '') + '</td>';
         html += '<td><code>' + escapeHtml(s.id || '') + '</code></td>';
-        html += '<td>' + escapeHtml(idleFor) + '</td>';
+        html += '<td>' + escapeHtml(state) + '</td>';
         html += '<td>' + escapeHtml(screen) + '</td>';
         html += '</tr>';
       }
@@ -417,7 +498,10 @@
 
     function setActive(id) {
       if (id === activeId) return;
+      var oldId = activeId;
+      var oldOwned = activeOwned;
       stopAll();
+      if (oldId && oldOwned) detachSession(oldId);
       activeId = id;
       activeIdEl.textContent = id || '(none)';
       sinceFrame = 0;
@@ -430,14 +514,16 @@
     }
 
     function stopAll() {
+      stopHeartbeat();
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
       }
-      if (eventsOn && activeId) {
-        call('events', null, 'OFF ' + activeId).catch(function () {});
+      if (eventsOn && activeId && activeOwned) {
+        callJson('events', null, 'OFF ' + activeId + ' ' + viewerId).catch(function () {});
       }
       eventsOn = false;
+      activeOwned = false;
     }
 
     function startAuto() {
@@ -447,18 +533,18 @@
       }
       stopAll();
       setRenderer();
-      statusEl.textContent = 'starting';
-
-      var transport = transportSel.value;
-      if (transport === 'poll' || !bridgeAvailable()) {
-        return startPolling();
-      }
-      if (transport === 'events') {
-        return startEventsOnly();
-      }
-      // auto
-      return startEventsOnly().catch(function () {
-        return startPolling();
+      return attachActiveSession().then(function () {
+        statusEl.textContent = 'starting';
+        var transport = transportSel.value;
+        if (transport === 'poll' || !bridgeAvailable()) {
+          return startPolling();
+        }
+        if (transport === 'events') {
+          return startEventsOnly();
+        }
+        return startEventsOnly().catch(function () {
+          return startPolling();
+        });
       });
     }
 
@@ -501,7 +587,10 @@
       var p = subscribed ? Promise.resolve() : window.todero.subscribe({ kind: 'event' }).then(function () { subscribed = true; });
       return p.then(function () {
         eventsOn = true;
-        return call('events', null, 'ON ' + activeId + ' 250 65536 screen-diff');
+        return callJson('events', null, 'ON ' + activeId + ' ' + viewerId + ' 250 65536 screen-diff');
+      }).catch(function (e) {
+        handleOwnershipError(e, 'events failed');
+        throw e;
       });
     }
 
@@ -571,7 +660,12 @@
 
     btnRefresh.addEventListener('click', function () { refreshSessions(); });
     btnOpen.addEventListener('click', function () { openSession(); });
-    btnCtrlC.addEventListener('click', function () { if (activeId) call('write', null, activeId + ' Aw=='); });
+    btnCtrlC.addEventListener('click', function () {
+      if (!activeId || !activeOwned) return;
+      callJson('write', null, activeId + ' ' + viewerId + ' Aw==').catch(function (e) {
+        handleOwnershipError(e, 'write failed');
+      });
+    });
     btnHideScrollback.addEventListener('click', function () {
       setScrollbackVisible(false);
     });
@@ -622,6 +716,9 @@
       if (data === null) return;
       bufferInput(data);
       flushInput();
+    });
+    window.addEventListener('beforeunload', function () {
+      if (activeId && activeOwned) detachSession(activeId);
     });
 
     setBridgeState();

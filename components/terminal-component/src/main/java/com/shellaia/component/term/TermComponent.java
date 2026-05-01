@@ -20,7 +20,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Files;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -51,6 +50,7 @@ public class TermComponent {
   private static final String HTML_TEMPLATE = loadResourceText(HTML_TEMPLATE_PATH);
   private static final String XTERM_JS = loadResourceText(XTERM_JS_PATH);
   private static final String XTERM_CSS = loadResourceText(XTERM_CSS_PATH);
+  private static final long DEFAULT_VIEWER_LEASE_MS = 30_000L;
 
   private final Storage storage;
   private final Map<String, String> dotenv;
@@ -88,7 +88,7 @@ public class TermComponent {
     return true;
   }
 
-  @Action(group = MAIN_GROUP, command = "open", description = "Open a terminal session. Body is JSON: {name?, cwd, program?, argv?, env?, cols?, rows?, buffer_max_bytes?, read_chunk_max_bytes?, screen_mode?, screen_scrollback_lines?, screen_diff_history?, screen_retain_raw_buffer?, idleTimeoutMs?}")
+  @Action(group = MAIN_GROUP, command = "open", description = "Open a terminal session. Body is JSON: {name?, cwd, program?, argv?, env?, cols?, rows?, buffer_max_bytes?, read_chunk_max_bytes?, screen_mode?, screen_scrollback_lines?, screen_diff_history?, screen_retain_raw_buffer?, idleTimeoutMs?}. idleTimeoutMs is accepted but ignored.")
   public Boolean open(CommandContext context) {
     String body = requestBody(context);
     if (body == null || body.isBlank()) {
@@ -118,15 +118,12 @@ public class TermComponent {
       return false;
     }
 
-    long idleTimeoutMs = parseLong(extractJsonNumber(body, "idleTimeoutMs"), defaultIdleTimeoutMs());
-    idleTimeoutMs = clamp(idleTimeoutMs, 10_000L, 24L * 60L * 60L * 1000L);
-
     try {
       Path preparedCwd = prepareCwd(cwd, allowedRoot);
       String configJson = mergeConfig(body, preparedCwd.toString());
       NativeTerm nativeTerm = ensureNative();
       var handle = nativeTerm.createFromJson(configJson);
-      Session session = new Session(id, sessionName, handle, nativeTerm, idleTimeoutMs);
+      Session session = new Session(id, sessionName, handle, nativeTerm);
       sessions.put(id, session);
       session.screenEnabled = nativeTerm.screenEnabled(handle);
 
@@ -151,6 +148,8 @@ public class TermComponent {
     EventStreamOwner owner = activeEventStreamOwner;
     List<Map<String, Object>> items = new ArrayList<>();
     for (Session session : sessions.values()) {
+      session.expireViewerLeaseIfNeeded(now);
+      SessionLeaseSnapshot lease = session.leaseSnapshot(now);
       Map<String, Object> item = new LinkedHashMap<>();
       long createdAtMs = session.createdAtMs;
       long lastActivityMs = session.lastActivityMs.get();
@@ -161,8 +160,9 @@ public class TermComponent {
       item.put("ageMs", Math.max(0L, now - createdAtMs));
       item.put("lastActivityMs", lastActivityMs);
       item.put("idleForMs", Math.max(0L, now - lastActivityMs));
-      item.put("idleTimeoutMs", session.idleTimeoutMs);
-      item.put("idleExpiresInMs", Math.max(0L, session.idleTimeoutMs - (now - lastActivityMs)));
+      item.put("state", lease.attached() ? "attached" : "detached");
+      item.put("attached", lease.attached());
+      item.put("viewerLeaseExpiresInMs", lease.attached() ? Math.max(0L, lease.viewerLeaseExpiresAtMs() - now) : 0L);
       item.put("eventStreamActive", owner != null && session.id.equals(owner.sessionId));
       if (owner != null && session.id.equals(owner.sessionId)) {
         item.put("eventMode", owner.eventMode.wireValue);
@@ -187,11 +187,11 @@ public class TermComponent {
     return true;
   }
 
-  @Action(group = MAIN_GROUP, command = "write", description = "Write to session stdin. Usage: write <id> <dataB64>")
+  @Action(group = MAIN_GROUP, command = "write", description = "Write to session stdin. Usage: write <id> [viewerId] <dataB64>")
   public Boolean write(CommandContext context) {
     Args args = Args.parse(requestBody(context));
     if (args.size() < 2) {
-      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: write <id> <dataB64>")));
+      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: write <id> [viewerId] <dataB64>")));
       return false;
     }
     String id = args.at(0);
@@ -201,7 +201,11 @@ public class TermComponent {
       return false;
     }
 
-    String b64 = args.at(1);
+    String viewerId = args.size() >= 3 ? args.at(1) : "";
+    if (!requireInteractiveAccess(context, s, viewerId)) {
+      return false;
+    }
+    String b64 = args.size() >= 3 ? args.at(2) : args.at(1);
     byte[] bytes;
     try {
       bytes = Base64.getDecoder().decode(b64);
@@ -386,11 +390,94 @@ public class TermComponent {
     }
   }
 
-  @Action(group = MAIN_GROUP, command = "resize", description = "Resize terminal. Usage: resize <id> <cols> <rows>")
+  @Action(group = MAIN_GROUP, command = "attach", description = "Attach an exclusive viewer lease. Usage: attach <id> <viewerId>")
+  public Boolean attach(CommandContext context) {
+    Args args = Args.parse(requestBody(context));
+    if (args.size() < 2) {
+      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: attach <id> <viewerId>")));
+      return false;
+    }
+    Session s = sessions.get(args.at(0));
+    if (s == null) {
+      respondJson(context, 404, Json.obj(Map.of("ok", false, "message", "unknown session id")));
+      return false;
+    }
+    String viewerId = args.at(1);
+    if (viewerId.isBlank()) {
+      respondOwnershipError(context, ViewerLeaseResult.error("viewer_id_required", "viewerId is required"));
+      return false;
+    }
+    long now = System.currentTimeMillis();
+    ViewerLeaseResult result = s.attachViewer(viewerId, now + DEFAULT_VIEWER_LEASE_MS);
+    clearActiveEventStreamIfStale(s.id, viewerId);
+    respondJson(context, 200, Json.obj(Map.of(
+        "ok", true,
+        "id", s.id,
+        "state", "attached",
+        "viewerLeaseExpiresInMs", Math.max(0L, result.viewerLeaseExpiresAtMs() - now),
+        "replacedExistingViewer", result.replacedExistingViewer()
+    )));
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP, command = "heartbeat", description = "Refresh an exclusive viewer lease. Usage: heartbeat <id> <viewerId>")
+  public Boolean heartbeat(CommandContext context) {
+    Args args = Args.parse(requestBody(context));
+    if (args.size() < 2) {
+      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: heartbeat <id> <viewerId>")));
+      return false;
+    }
+    Session s = sessions.get(args.at(0));
+    if (s == null) {
+      respondJson(context, 404, Json.obj(Map.of("ok", false, "message", "unknown session id")));
+      return false;
+    }
+    long now = System.currentTimeMillis();
+    ViewerLeaseResult result = s.refreshViewerLease(args.at(1), now + DEFAULT_VIEWER_LEASE_MS);
+    if (!result.ok()) {
+      respondOwnershipError(context, result);
+      return false;
+    }
+    respondJson(context, 200, Json.obj(Map.of(
+        "ok", true,
+        "id", s.id,
+        "state", "attached",
+        "viewerLeaseExpiresInMs", Math.max(0L, result.viewerLeaseExpiresAtMs() - now)
+    )));
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP, command = "detach", description = "Release an exclusive viewer lease. Usage: detach <id> <viewerId>")
+  public Boolean detach(CommandContext context) {
+    Args args = Args.parse(requestBody(context));
+    if (args.size() < 2) {
+      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: detach <id> <viewerId>")));
+      return false;
+    }
+    Session s = sessions.get(args.at(0));
+    if (s == null) {
+      respondJson(context, 404, Json.obj(Map.of("ok", false, "message", "unknown session id")));
+      return false;
+    }
+    ViewerLeaseResult result = s.detachViewer(args.at(1));
+    if (!result.ok()) {
+      respondOwnershipError(context, result);
+      return false;
+    }
+    clearActiveEventStreamIfDetached(s.id);
+    respondJson(context, 200, Json.obj(Map.of(
+        "ok", true,
+        "id", s.id,
+        "state", "detached"
+    )));
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP, command = "resize", description = "Resize terminal. Usage: resize <id> [viewerId] <cols> <rows>")
   public Boolean resize(CommandContext context) {
     Args args = Args.parse(requestBody(context));
     if (args.size() < 3) {
-      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: resize <id> <cols> <rows>")));
+      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: resize <id> [viewerId] <cols> <rows>")));
       return false;
     }
     String id = args.at(0);
@@ -400,8 +487,13 @@ public class TermComponent {
       return false;
     }
 
-    int cols = (int) clamp(args.longAt(1, 80), 10, 400);
-    int rows = (int) clamp(args.longAt(2, 24), 5, 200);
+    String viewerId = args.size() >= 4 ? args.at(1) : "";
+    if (!requireInteractiveAccess(context, s, viewerId)) {
+      return false;
+    }
+    int argOffset = args.size() >= 4 ? 1 : 0;
+    int cols = (int) clamp(args.longAt(1 + argOffset, 80), 10, 400);
+    int rows = (int) clamp(args.longAt(2 + argOffset, 24), 5, 200);
 
     try {
       s.touch();
@@ -480,16 +572,17 @@ public class TermComponent {
     return closeLike(context, true);
   }
 
-  @Action(group = MAIN_GROUP, command = "events", description = "Start/Stop output event stream. Usage: events ON|OFF <id> [intervalMs] [maxBytes] [raw|screen-diff|screen-formatted|screen-text]")
+  @Action(group = MAIN_GROUP, command = "events", description = "Start/Stop output event stream. Usage: events ON|OFF <id> <viewerId> [intervalMs] [maxBytes] [raw|screen-diff|screen-formatted|screen-text]")
   public Boolean events(CommandContext context) {
     Args args = Args.parse(requestBody(context));
-    if (args.size() < 2) {
-      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: events ON|OFF <id> [intervalMs] [maxBytes] [raw|screen-diff|screen-formatted|screen-text]")));
+    if (args.size() < 3) {
+      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: events ON|OFF <id> <viewerId> [intervalMs] [maxBytes] [raw|screen-diff|screen-formatted|screen-text]")));
       return false;
     }
 
     String mode = args.at(0);
     String id = args.at(1);
+    String viewerId = args.at(2);
     Session s = sessions.get(id);
     if (s == null) {
       respondJson(context, 404, Json.obj(Map.of("ok", false, "message", "unknown session id")));
@@ -497,6 +590,9 @@ public class TermComponent {
     }
 
     if ("OFF".equalsIgnoreCase(mode)) {
+      if (!requireInteractiveAccess(context, s, viewerId)) {
+        return false;
+      }
       EventStreamOwner prev = activeEventStreamOwner;
       activeEventStreamOwner = null;
       if (prev != null) {
@@ -506,13 +602,16 @@ public class TermComponent {
       return true;
     }
     if (!"ON".equalsIgnoreCase(mode)) {
-      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: events ON|OFF <id> [intervalMs] [maxBytes] [raw|screen-diff|screen-formatted|screen-text]")));
+      respondJson(context, 200, Json.obj(Map.of("ok", false, "message", "Usage: events ON|OFF <id> <viewerId> [intervalMs] [maxBytes] [raw|screen-diff|screen-formatted|screen-text]")));
+      return false;
+    }
+    if (!requireInteractiveAccess(context, s, viewerId)) {
       return false;
     }
 
-    long intervalMs = clamp(args.longAt(2, 750L), 100L, 10_000L);
-    int maxBytes = (int) clamp(args.longAt(3, defaultReadChunkMaxBytes()), 1, maxScreenMaxBytes());
-    EventMode eventMode = EventMode.from(args.at(4));
+    long intervalMs = clamp(args.longAt(3, 750L), 100L, 10_000L);
+    int maxBytes = (int) clamp(args.longAt(4, defaultReadChunkMaxBytes()), 1, maxScreenMaxBytes());
+    EventMode eventMode = EventMode.from(args.at(5));
     if (eventMode.requiresScreen() && !s.screenEnabled) {
       respondJson(context, 400, Json.obj(Map.of("ok", false, "message", "screen mode is not enabled for this session")));
       return false;
@@ -523,7 +622,7 @@ public class TermComponent {
       prev.stop();
     }
 
-    EventStreamOwner owner = new EventStreamOwner(context.getId(), id, intervalMs, maxBytes, eventMode);
+    EventStreamOwner owner = new EventStreamOwner(context.getId(), id, viewerId, intervalMs, maxBytes, eventMode);
     activeEventStreamOwner = owner;
     owner.start(context, s);
     respondJson(context, 200, Json.obj(Map.of("ok", true, "message", "events ON", "id", id, "mode", eventMode.wireValue)));
@@ -542,6 +641,7 @@ public class TermComponent {
       respondJson(context, 404, Json.obj(Map.of("ok", false, "message", "unknown session id")));
       return false;
     }
+    clearActiveEventStreamIfDetached(id);
 
     try {
       if (kill) {
@@ -572,19 +672,63 @@ public class TermComponent {
     cleanupTask = scheduler.scheduleAtFixedRate(() -> {
       long now = System.currentTimeMillis();
       for (Session s : sessions.values()) {
-        if (now - s.lastActivityMs.get() > s.idleTimeoutMs) {
-          sessions.remove(s.id);
-          try {
-            s.nativeTerm.kill(s.handle);
-          } catch (Exception ignored) {
+        s.expireViewerLeaseIfNeeded(now);
+        clearActiveEventStreamIfDetached(s.id);
+        try {
+          NativeTerm.WaitExitResult exit = s.nativeTerm.waitExit(s.handle, 0);
+          if (!exit.exited()) {
+            continue;
           }
+          sessions.remove(s.id);
+          clearActiveEventStreamIfDetached(s.id);
           try {
             s.nativeTerm.free(s.handle);
           } catch (Exception ignored) {
           }
+        } catch (Exception ignored) {
         }
       }
     }, 30, 30, TimeUnit.SECONDS);
+  }
+
+  private void clearActiveEventStreamIfStale(String sessionId, String viewerId) {
+    EventStreamOwner prev = activeEventStreamOwner;
+    if (prev == null || !sessionId.equals(prev.sessionId) || viewerId.equals(prev.viewerId)) {
+      return;
+    }
+    activeEventStreamOwner = null;
+    prev.stop();
+  }
+
+  private void clearActiveEventStreamIfDetached(String sessionId) {
+    EventStreamOwner prev = activeEventStreamOwner;
+    if (prev == null || !sessionId.equals(prev.sessionId)) {
+      return;
+    }
+    Session session = sessions.get(sessionId);
+    if (session != null && session.isOwnedBy(prev.viewerId, System.currentTimeMillis())) {
+      return;
+    }
+    activeEventStreamOwner = null;
+    prev.stop();
+  }
+
+  private boolean requireInteractiveAccess(CommandContext context, Session session, String viewerId) {
+    ViewerLeaseResult result = session.ensureInteractiveAccess(viewerId, System.currentTimeMillis());
+    if (result.ok()) {
+      return true;
+    }
+    respondOwnershipError(context, result);
+    return false;
+  }
+
+  private void respondOwnershipError(CommandContext context, ViewerLeaseResult result) {
+    int status = "viewer_id_required".equals(result.error()) ? 400 : 409;
+    respondJson(context, status, Json.obj(Map.of(
+        "ok", false,
+        "error", result.error(),
+        "message", result.message()
+    )));
   }
 
   private static Map<String, Object> errorJson(NativeTerm.NativeTermException e) {
@@ -719,10 +863,6 @@ public class TermComponent {
     } catch (NumberFormatException ignored) {
       return fallback;
     }
-  }
-
-  private long defaultIdleTimeoutMs() {
-    return parseLong(env("TODERO_TERM_IDLE_TIMEOUT_MS"), Duration.ofMinutes(10).toMillis());
   }
 
   private int defaultReadChunkMaxBytes() {
@@ -1044,25 +1184,99 @@ public class TermComponent {
     final NativeTerm nativeTerm;
     final long createdAtMs = System.currentTimeMillis();
     final AtomicLong lastActivityMs = new AtomicLong(System.currentTimeMillis());
-    final long idleTimeoutMs;
     volatile boolean screenEnabled;
+    private String attachedViewerId;
+    private long viewerLeaseExpiresAtMs;
 
-    Session(String id, String name, com.sun.jna.Pointer handle, NativeTerm nativeTerm, long idleTimeoutMs) {
+    Session(String id, String name, com.sun.jna.Pointer handle, NativeTerm nativeTerm) {
       this.id = id;
       this.name = name;
       this.handle = handle;
       this.nativeTerm = nativeTerm;
-      this.idleTimeoutMs = idleTimeoutMs;
     }
 
     void touch() {
       lastActivityMs.set(System.currentTimeMillis());
+    }
+
+    synchronized void expireViewerLeaseIfNeeded(long now) {
+      if (attachedViewerId != null && now > viewerLeaseExpiresAtMs) {
+        attachedViewerId = null;
+        viewerLeaseExpiresAtMs = 0L;
+      }
+    }
+
+    synchronized SessionLeaseSnapshot leaseSnapshot(long now) {
+      expireViewerLeaseIfNeeded(now);
+      return new SessionLeaseSnapshot(attachedViewerId != null, viewerLeaseExpiresAtMs);
+    }
+
+    synchronized boolean isOwnedBy(String viewerId, long now) {
+      expireViewerLeaseIfNeeded(now);
+      return attachedViewerId != null && attachedViewerId.equals(viewerId);
+    }
+
+    synchronized ViewerLeaseResult attachViewer(String viewerId, long leaseExpiresAtMs) {
+      expireViewerLeaseIfNeeded(System.currentTimeMillis());
+      boolean replaced = attachedViewerId != null && !attachedViewerId.equals(viewerId);
+      attachedViewerId = viewerId;
+      viewerLeaseExpiresAtMs = leaseExpiresAtMs;
+      return ViewerLeaseResult.ok(viewerLeaseExpiresAtMs, replaced);
+    }
+
+    synchronized ViewerLeaseResult refreshViewerLease(String viewerId, long leaseExpiresAtMs) {
+      expireViewerLeaseIfNeeded(System.currentTimeMillis());
+      if (viewerId == null || viewerId.isBlank()) {
+        return ViewerLeaseResult.error("viewer_id_required", "viewerId is required");
+      }
+      if (attachedViewerId == null) {
+        return ViewerLeaseResult.error("session_detached", "session is detached; attach first");
+      }
+      if (!attachedViewerId.equals(viewerId)) {
+        return ViewerLeaseResult.error("ownership_lost", "session ownership was transferred to another viewer");
+      }
+      viewerLeaseExpiresAtMs = leaseExpiresAtMs;
+      return ViewerLeaseResult.ok(viewerLeaseExpiresAtMs, false);
+    }
+
+    synchronized ViewerLeaseResult detachViewer(String viewerId) {
+      expireViewerLeaseIfNeeded(System.currentTimeMillis());
+      if (viewerId == null || viewerId.isBlank()) {
+        return ViewerLeaseResult.error("viewer_id_required", "viewerId is required");
+      }
+      if (attachedViewerId == null) {
+        return ViewerLeaseResult.ok(0L, false);
+      }
+      if (!attachedViewerId.equals(viewerId)) {
+        return ViewerLeaseResult.error("ownership_lost", "session ownership was transferred to another viewer");
+      }
+      attachedViewerId = null;
+      viewerLeaseExpiresAtMs = 0L;
+      return ViewerLeaseResult.ok(0L, false);
+    }
+
+    synchronized ViewerLeaseResult ensureInteractiveAccess(String viewerId, long now) {
+      expireViewerLeaseIfNeeded(now);
+      if (viewerId == null || viewerId.isBlank()) {
+        if (attachedViewerId == null) {
+          return ViewerLeaseResult.ok(viewerLeaseExpiresAtMs, false);
+        }
+        return ViewerLeaseResult.error("viewer_id_required", "viewerId is required while session is attached");
+      }
+      if (attachedViewerId == null) {
+        return ViewerLeaseResult.error("session_detached", "session is detached; attach first");
+      }
+      if (!attachedViewerId.equals(viewerId)) {
+        return ViewerLeaseResult.error("ownership_lost", "session ownership was transferred to another viewer");
+      }
+      return ViewerLeaseResult.ok(viewerLeaseExpiresAtMs, false);
     }
   }
 
   private final class EventStreamOwner {
     final String ownerContextId;
     final String sessionId;
+    final String viewerId;
     final long intervalMs;
     final int maxBytes;
     final EventMode eventMode;
@@ -1070,9 +1284,10 @@ public class TermComponent {
     final AtomicLong screenFrameCursor = new AtomicLong(0);
     volatile ScheduledFuture<?> task;
 
-    EventStreamOwner(String ownerContextId, String sessionId, long intervalMs, int maxBytes, EventMode eventMode) {
+    EventStreamOwner(String ownerContextId, String sessionId, String viewerId, long intervalMs, int maxBytes, EventMode eventMode) {
       this.ownerContextId = ownerContextId;
       this.sessionId = sessionId;
+      this.viewerId = viewerId;
       this.intervalMs = intervalMs;
       this.maxBytes = maxBytes;
       this.eventMode = eventMode;
@@ -1084,6 +1299,13 @@ public class TermComponent {
           Session s = sessions.get(sessionId);
           if (s == null) {
             stop();
+            return;
+          }
+          if (!s.isOwnedBy(viewerId, System.currentTimeMillis())) {
+            stop();
+            if (activeEventStreamOwner == this) {
+              activeEventStreamOwner = null;
+            }
             return;
           }
           emitPayload(context, s);
@@ -1223,6 +1445,20 @@ public class TermComponent {
   private enum ScreenPayloadMode {
     TEXT,
     FORMATTED
+  }
+
+  private record ViewerLeaseResult(boolean ok, String error, String message, long viewerLeaseExpiresAtMs,
+                                   boolean replacedExistingViewer) {
+    static ViewerLeaseResult ok(long viewerLeaseExpiresAtMs, boolean replacedExistingViewer) {
+      return new ViewerLeaseResult(true, "", "", viewerLeaseExpiresAtMs, replacedExistingViewer);
+    }
+
+    static ViewerLeaseResult error(String error, String message) {
+      return new ViewerLeaseResult(false, error, message, 0L, false);
+    }
+  }
+
+  private record SessionLeaseSnapshot(boolean attached, long viewerLeaseExpiresAtMs) {
   }
 
   private static final class Args {

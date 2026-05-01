@@ -101,7 +101,7 @@ public class AgentTermComponent {
     }
   }
 
-  @Action(group = MAIN_GROUP, command = "write", description = "Write to session. Usage: write <idOrName> <dataB64>")
+  @Action(group = MAIN_GROUP, command = "write", description = "Write to session. Usage: write <idOrName> [viewerId] <dataB64>")
   public Boolean write(CommandContext context) {
     return forwardRawArgs(context, "write");
   }
@@ -130,6 +130,21 @@ public class AgentTermComponent {
     return forwardRawArgs(context, "screen_scrollback");
   }
 
+  @Action(group = MAIN_GROUP, command = "attach", description = "Attach an exclusive viewer lease. Usage: attach <idOrName> <viewerId>")
+  public Boolean attach(CommandContext context) {
+    return forwardRawArgs(context, "attach");
+  }
+
+  @Action(group = MAIN_GROUP, command = "heartbeat", description = "Refresh an exclusive viewer lease. Usage: heartbeat <idOrName> <viewerId>")
+  public Boolean heartbeat(CommandContext context) {
+    return forwardRawArgs(context, "heartbeat");
+  }
+
+  @Action(group = MAIN_GROUP, command = "detach", description = "Release an exclusive viewer lease. Usage: detach <idOrName> <viewerId>")
+  public Boolean detach(CommandContext context) {
+    return forwardRawArgs(context, "detach");
+  }
+
   @Action(group = MAIN_GROUP, command = "close", description = "Close session. Usage: close <idOrName>")
   public Boolean close(CommandContext context) {
     return forwardSingleTarget(context, "close");
@@ -140,12 +155,12 @@ public class AgentTermComponent {
     return forwardSingleTarget(context, "kill");
   }
 
-  @Action(group = MAIN_GROUP, command = "resize", description = "Resize session. Usage: resize <idOrName> <cols> <rows>")
+  @Action(group = MAIN_GROUP, command = "resize", description = "Resize session. Usage: resize <idOrName> [viewerId] <cols> <rows>")
   public Boolean resize(CommandContext context) {
     return forwardRawArgs(context, "resize");
   }
 
-  @Action(group = MAIN_GROUP, command = "events", description = "Start/Stop terminal output events (pass-through). Usage: events ON|OFF <idOrName> [intervalMs] [maxBytes] [mode]")
+  @Action(group = MAIN_GROUP, command = "events", description = "Start/Stop terminal output events (pass-through). Usage: events ON|OFF <idOrName> <viewerId> [intervalMs] [maxBytes] [mode]")
   public Boolean events(CommandContext context) {
     String body = safeTrim(requestBody(context));
     if (body.isEmpty()) return respondError(context, "args required");

@@ -27,7 +27,8 @@ import java.util.Set;
 @AIAController(name = "com.shellaia.aia.admin",
     type = ServerType.AIA,
     visible = true,
-    description = "AIA tool component for internal set lifecycle operations and server reload")
+    description = "AIA tool component for internal set lifecycle operations and server reload",
+    toolCapabilityProvider = AiaAdminToolCapabilities.class)
 public class AiaAdminComponent {
   private static final String MAIN_GROUP = "Main";
 

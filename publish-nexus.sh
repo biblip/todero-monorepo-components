@@ -259,24 +259,39 @@ if [[ "${run_tests}" != "true" ]]; then
   deploy_goal+=(-DskipTests)
 fi
 
-deploy_modules=()
+declare -a deploy_modules=()
 if [[ ${#selected_modules[@]} -gt 0 ]]; then
   deploy_modules=(-pl "$(IFS=,; echo "${selected_modules[*]}")" -am)
 fi
 
 if [[ "${mode}" == "snapshot" ]]; then
-  mvn -f "${repo_dir}/pom.xml" \
-    -s "${tmp_settings}" \
-    -Dnexus.baseUrl="${nexus_host%/}" \
-    "-DaltDeploymentRepository=nexus-snapshots::default::${nexus_host%/}/repository/maven-snapshots/" \
-    "${deploy_modules[@]}" \
-    "${deploy_goal[@]}"
+  if [[ ${#deploy_modules[@]} -gt 0 ]]; then
+    mvn -f "${repo_dir}/pom.xml" \
+      -s "${tmp_settings}" \
+      -Dnexus.baseUrl="${nexus_host%/}" \
+      "-DaltDeploymentRepository=nexus-snapshots::default::${nexus_host%/}/repository/maven-snapshots/" \
+      "${deploy_modules[@]}" \
+      "${deploy_goal[@]}"
+  else
+    mvn -f "${repo_dir}/pom.xml" \
+      -s "${tmp_settings}" \
+      -Dnexus.baseUrl="${nexus_host%/}" \
+      "-DaltDeploymentRepository=nexus-snapshots::default::${nexus_host%/}/repository/maven-snapshots/" \
+      "${deploy_goal[@]}"
+  fi
 else
-  mvn -f "${repo_dir}/pom.xml" \
-    -s "${tmp_settings}" \
-    -Dnexus.baseUrl="${nexus_host%/}" \
-    "${deploy_modules[@]}" \
-    "${deploy_goal[@]}"
+  if [[ ${#deploy_modules[@]} -gt 0 ]]; then
+    mvn -f "${repo_dir}/pom.xml" \
+      -s "${tmp_settings}" \
+      -Dnexus.baseUrl="${nexus_host%/}" \
+      "${deploy_modules[@]}" \
+      "${deploy_goal[@]}"
+  else
+    mvn -f "${repo_dir}/pom.xml" \
+      -s "${tmp_settings}" \
+      -Dnexus.baseUrl="${nexus_host%/}" \
+      "${deploy_goal[@]}"
+  fi
 fi
 
 if [[ "${mode}" == "release" ]]; then
