@@ -22,9 +22,12 @@ import java.nio.file.Path;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +45,9 @@ public class AgentTermComponent {
   private static final String TERM_COMPONENT = "com.shellaia.term";
   private static final long TOOL_TIMEOUT_SECONDS = 3;
   private static final String LOG_PREFIX = "[TERM_AGENT]";
+
+  private static final String LIBRARY_FILE = "term-agent/command-library-v1.json";
+  private static final String UI_STATE_FILE = "term-agent/ui-state-v1.json";
 
   private static final int DEFAULT_COLS = 120;
   private static final int DEFAULT_ROWS = 30;
@@ -66,6 +72,75 @@ public class AgentTermComponent {
 
   public AgentTermComponent(Storage storage) {
     this.storage = storage;
+  }
+
+  @Action(group = MAIN_GROUP, command = "library_get", description = "Get the persisted command library JSON.")
+  public Boolean libraryGet(CommandContext context) {
+    String json = readJsonFileOrDefault(LIBRARY_FILE, defaultLibraryJson());
+    context.complete(buildJsonResponse(200, json));
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP, command = "library_put", description = "Replace the persisted command library JSON. Body must be JSON.")
+  public Boolean libraryPut(CommandContext context) {
+    String body = safeTrim(requestBody(context));
+    if (body.isEmpty()) {
+      return respondError(context, "body JSON is required");
+    }
+    JsonNode node;
+    try {
+      node = JSON.readTree(body);
+    } catch (Exception e) {
+      return respondError(context, "invalid JSON");
+    }
+    if (node == null || !node.isObject()) {
+      return respondError(context, "body must be a JSON object");
+    }
+    ObjectNode normalized = normalizeLibrary((ObjectNode) node);
+    try {
+      storage.writeFile(LIBRARY_FILE, JSON.writeValueAsBytes(normalized));
+      context.complete(buildJsonResponse(200, "{\"ok\":true}"));
+      return true;
+    } catch (Exception e) {
+      context.complete(buildJsonResponse(500, "{\"ok\":false,\"error\":\"storage_write_failed\"}"));
+      return true;
+    }
+  }
+
+  @Action(group = MAIN_GROUP, command = "ui_state_get", description = "Get persisted UI state (selected tab/group).")
+  public Boolean uiStateGet(CommandContext context) {
+    String json = readJsonFileOrDefault(UI_STATE_FILE, "{\"selectedSessionId\":\"\",\"selectedSessionName\":\"\",\"selectedGroupId\":\"\"}");
+    context.complete(buildJsonResponse(200, json));
+    return true;
+  }
+
+  @Action(group = MAIN_GROUP, command = "ui_state_put", description = "Replace persisted UI state. Body must be JSON.")
+  public Boolean uiStatePut(CommandContext context) {
+    String body = safeTrim(requestBody(context));
+    if (body.isEmpty()) {
+      return respondError(context, "body JSON is required");
+    }
+    JsonNode node;
+    try {
+      node = JSON.readTree(body);
+    } catch (Exception e) {
+      return respondError(context, "invalid JSON");
+    }
+    if (node == null || !node.isObject()) {
+      return respondError(context, "body must be a JSON object");
+    }
+    ObjectNode out = JSON.createObjectNode();
+    out.put("selectedSessionId", safeTrim(node.path("selectedSessionId").asText("")));
+    out.put("selectedSessionName", safeTrim(node.path("selectedSessionName").asText("")));
+    out.put("selectedGroupId", safeTrim(node.path("selectedGroupId").asText("")));
+    try {
+      storage.writeFile(UI_STATE_FILE, JSON.writeValueAsBytes(out));
+      context.complete(buildJsonResponse(200, "{\"ok\":true}"));
+      return true;
+    } catch (Exception e) {
+      context.complete(buildJsonResponse(500, "{\"ok\":false,\"error\":\"storage_write_failed\"}"));
+      return true;
+    }
   }
 
   @Action(group = MAIN_GROUP, command = "html", description = "Render Terminal Agent UI")
@@ -562,6 +637,78 @@ public class AgentTermComponent {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }
+  }
+
+  private String readJsonFileOrDefault(String path, String defaultJson) {
+    try {
+      byte[] bytes = storage.readFile(path);
+      if (bytes == null || bytes.length == 0) return defaultJson;
+      return new String(bytes, StandardCharsets.UTF_8);
+    } catch (Exception ignored) {
+      return defaultJson;
+    }
+  }
+
+  private static String defaultLibraryJson() {
+    // Stable minimal schema for the UI to evolve without breaking.
+    String groupId = "grp_" + UUID.randomUUID();
+    String cmdId = "cmd_" + UUID.randomUUID();
+    return "{"
+        + "\"schemaVersion\":1,"
+        + "\"groups\":[{"
+        + "\"id\":\"" + groupId + "\","
+        + "\"name\":\"General\","
+        + "\"order\":0,"
+        + "\"commands\":[{"
+        + "\"id\":\"" + cmdId + "\","
+        + "\"name\":\"List files\","
+        + "\"text\":\"ls -al\","
+        + "\"submit\":true,"
+        + "\"order\":0"
+        + "}]"
+        + "}]"
+        + "}";
+  }
+
+  private ObjectNode normalizeLibrary(ObjectNode input) {
+    ObjectNode out = JSON.createObjectNode();
+    int schemaVersion = input.path("schemaVersion").asInt(1);
+    out.put("schemaVersion", schemaVersion);
+    List<ObjectNode> groups = new ArrayList<>();
+    JsonNode groupsNode = input.path("groups");
+    if (groupsNode != null && groupsNode.isArray()) {
+      for (JsonNode g : groupsNode) {
+        if (g == null || !g.isObject()) continue;
+        ObjectNode group = JSON.createObjectNode();
+        String id = safeTrim(g.path("id").asText(""));
+        if (id.isEmpty()) id = "grp_" + UUID.randomUUID();
+        group.put("id", id);
+        group.put("name", safeTrim(g.path("name").asText("Group")));
+        group.put("order", g.path("order").asInt(0));
+        List<ObjectNode> commands = new ArrayList<>();
+        JsonNode commandsNode = g.path("commands");
+        if (commandsNode != null && commandsNode.isArray()) {
+          for (JsonNode c : commandsNode) {
+            if (c == null || !c.isObject()) continue;
+            ObjectNode cmd = JSON.createObjectNode();
+            String cid = safeTrim(c.path("id").asText(""));
+            if (cid.isEmpty()) cid = "cmd_" + UUID.randomUUID();
+            cmd.put("id", cid);
+            cmd.put("name", safeTrim(c.path("name").asText("Command")));
+            cmd.put("text", c.path("text").isNull() ? "" : c.path("text").asText(""));
+            cmd.put("submit", c.path("submit").asBoolean(true));
+            cmd.put("order", c.path("order").asInt(0));
+            commands.add(cmd);
+          }
+        }
+        commands.sort((a, b) -> Integer.compare(a.path("order").asInt(0), b.path("order").asInt(0)));
+        group.set("commands", JSON.valueToTree(commands));
+        groups.add(group);
+      }
+    }
+    groups.sort((a, b) -> Integer.compare(a.path("order").asInt(0), b.path("order").asInt(0)));
+    out.set("groups", JSON.valueToTree(groups));
+    return out;
   }
 
   private ObjectNode buildOpenBody(String rawName) {

@@ -7,121 +7,177 @@
   <style>
     :root { color-scheme: light dark; }
     html, body { height: 100%; }
-    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin: 0; }
-    .card { height: 100%; box-sizing: border-box; margin: 0; padding: 14px 14px; display:flex; flex-direction:column; gap: 10px; }
-    h1 { font-size: 18px; margin: 0 0 6px 0; }
+    body { margin: 0; font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+
+    .app { height: 100%; display:flex; flex-direction:column; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+    .topbar .title { display:flex; align-items:center; gap:10px; min-width: 0; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; background: #94a3b8; }
+    .dot.ok { background: #22c55e; }
+    .dot.warn { background: #f59e0b; }
+    .dot.bad { background: #ef4444; }
+    .heading { font-size: 14px; font-weight: 650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .muted { color: #64748b; font-size: 12px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-    .input { border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
-    .button { border: 1px solid #0f172a; background: #0f172a; color: #fff; border-radius: 10px; padding: 10px 12px; font-size: 13px; cursor: pointer; }
-    .button.secondary { background: #fff; color: #0f172a; }
-    .button:disabled { opacity: .5; cursor: not-allowed; }
-    .grid { display: grid; grid-template-columns: 1fr; gap: 12px; flex: 1; min-height: 0; }
-    @media (min-width: 900px) { .grid { grid-template-columns: 420px 1fr; } }
-    .panel { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; min-height: 0; overflow: auto; display:flex; flex-direction:column; }
-    .panel h2 { font-size: 13px; margin: 0 0 8px 0; }
-    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .table th, .table td { border-bottom: 1px solid #e2e8f0; padding: 6px 6px; text-align: left; vertical-align: top; }
-    .pill { display:inline-block; border:1px solid #cbd5e1; border-radius: 999px; padding: 4px 8px; font-size: 12px; }
-    .warn { color: #b91c1c; }
-    .term-wrap { border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; flex: 1; min-height: 0; display:flex; flex-direction:column; }
-    .term-head { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding: 10px 10px; border-bottom:1px solid #e2e8f0; }
-    .term-area { flex: 1; min-height: 0; }
-    .term { height: 100%; background: #0b1220; width:100%; }
-    pre.plain { margin: 0; padding: 0; height: 100%; width:100%; overflow:auto; background:#0b1220; color:#e2e8f0; white-space: pre; font-size: 12px; line-height: 1.4; }
-    .snapshot { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; flex: 1; min-height: 0; flex-direction: column; }
-    .snapshot-head { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; padding: 10px 10px; border-bottom:1px solid #e2e8f0; }
-    .snapshot pre { margin: 0; padding: 0; flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: auto; scrollbar-color: #94a3b8 #0b1220; background:#0b1220; color:#f8fafc; white-space: pre; font-size: 12px; line-height: 1.4; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-    .snapshot pre::-webkit-scrollbar { width: 12px; height: 12px; }
-    .snapshot pre::-webkit-scrollbar-track { background: #0b1220; }
-    .snapshot pre::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; border: 2px solid #0b1220; }
-    .snapshot pre::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
-    .term, pre.plain, .term .xterm-viewport { scrollbar-width: none; }
-    .term::-webkit-scrollbar, pre.plain::-webkit-scrollbar, .term .xterm-viewport::-webkit-scrollbar { width: 0; height: 0; }
+
+    .btn { border: 1px solid #0f172a; background: #0f172a; color:#fff; border-radius: 10px; padding: 8px 10px; font-size: 13px; cursor:pointer; }
+    .btn.secondary { background:#fff; color:#0f172a; border-color:#cbd5e1; }
+    .btn.icon { padding: 8px 10px; font-size: 12px; }
+    .btn:disabled { opacity: .5; cursor:not-allowed; }
+    .pill { display:inline-flex; align-items:center; gap:8px; border:1px solid #cbd5e1; border-radius:999px; padding: 4px 10px; font-size: 12px; }
     code { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
-    .scroll { overflow: auto; flex: 1; min-height: 0; border: 1px solid #e2e8f0; border-radius: 12px; }
-    .sessions-table button { padding: 4px 8px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; font-size: 12px; }
-    .sessions-table button:hover { background: #f1f5f9; }
-    .sessions-table .active { background: #0f172a; color: #fff; border-color: #0f172a; }
+
+    .main { flex: 1; min-height: 0; display:grid; grid-template-columns: 360px 1fr; }
+    @media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
+
+    .side { min-height: 0; border-right: 1px solid #e2e8f0; padding: 12px; display:flex; flex-direction:column; gap:10px; }
+    @media (max-width: 900px) { .side { border-right: none; border-bottom: 1px solid #e2e8f0; } }
+
+    .section { display:flex; flex-direction:column; gap:8px; }
+    .section h2 { margin: 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color:#64748b; }
+    .row { display:flex; gap:8px; align-items:center; }
+    .input, select, textarea { border:1px solid #cbd5e1; border-radius: 10px; padding: 8px 10px; font-size: 13px; width: 100%; box-sizing:border-box; }
+    textarea { min-height: 90px; resize: vertical; font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+
+    .cmds { flex: 1; min-height: 0; overflow:auto; border: 1px solid #e2e8f0; border-radius: 12px; }
+    .cmd { padding: 10px 10px; border-bottom: 1px solid #e2e8f0; cursor: default; }
+    .cmd:last-child { border-bottom:none; }
+    .cmd:hover { background: #f8fafc; }
+    .cmd .name { font-size: 13px; font-weight: 650; }
+    .cmd .text { font-size: 12px; color: #475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top: 4px; }
+    .badge { display:inline-block; font-size: 11px; border:1px solid #cbd5e1; border-radius: 999px; padding: 2px 8px; color:#0f172a; background:#fff; }
+    .cmdActions { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .btn.sm { padding: 6px 9px; border-radius: 999px; font-size: 12px; }
+    .cmd.selected { background: #f1f5f9; }
+    @media (prefers-color-scheme: dark) { .cmd.selected { background:#0f172a; } }
+    .cmd.dragging { opacity: .55; }
+    .cmd.dropTarget { outline: 2px dashed #94a3b8; outline-offset: -6px; }
+
+    .termPane { min-height: 0; display:flex; flex-direction:column; }
+    .tabs { display:flex; align-items:center; gap:6px; padding: 10px 10px; border-bottom: 1px solid #e2e8f0; overflow:auto; }
+    .tab { display:inline-flex; align-items:center; gap:8px; border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor:pointer; user-select:none; white-space:nowrap; }
+    .tab.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+    .tab .x { font-weight: 800; opacity: .8; cursor:pointer; }
+    .tab.active .x { opacity: .9; }
+    .tab .x:hover { opacity: 1; }
+    .tabPlus { border-style:dashed; }
+
+    .termWrap { flex: 1; min-height: 0; display:flex; flex-direction:column; }
+    .termHead { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .termArea { flex: 1; min-height: 0; position: relative; }
+    .term { height: 100%; background: #0b1220; width:100%; }
+    pre.plain { margin:0; padding: 10px 10px; height:100%; width:100%; overflow:auto; background:#0b1220; color:#e2e8f0; white-space: pre; font-size: 12px; line-height: 1.45; }
+    .term, pre.plain, .term .xterm-viewport { scrollbar-width: none; }
+    .term::-webkit-scrollbar, pre.plain::-webkit-scrollbar, .term .xterm-viewport::-webkit-scrollbar { width:0; height:0; }
+
+    .scrollback { position:absolute; inset:0; display:none; flex-direction:column; background:#0b1220; }
+    .scrollbackHead { display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 8px 10px; border-bottom:1px solid #1f2937; }
+    .scrollbackHead .muted { color:#94a3b8; }
+    .scrollbackPre { margin:0; padding: 10px 10px; flex:1; min-height:0; overflow:auto; background:#0b1220; color:#f8fafc; white-space: pre; font-size: 12px; line-height: 1.45; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    .modalBack { position: fixed; inset:0; background: rgba(15,23,42,.36); display:none; align-items:center; justify-content:center; padding: 20px; }
+    .modal { width: min(560px, 100%); background:#fff; border:1px solid #e2e8f0; border-radius: 16px; overflow:hidden; box-shadow: 0 25px 60px rgba(2,6,23,.28); }
+    .modalHead { padding: 12px 14px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .modalBody { padding: 14px; display:flex; flex-direction:column; gap:10px; }
+    .modalFoot { padding: 12px 14px; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:8px; }
+
+    @media (prefers-color-scheme: dark) {
+      body { background:#0b1220; color:#e2e8f0; }
+      .topbar, .side, .tabs, .termHead { border-color:#1f2937; }
+      .btn.secondary { background:#0b1220; color:#e2e8f0; border-color:#334155; }
+      .pill, .tab { border-color:#334155; background:#0b1220; color:#e2e8f0; }
+      .tab.active { background:#e2e8f0; color:#0b1220; border-color:#e2e8f0; }
+      .cmds { border-color:#1f2937; }
+      .cmd { border-color:#1f2937; }
+      .cmd:hover { background:#0f172a; }
+      .badge { border-color:#334155; background:#0b1220; color:#e2e8f0; }
+      .input, select, textarea { background:#0b1220; color:#e2e8f0; border-color:#334155; }
+      .modal { background:#0b1220; border-color:#334155; }
+      .modalHead, .modalFoot { border-color:#1f2937; }
+    }
 
     ${XTERM_CSS}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>${HEADING}</h1>
-    <div class="muted">Served by <code>com.shellaia.agent.term/html</code>. Generated at ${GENERATED_AT}</div>
+  <div class="app">
+    <div class="topbar">
+      <div class="title">
+        <span id="dot" class="dot"></span>
+        <div style="min-width:0;">
+          <div class="heading">${HEADING}</div>
+          <div class="muted">Terminal + command library</div>
+        </div>
+      </div>
+      <div class="row" style="justify-content:flex-end;">
+        <span id="bridge" class="pill">bridge: checking</span>
+        <button id="btn-refresh" class="btn secondary icon" type="button">Refresh</button>
+      </div>
+    </div>
 
-    <div class="grid">
-      <div class="panel">
-        <h2>Sessions</h2>
-        <div class="row">
-          <button id="btn-refresh" class="button secondary" type="button">Refresh</button>
-          <span id="bridge" class="pill">bridge: checking</span>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <span class="pill">selected:</span>
-          <select id="session-select" class="input" style="flex:1 1 260px;padding:8px 10px;"></select>
-          <button id="btn-use" class="button secondary" type="button">Use</button>
-        </div>
-        <div id="sessions" class="scroll" style="margin-top:8px;">
-          <div class="muted" style="padding:10px;">No data yet.</div>
+    <div class="main">
+      <div class="side">
+        <div class="section">
+          <h2>Command Library</h2>
+          <div class="row">
+            <select id="group-select"></select>
+            <button id="btn-add-group" class="btn secondary" type="button">+</button>
+            <button id="btn-edit-group" class="btn secondary" type="button">Edit</button>
+            <button id="btn-del-group" class="btn secondary" type="button">Del</button>
+          </div>
         </div>
 
-        <h2 style="margin-top:12px;">Open</h2>
-        <div class="row">
-          <input id="open-name" class="input" style="flex:1 1 260px;" placeholder="session name" />
-        </div>
-        <div class="row">
-          <button id="btn-open" class="button" type="button">Open Session</button>
-        </div>
-        <div id="open-result" class="muted" style="margin-top:8px;white-space:pre-wrap;"></div>
-        <div class="muted" style="margin-top:6px;">
-          cwd is fixed to <code>~/term/&lt;sanitized-name&gt;</code>; the terminal component validates it against allowed roots and creates it if needed
+        <div class="section" style="flex:1; min-height:0;">
+          <div id="cmds" class="cmds">
+            <div class="muted" style="padding:12px;">Loading…</div>
+          </div>
+          <div class="muted">
+            Double-click sends to the selected tab. Each command can be configured to submit or just type.
+          </div>
         </div>
       </div>
 
-      <div class="panel">
-        <h2>Terminal</h2>
-        <div class="row">
-          <span class="pill">active: <span id="active-id">(none)</span></span>
-          <span class="pill">renderer: <select id="renderer">
-            <option value="xterm">xterm</option>
-            <option value="plain">plain</option>
-          </select></span>
-          <span class="pill">transport: <select id="transport">
-            <option value="auto">auto</option>
-            <option value="events">events</option>
-            <option value="poll">poll</option>
-          </select></span>
-          <button id="btn-ctrlc" class="button secondary" type="button">Ctrl-C</button>
-          <button id="btn-close" class="button secondary" type="button">Close</button>
-          <button id="btn-kill" class="button secondary" type="button">Kill</button>
-          <span class="pill">sinceFrame: <span id="since-frame">0</span></span>
-        </div>
-        <div class="row">
-          <button id="btn-start" class="button" type="button">Start</button>
-          <button id="btn-stop" class="button secondary" type="button">Stop</button>
+      <div class="termPane">
+        <div id="tabs" class="tabs">
+          <span class="muted">Loading sessions…</span>
         </div>
 
-        <div class="term-wrap" style="margin-top:10px;">
-          <div class="term-head muted">
-            <span>Interactive terminal (screen mode always on).</span>
-            <span id="status" class="pill">no session</span>
+      <div class="termWrap">
+          <div class="termHead">
+            <div class="pill">active: <code id="active-label">(none)</code></div>
+            <div class="row" style="gap:6px;">
+              <select id="renderer" style="width:auto;" class="input">
+                <option value="xterm">xterm</option>
+                <option value="plain">plain</option>
+              </select>
+              <span id="status" class="pill">idle</span>
+            </div>
           </div>
-          <div class="term-area">
+          <div class="termArea">
             <div id="term" class="term"></div>
             <pre id="plain" class="plain" style="display:none;"></pre>
+            <div id="scrollback" class="scrollback">
+              <div class="scrollbackHead">
+                <span class="muted">Scrollback snapshot</span>
+                <button id="btn-hide-scrollback" class="btn secondary sm" type="button">Hide</button>
+              </div>
+              <pre id="scrollback-pre" class="scrollbackPre"></pre>
+            </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
 
-        <div id="scrollback-snapshot" class="snapshot" style="display:none;">
-          <div class="snapshot-head">
-            <span class="muted">Read-only server scrollback snapshot via <code>screen_scrollback</code>.</span>
-            <button id="btn-hide-scrollback" class="button secondary" type="button">Hide</button>
-          </div>
-          <pre id="scrollback-pre"></pre>
-        </div>
+  <div id="modal-back" class="modalBack">
+    <div class="modal">
+      <div class="modalHead">
+        <div id="modal-title" style="font-weight:700;">Modal</div>
+        <button id="modal-close" class="btn secondary" type="button">Close</button>
+      </div>
+      <div id="modal-body" class="modalBody"></div>
+      <div class="modalFoot">
+        <button id="modal-cancel" class="btn secondary" type="button">Cancel</button>
+        <button id="modal-ok" class="btn" type="button">Save</button>
       </div>
     </div>
   </div>
@@ -131,48 +187,53 @@
   </script>
   <script>
   (function () {
-    var btnRefresh = document.getElementById('btn-refresh');
-    var btnOpen = document.getElementById('btn-open');
-    var sessionsEl = document.getElementById('sessions');
-    var sessionSelect = document.getElementById('session-select');
-    var btnUse = document.getElementById('btn-use');
-    var openResult = document.getElementById('open-result');
+    var dotEl = document.getElementById('dot');
     var bridgeEl = document.getElementById('bridge');
-    var activeIdEl = document.getElementById('active-id');
-    var rendererSel = document.getElementById('renderer');
-    var transportSel = document.getElementById('transport');
-    var btnStart = document.getElementById('btn-start');
-    var btnStop = document.getElementById('btn-stop');
-    var btnCtrlC = document.getElementById('btn-ctrlc');
-    var btnClose = document.getElementById('btn-close');
-    var btnKill = document.getElementById('btn-kill');
-    var btnHideScrollback = document.getElementById('btn-hide-scrollback');
-    var sinceFrameEl = document.getElementById('since-frame');
+    var btnRefresh = document.getElementById('btn-refresh');
+    var tabsEl = document.getElementById('tabs');
     var statusEl = document.getElementById('status');
-
-    var openName = document.getElementById('open-name');
-    var termWrap = document.querySelector('.term-wrap');
+    var activeLabelEl = document.getElementById('active-label');
+    var rendererSel = document.getElementById('renderer');
     var termDiv = document.getElementById('term');
     var plainPre = document.getElementById('plain');
-    var scrollbackSnapshot = document.getElementById('scrollback-snapshot');
+    var scrollbackEl = document.getElementById('scrollback');
     var scrollbackPre = document.getElementById('scrollback-pre');
+    var btnHideScrollback = document.getElementById('btn-hide-scrollback');
 
+    var groupSelect = document.getElementById('group-select');
+    var btnAddGroup = document.getElementById('btn-add-group');
+    var btnEditGroup = document.getElementById('btn-edit-group');
+    var btnDelGroup = document.getElementById('btn-del-group');
+    var cmdsEl = document.getElementById('cmds');
+
+    var modalBack = document.getElementById('modal-back');
+    var modalTitle = document.getElementById('modal-title');
+    var modalBody = document.getElementById('modal-body');
+    var modalClose = document.getElementById('modal-close');
+    var modalCancel = document.getElementById('modal-cancel');
+    var modalOk = document.getElementById('modal-ok');
+
+    var viewerId = makeViewerId();
+    var subscribed = false;
     var activeId = null;
+    var activeOwned = false;
     var pollTimer = null;
     var eventsOn = false;
     var sinceFrame = 0;
-    var inputBuf = '';
-    var inputFlushTimer = null;
     var xterm = null;
-    var subscribed = false;
+    var heartbeatTimer = null;
+    var heartbeatIntervalMs = 10000;
     var scrollbackVisible = false;
     var scrollbackLoading = false;
     var scrollbackExitAtMs = 0;
     var scrollbackWheelCooldownMs = 350;
-    var viewerId = makeViewerId();
-    var heartbeatTimer = null;
-    var activeOwned = false;
-    var heartbeatIntervalMs = 10000;
+
+    var sessionsById = new Map();
+    var library = null;
+    var selectedGroupId = '';
+    var selectedCmdId = '';
+    var uiState = { selectedSessionId: '', selectedSessionName: '', selectedGroupId: '' };
+    var dragCmdId = '';
 
     function getBridge() {
       if (window.todero) return { api: window.todero, owner: window };
@@ -190,164 +251,9 @@
       return !!(b && b.api && typeof b.api.callAction === 'function' && typeof b.api.subscribe === 'function');
     }
 
-    function makeViewerId() {
-      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-        return 'viewer_' + window.crypto.randomUUID();
-      }
-      return 'viewer_' + String(Date.now()) + '_' + String(Math.random()).slice(2);
-    }
-
     function setBridgeState() {
       bridgeEl.textContent = bridgeAvailable() ? 'bridge: ready' : 'bridge: unavailable';
-    }
-
-    function currentStatusLabel() {
-      if (!activeId) return 'no session';
-      return eventsOn ? 'events' : (pollTimer ? 'polling' : 'idle');
-    }
-
-    function setScrollbackVisible(visible) {
-      scrollbackVisible = !!visible;
-      scrollbackSnapshot.style.display = scrollbackVisible ? 'flex' : 'none';
-      if (termWrap) termWrap.style.display = scrollbackVisible ? 'none' : 'flex';
-      if (scrollbackVisible) {
-        scrollbackPre.scrollTop = scrollbackPre.scrollHeight;
-        requestAnimationFrame(function () {
-          scrollbackPre.scrollTop = scrollbackPre.scrollHeight;
-        });
-        statusEl.textContent = 'scrollback ready';
-      } else {
-        scrollbackExitAtMs = Date.now();
-        scrollbackPre.textContent = '';
-        statusEl.textContent = currentStatusLabel();
-      }
-    }
-
-    function bytesToB64(bytes) {
-      if (bytes && typeof bytes.toBase64 === 'function') return bytes.toBase64();
-      var bin = '';
-      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      return btoa(bin);
-    }
-
-    function b64ToBytes(b64) {
-      if (typeof Uint8Array.fromBase64 === 'function') return Uint8Array.fromBase64(b64);
-      var bin = atob(b64);
-      var out = new Uint8Array(bin.length);
-      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-      return out;
-    }
-
-    function writeUtf8ToTerminal(text) {
-      if (!text) return;
-      if (rendererSel.value === 'plain') {
-        plainPre.textContent = (plainPre.textContent || '') + text;
-        plainPre.scrollTop = plainPre.scrollHeight;
-        return;
-      }
-      if (xterm) xterm.write(text);
-    }
-
-    function ensureXterm() {
-      if (xterm) return;
-      if (!window.Terminal) {
-        statusEl.textContent = 'xterm missing';
-        return;
-      }
-      xterm = new window.Terminal({
-        cols: 120,
-        rows: 30,
-        fontSize: 12,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-        theme: { background: '#0b1220' }
-      });
-      xterm.open(termDiv);
-      xterm.onData(function (data) { bufferInput(data); });
-      xterm.focus();
-    }
-
-    function setRenderer() {
-      var mode = rendererSel.value;
-      if (mode === 'plain') {
-        termDiv.style.display = 'none';
-        plainPre.style.display = 'block';
-      } else {
-        termDiv.style.display = 'block';
-        plainPre.style.display = 'none';
-        ensureXterm();
-      }
-    }
-
-    function bufferInput(data) {
-      if (!activeId) return;
-      inputBuf += data;
-      if (data.indexOf('\\n') !== -1 || data.indexOf('\\r') !== -1) {
-        flushInput();
-        return;
-      }
-      if (inputFlushTimer) return;
-      inputFlushTimer = setTimeout(function () {
-        inputFlushTimer = null;
-        flushInput();
-      }, 20);
-    }
-
-    function flushInput() {
-      if (!activeId || !activeOwned) return;
-      if (!inputBuf) return;
-      var bytes = new TextEncoder().encode(inputBuf);
-      inputBuf = '';
-      var b64 = bytesToB64(bytes);
-      callJson('write', null, activeId + ' ' + viewerId + ' ' + b64).catch(function (e) {
-        handleOwnershipError(e, 'write failed');
-      });
-    }
-
-    function attachActiveSession() {
-      if (!activeId) return Promise.reject('no session');
-      statusEl.textContent = 'attaching';
-      return callJson('attach', null, activeId + ' ' + viewerId).then(function () {
-        activeOwned = true;
-        startHeartbeat();
-      }).catch(function (e) {
-        handleOwnershipError(e, 'attach failed');
-        throw e;
-      });
-    }
-
-    function startHeartbeat() {
-      stopHeartbeat();
-      heartbeatTimer = setInterval(function () {
-        if (!activeId || !activeOwned) return;
-        callJson('heartbeat', null, activeId + ' ' + viewerId).catch(function (e) {
-          handleOwnershipError(e, 'ownership lost');
-        });
-      }, heartbeatIntervalMs);
-    }
-
-    function stopHeartbeat() {
-      if (!heartbeatTimer) return;
-      clearInterval(heartbeatTimer);
-      heartbeatTimer = null;
-    }
-
-    function detachSession(id) {
-      if (!id) return;
-      callJson('detach', null, id + ' ' + viewerId).catch(function () {});
-    }
-
-    function handleOwnershipError(err, fallbackStatus) {
-      stopHeartbeat();
-      activeOwned = false;
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-      if (eventsOn) {
-        eventsOn = false;
-      }
-      statusEl.textContent = err && err.code === 'ownership_lost' ? 'ownership lost' : fallbackStatus;
-      refreshSessions();
+      dotEl.className = 'dot ' + (bridgeAvailable() ? 'ok' : 'warn');
     }
 
     function call(action, params, body) {
@@ -377,150 +283,195 @@
       });
     }
 
-    function escapeHtml(s) {
-      return (s || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+    function makeViewerId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return 'viewer_' + window.crypto.randomUUID();
+      }
+      return 'viewer_' + String(Date.now()) + '_' + String(Math.random()).slice(2);
     }
 
-    function refreshSessions() {
-      sessionsEl.innerHTML = '<div class="muted" style="padding:10px;">Loading...</div>';
-      return call('sessions', null, '').then(function (res) {
-        var text = res && res.response && res.response.body ? res.response.body.text : '';
-        var parsed;
-        try { parsed = JSON.parse(text); } catch (_) { parsed = null; }
-        if (!parsed || !parsed.sessions) {
-          sessionsEl.innerHTML = '<div class="muted" style="padding:10px;">Invalid response</div>';
-          return;
-        }
-        renderSessions(parsed.sessions || []);
-      }).catch(function (e) {
-        sessionsEl.innerHTML = '<div class="muted warn" style="padding:10px;">Error: ' + escapeHtml(String(e)) + '</div>';
+    function bytesToB64(bytes) {
+      if (bytes && typeof bytes.toBase64 === 'function') return bytes.toBase64();
+      var bin = '';
+      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    }
+
+    function b64ToBytes(b64) {
+      var bin = atob(b64 || '');
+      var out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    function ensureXterm() {
+      if (xterm) return;
+      if (!window.Terminal) {
+        statusEl.textContent = 'xterm missing';
+        return;
+      }
+      xterm = new window.Terminal({
+        cols: 120,
+        rows: 30,
+        fontSize: 12,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        theme: { background: '#0b1220' }
+      });
+      xterm.open(termDiv);
+      xterm.focus();
+      xterm.onData(function (data) {
+        if (!activeId || !activeOwned) return;
+        var bytes = new TextEncoder().encode(data);
+        var b64 = bytesToB64(bytes);
+        callJson('write', null, activeId + ' ' + viewerId + ' ' + b64).catch(function () {
+          // Ownership errors handled by refresh/attach loops; keep UI quiet.
+          handleOwnershipLost();
+        });
       });
     }
 
-    function renderSessions(items) {
-      while (sessionSelect.firstChild) sessionSelect.removeChild(sessionSelect.firstChild);
-      var opt0 = document.createElement('option');
-      opt0.value = '';
-      opt0.textContent = '(choose a session)';
-      sessionSelect.appendChild(opt0);
-      for (var i = 0; i < items.length; i++) {
-        var it = items[i];
-        var opt = document.createElement('option');
-        opt.value = it.id || '';
-        opt.textContent = (it.name ? it.name : it.id) + ' [' + (it.id || '') + ']';
-        sessionSelect.appendChild(opt);
+    function setRenderer() {
+      if (rendererSel.value === 'plain') {
+        termDiv.style.display = 'none';
+        plainPre.style.display = 'block';
+      } else {
+        termDiv.style.display = 'block';
+        plainPre.style.display = 'none';
+        ensureXterm();
       }
-      if (activeId) sessionSelect.value = activeId;
+    }
 
-      var html = '';
-      html += '<table class="table sessions-table">';
-      html += '<thead><tr><th style="width:70px;">Use</th><th>Name</th><th>Id</th><th>State</th><th>Screen</th></tr></thead><tbody>';
-      for (var j = 0; j < items.length; j++) {
-        var s = items[j];
-        var isActive = activeId && s.id === activeId;
-        var state = s.state || (s.attached ? 'attached' : 'detached');
-        var screen = s.screenEnabled ? ('on f=' + (s.frameId || '')) : 'off';
-        html += '<tr>';
-        html += '<td><button data-use="' + escapeHtml(s.id || '') + '" class="' + (isActive ? 'active' : '') + '">'+ (isActive ? 'Active' : 'Use') +'</button></td>';
-        html += '<td>' + escapeHtml(s.name || '') + '</td>';
-        html += '<td><code>' + escapeHtml(s.id || '') + '</code></td>';
-        html += '<td>' + escapeHtml(state) + '</td>';
-        html += '<td>' + escapeHtml(screen) + '</td>';
-        html += '</tr>';
+    function setScrollbackVisible(visible) {
+      scrollbackVisible = !!visible;
+      if (!scrollbackEl) return;
+      scrollbackEl.style.display = scrollbackVisible ? 'flex' : 'none';
+      if (!scrollbackVisible) {
+        scrollbackExitAtMs = Date.now();
+        if (scrollbackPre) scrollbackPre.textContent = '';
+        // Return focus to terminal.
+        try { if (xterm) xterm.focus(); } catch (_) {}
+      } else {
+        if (scrollbackPre) {
+          scrollbackPre.scrollTop = scrollbackPre.scrollHeight;
+          requestAnimationFrame(function () { scrollbackPre.scrollTop = scrollbackPre.scrollHeight; });
+        }
       }
-      html += '</tbody></table>';
-      sessionsEl.innerHTML = html;
+    }
 
-      var buttons = sessionsEl.querySelectorAll('button[data-use]');
-      for (var k = 0; k < buttons.length; k++) {
-        buttons[k].addEventListener('click', function (ev) {
-          var id = ev && ev.target ? ev.target.getAttribute('data-use') : null;
-          if (!id) return;
-          sessionSelect.value = id;
-          setActive(id);
-        });
-      }
+    function isScrollbackAtBottom() {
+      if (!scrollbackPre) return true;
+      var remaining = scrollbackPre.scrollHeight - scrollbackPre.clientHeight - scrollbackPre.scrollTop;
+      return remaining <= 2;
+    }
+
+    function showScrollback() {
+      if (!activeId) return;
+      if (scrollbackVisible || scrollbackLoading) return;
+      scrollbackLoading = true;
+      statusEl.textContent = 'loading scrollback';
+      call('screen_scrollback', null, activeId + ' 262144').then(function (res) {
+        var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
+        var parsed = JSON.parse(txt);
+        if (!parsed || !parsed.dataB64) throw new Error('invalid response');
+        var bytes = b64ToBytes(parsed.dataB64);
+        if (scrollbackPre) scrollbackPre.textContent = new TextDecoder().decode(bytes);
+        setScrollbackVisible(true);
+        statusEl.textContent = 'scrollback';
+      }).catch(function () {
+        if (scrollbackPre) scrollbackPre.textContent = 'Error: scrollback failed';
+        setScrollbackVisible(true);
+        statusEl.textContent = 'scrollback';
+      }).finally(function () {
+        scrollbackLoading = false;
+      });
     }
 
     function stopAll() {
-      stopHeartbeat();
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-      if (eventsOn && activeId && activeOwned) callJson('events', null, 'OFF ' + activeId + ' ' + viewerId).catch(function () {});
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      if (eventsOn && activeId && activeOwned) {
+        callJson('events', null, 'OFF ' + activeId + ' ' + viewerId).catch(function () {});
+      }
       eventsOn = false;
+      stopHeartbeat();
+    }
+
+    function stopHeartbeat() {
+      if (!heartbeatTimer) return;
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      heartbeatTimer = setInterval(function () {
+        if (!activeId || !activeOwned) return;
+        callJson('heartbeat', null, activeId + ' ' + viewerId).catch(function () {
+          handleOwnershipLost();
+        });
+      }, heartbeatIntervalMs);
+    }
+
+    function handleOwnershipLost() {
       activeOwned = false;
+      statusEl.textContent = 'detached';
+      dotEl.className = 'dot warn';
+      refreshSessions();
     }
 
-    function setActive(id) {
-      if (id === activeId) return;
-      var oldId = activeId;
-      var oldOwned = activeOwned;
-      stopAll();
-      if (oldId && oldOwned) detachSession(oldId);
-      activeId = id;
-      activeIdEl.textContent = id || '(none)';
-      sinceFrame = 0;
-      sinceFrameEl.textContent = '0';
-      if (xterm) xterm.reset();
-      plainPre.textContent = '';
-      setScrollbackVisible(false);
-      statusEl.textContent = activeId ? 'idle' : 'no session';
-      if (activeId) startAuto();
+    function attachActive() {
+      if (!activeId) return Promise.reject('no session');
+      statusEl.textContent = 'attaching';
+      return callJson('attach', null, activeId + ' ' + viewerId).then(function () {
+        activeOwned = true;
+        dotEl.className = 'dot ok';
+        startHeartbeat();
+      });
     }
 
-    function useSelected() {
-      var id = (sessionSelect.value || '').trim();
-      if (!id) return;
-      setActive(id);
-    }
-
-    function startAuto() {
-      if (!activeId) { statusEl.textContent = 'no session'; return; }
+    function startForActive() {
+      if (!activeId) {
+        statusEl.textContent = 'idle';
+        return Promise.resolve();
+      }
       stopAll();
       setRenderer();
-      return attachActiveSession().then(function () {
-        statusEl.textContent = 'starting';
-
-        // Always do an initial fetch to seed the UI (events/diffs may be empty until the next repaint).
-        // This mirrors the terminal-component behavior so the user sees the prompt immediately.
-        if (rendererSel.value === 'plain') {
-          call('screen_text', null, activeId + ' 65536').then(function (res) {
-            var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
-            var parsed = JSON.parse(txt);
-            if (!parsed || !parsed.dataB64) return;
-            var bytes = b64ToBytes(parsed.dataB64);
-            var out = new TextDecoder().decode(bytes);
-            plainPre.textContent = out;
-          }).catch(function () {});
-        } else {
-          call('screen_diff', null, activeId + ' 0 65536').then(function (res) {
-            var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
-            var parsed = JSON.parse(txt);
-            if (!parsed) return;
-            if (parsed.frameId) {
-              sinceFrame = parsed.frameId;
-              sinceFrameEl.textContent = String(sinceFrame);
-            }
-            if (!parsed.dataB64) return;
-            var bytes = b64ToBytes(parsed.dataB64);
-            var out = new TextDecoder().decode(bytes);
-            writeUtf8ToTerminal(out);
-          }).catch(function () {});
-        }
-
-        var transport = transportSel.value;
-        if (transport === 'poll' || !bridgeAvailable()) return startPolling();
-        if (transport === 'events') return startEventsOnly();
-        return startEventsOnly().catch(function () { return startPolling(); });
+      sinceFrame = 0;
+      return attachActive().then(function () {
+        return initialFetch().then(function () {
+          if (!bridgeAvailable()) return startPolling();
+          return startEvents().catch(function () { return startPolling(); });
+        });
+      }).catch(function () {
+        handleOwnershipLost();
       });
+    }
+
+    function initialFetch() {
+      if (!activeId) return Promise.resolve();
+      if (rendererSel.value === 'plain') {
+        return call('screen_text', null, activeId + ' 65536').then(function (res) {
+          var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
+          var parsed = JSON.parse(txt);
+          if (!parsed || !parsed.dataB64) return;
+          plainPre.textContent = new TextDecoder().decode(b64ToBytes(parsed.dataB64));
+        }).catch(function () {});
+      }
+      return call('screen_diff', null, activeId + ' 0 65536').then(function (res) {
+        var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
+        var parsed = JSON.parse(txt);
+        if (!parsed) return;
+        if (parsed.frameId) sinceFrame = parsed.frameId;
+        if (!parsed.dataB64) return;
+        writeUtf8ToTerminal(new TextDecoder().decode(b64ToBytes(parsed.dataB64)));
+      }).catch(function () {});
     }
 
     function startPolling() {
       statusEl.textContent = 'polling';
+      dotEl.className = 'dot ok';
       pollTimer = setInterval(function () {
         if (!activeId) return;
         if (rendererSel.value === 'plain') {
@@ -528,9 +479,7 @@
             var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
             var parsed = JSON.parse(txt);
             if (!parsed || !parsed.dataB64) return;
-            var bytes = b64ToBytes(parsed.dataB64);
-            var out = new TextDecoder().decode(bytes);
-            plainPre.textContent = out;
+            plainPre.textContent = new TextDecoder().decode(b64ToBytes(parsed.dataB64));
           }).catch(function () {});
           return;
         }
@@ -538,77 +487,35 @@
           var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
           var parsed = JSON.parse(txt);
           if (!parsed) return;
-          if (parsed.frameId) {
-            sinceFrame = parsed.frameId;
-            sinceFrameEl.textContent = String(sinceFrame);
-          }
+          if (parsed.frameId) sinceFrame = parsed.frameId;
           if (!parsed.dataB64) return;
-          var bytes = b64ToBytes(parsed.dataB64);
-          var out = new TextDecoder().decode(bytes);
-          writeUtf8ToTerminal(out);
+          writeUtf8ToTerminal(new TextDecoder().decode(b64ToBytes(parsed.dataB64)));
         }).catch(function () {});
       }, 250);
       return Promise.resolve();
     }
 
-    function startEventsOnly() {
-      if (!activeId) return Promise.reject('no session');
+    function startEvents() {
       statusEl.textContent = 'events';
       var b = getBridge();
       if (!b) return Promise.reject('bridge unavailable');
-      // Ensure the event callback is visible on the bridge owner window (events are delivered there).
       try { b.owner.__todero_onAiatpMessage = window.__todero_onAiatpMessage; } catch (_) {}
       var p = subscribed ? Promise.resolve() : b.api.subscribe({ kind: 'event' }).then(function () { subscribed = true; });
       return p.then(function () {
         eventsOn = true;
         return callJson('events', null, 'ON ' + activeId + ' ' + viewerId + ' 250 65536 screen-diff');
-      }).catch(function (e) {
-        handleOwnershipError(e, 'events failed');
-        throw e;
       });
     }
 
-    function showScrollback() {
-      if (!activeId) {
-        statusEl.textContent = 'no session';
-        return Promise.resolve();
+    function writeUtf8ToTerminal(text) {
+      if (!text) return;
+      if (rendererSel.value === 'plain') {
+        plainPre.textContent += text;
+        plainPre.scrollTop = plainPre.scrollHeight;
+        return;
       }
-      if (scrollbackVisible || scrollbackLoading) return Promise.resolve();
-      scrollbackLoading = true;
-      statusEl.textContent = 'loading scrollback';
-      return call('screen_scrollback', null, activeId + ' 262144').then(function (res) {
-        var txt = (res && res.response && res.response.body) ? res.response.body.text : '';
-        var parsed;
-        try {
-          parsed = JSON.parse(txt);
-        } catch (_) {
-          throw new Error('invalid screen_scrollback response');
-        }
-        if (!parsed || !parsed.dataB64) throw new Error('invalid response');
-        var bytes = b64ToBytes(parsed.dataB64);
-        scrollbackPre.textContent = new TextDecoder().decode(bytes);
-        setScrollbackVisible(true);
-      }).catch(function (e) {
-        scrollbackPre.textContent = 'Error: ' + String(e);
-        setScrollbackVisible(true);
-        statusEl.textContent = 'scrollback failed';
-      }).finally(function () {
-        scrollbackLoading = false;
-      });
-    }
-
-    function keyEventAction(ev) {
-      if (!ev || ev.altKey || ev.ctrlKey || ev.metaKey) return null;
-      if (ev.key === 'Enter') return { closeOnly: true };
-      if (ev.key === ' ') return { closeOnly: true };
-      if (ev.key === 'Backspace') return { closeOnly: true };
-      if (typeof ev.key === 'string' && ev.key.length === 1) return null;
-      return null;
-    }
-
-    function isScrollbackAtBottom() {
-      var remaining = scrollbackPre.scrollHeight - scrollbackPre.clientHeight - scrollbackPre.scrollTop;
-      return remaining <= 2;
+      ensureXterm();
+      xterm.write(text);
     }
 
     window.__todero_onAiatpMessage = function (payload) {
@@ -619,58 +526,629 @@
         if (!text) return;
         var parsed = JSON.parse(text);
         if (!parsed || parsed.id !== activeId) return;
+        if (parsed.frameId) sinceFrame = parsed.frameId;
         if (!parsed.dataB64) return;
-        if (parsed.frameId) {
-          sinceFrame = parsed.frameId;
-          sinceFrameEl.textContent = String(sinceFrame);
-        }
-        var bytes = b64ToBytes(parsed.dataB64);
-        var out = new TextDecoder().decode(bytes);
-        writeUtf8ToTerminal(out);
+        writeUtf8ToTerminal(new TextDecoder().decode(b64ToBytes(parsed.dataB64)));
       } catch (_) {}
     };
 
-    function openSession() {
-      openResult.textContent = 'Opening...';
-      var name = (openName.value || '').trim();
-      return call('open', null, name).then(function (res) {
+    function saveUiState() {
+      try {
+        localStorage.setItem('term_agent_selected_session', uiState.selectedSessionId || '');
+        localStorage.setItem('term_agent_selected_session_name', uiState.selectedSessionName || '');
+        localStorage.setItem('term_agent_selected_group', uiState.selectedGroupId || '');
+      } catch (_) {}
+      callJson('ui_state_put', null, JSON.stringify(uiState)).catch(function () {});
+    }
+
+    function loadUiState() {
+      var fromLocal = { selectedSessionId: '', selectedSessionName: '', selectedGroupId: '' };
+      try {
+        fromLocal.selectedSessionId = (localStorage.getItem('term_agent_selected_session') || '').trim();
+        fromLocal.selectedSessionName = (localStorage.getItem('term_agent_selected_session_name') || '').trim();
+        fromLocal.selectedGroupId = (localStorage.getItem('term_agent_selected_group') || '').trim();
+      } catch (_) {}
+      uiState = fromLocal;
+      return callJson('ui_state_get', null, '').then(function (remote) {
+        if (remote && typeof remote === 'object') {
+          if (!uiState.selectedSessionId) uiState.selectedSessionId = (remote.selectedSessionId || '').trim();
+          if (!uiState.selectedSessionName) uiState.selectedSessionName = (remote.selectedSessionName || '').trim();
+          if (!uiState.selectedGroupId) uiState.selectedGroupId = (remote.selectedGroupId || '').trim();
+        }
+      }).catch(function () {});
+    }
+
+    function refreshSessions() {
+      tabsEl.innerHTML = '';
+      sessionsById.clear();
+      return call('sessions', null, '').then(function (res) {
         var txt = res && res.response && res.response.body ? res.response.body.text : '';
-        openResult.textContent = txt || 'ok';
-        try {
-          var parsed = JSON.parse(txt);
-          if (parsed && parsed.id) setActive(parsed.id);
-        } catch (_) {}
-        return refreshSessions();
-      }).catch(function (e) {
-        openResult.textContent = 'Error: ' + e;
+        var parsed;
+        try { parsed = txt ? JSON.parse(txt) : {}; } catch (_) { parsed = {}; }
+        var sessions = (parsed && parsed.sessions && parsed.sessions.length) ? parsed.sessions : [];
+        sessions.forEach(function (s) { if (s && s.id) sessionsById.set(String(s.id), s); });
+        // On any refresh (including after host reload), try to restore the desired tab selection.
+        // Prefer persisted uiState.selectedSessionId when present.
+        var desired = String((uiState && uiState.selectedSessionId) ? uiState.selectedSessionId : '').trim();
+        if (desired && sessionsById.has(desired) && desired !== activeId) {
+          activeId = null; // force selectSession() to run attach + feed.
+        }
+        renderTabs(sessions);
+      }).catch(function () {
+        tabsEl.innerHTML = '<span class="muted">Unable to load sessions.</span>';
       });
     }
 
-    btnRefresh.addEventListener('click', function () { refreshSessions(); });
-    btnOpen.addEventListener('click', function () { openSession(); });
-    btnUse.addEventListener('click', function () { useSelected(); });
-    btnStart.addEventListener('click', function () { if (activeId) startAuto(); });
-    btnStop.addEventListener('click', function () {
-      var oldId = activeId;
-      var oldOwned = activeOwned;
-      stopAll();
-      if (oldId && oldOwned) detachSession(oldId);
-      statusEl.textContent = activeId ? 'stopped' : 'no session';
-    });
-    btnCtrlC.addEventListener('click', function () {
-      if (!activeId || !activeOwned) return;
-      callJson('write', null, activeId + ' ' + viewerId + ' Aw==').catch(function (e) {
-        handleOwnershipError(e, 'write failed');
+    function renderTabs(sessions) {
+      tabsEl.innerHTML = '';
+      if (!sessions || !sessions.length) {
+        tabsEl.innerHTML = '<span class="muted">No sessions. Use + to open one.</span>';
+        if (activeId && activeOwned) {
+          callJson('detach', null, activeId + ' ' + viewerId).catch(function () {});
+        }
+        stopAll();
+        activeId = null;
+        activeOwned = false;
+        uiState.selectedSessionId = '';
+        saveUiState();
+        updateActiveLabel();
+        statusEl.textContent = 'idle';
+        setScrollbackVisible(false);
+      }
+      sessions.forEach(function (s) {
+        var id = String(s.id || '').trim();
+        if (!id) return;
+        var name = String(s.name || id).trim();
+        var tab = document.createElement('div');
+        tab.className = 'tab' + (id === activeId ? ' active' : '');
+        tab.dataset.id = id;
+        tab.innerHTML = '<span>' + escapeHtml(name) + '</span><span class="x" title="Close">×</span>';
+        tab.addEventListener('click', function (ev) {
+          var isClose = ev && ev.target && (String(ev.target.className || '').indexOf('x') !== -1);
+          if (isClose) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            closeSession(id);
+            return;
+          }
+          selectSession(id);
+        });
+        tabsEl.appendChild(tab);
       });
+
+      var plus = document.createElement('div');
+      plus.className = 'tab tabPlus';
+      plus.textContent = '+';
+      plus.title = 'Open session';
+      plus.addEventListener('click', function () { openSessionModal(); });
+      tabsEl.appendChild(plus);
+
+      // Restore selection after any reload/refresh:
+      // 1) exact id match
+      // 2) fallback by previously selected name
+      // 3) else first session
+      var desiredId = String((uiState && uiState.selectedSessionId) ? uiState.selectedSessionId : '').trim();
+      var desiredName = String((uiState && uiState.selectedSessionName) ? uiState.selectedSessionName : '').trim();
+      var candidateId = '';
+      if (desiredId && sessionsById.has(desiredId)) {
+        candidateId = desiredId;
+      } else if (desiredName) {
+        for (var i = 0; i < sessions.length; i++) {
+          var s2 = sessions[i];
+          if (!s2 || !s2.id) continue;
+          if (String(s2.name || '').trim() === desiredName) {
+            candidateId = String(s2.id).trim();
+            break;
+          }
+        }
+      }
+      if (!candidateId && sessions && sessions.length) {
+        candidateId = String(sessions[0].id || '').trim();
+      }
+      if (candidateId && candidateId !== activeId) {
+        // Next-tick select to ensure DOM is painted and bridge callbacks are ready.
+        setTimeout(function () { selectSession(candidateId); }, 50);
+      } else {
+        // activeId already set; ensure it still exists.
+        if (activeId && !sessionsById.has(activeId)) {
+          activeId = null;
+          activeOwned = false;
+          uiState.selectedSessionId = '';
+          uiState.selectedSessionName = '';
+          saveUiState();
+          activeLabelEl.textContent = '(none)';
+          statusEl.textContent = 'idle';
+        }
+      }
+    }
+
+    function selectSession(id) {
+      id = String(id || '').trim();
+      if (!id) return;
+      if (id === activeId) return;
+      // Detach old session if we owned it.
+      if (activeId && activeOwned) {
+        callJson('detach', null, activeId + ' ' + viewerId).catch(function () {});
+      }
+      activeId = id;
+      activeOwned = false;
+      uiState.selectedSessionId = id;
+      try {
+        var s = sessionsById.get(id);
+        uiState.selectedSessionName = s && s.name ? String(s.name).trim() : '';
+      } catch (_) {
+        uiState.selectedSessionName = '';
+      }
+      saveUiState();
+      updateActiveLabel();
+      highlightActiveTab();
+      setScrollbackVisible(false);
+      startForActive();
+    }
+
+    function highlightActiveTab() {
+      var nodes = tabsEl.querySelectorAll('.tab');
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (n.classList.contains('tabPlus')) continue;
+        var id = String(n.dataset.id || '');
+        if (id === activeId) n.classList.add('active');
+        else n.classList.remove('active');
+      }
+    }
+
+    function updateActiveLabel() {
+      if (!activeId) { activeLabelEl.textContent = '(none)'; return; }
+      var s = sessionsById.get(activeId);
+      var label = s && s.name ? String(s.name) : activeId;
+      activeLabelEl.textContent = label;
+    }
+
+    function closeSession(id) {
+      id = String(id || '').trim();
+      if (!id) return;
+      if (id === activeId) {
+        stopAll();
+        activeId = null;
+        activeOwned = false;
+        uiState.selectedSessionId = '';
+        saveUiState();
+        updateActiveLabel();
+        setScrollbackVisible(false);
+      }
+      call('close', null, id).finally(function () { refreshSessions(); });
+    }
+
+    function escapeHtml(s) {
+      return (s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function loadLibrary() {
+      cmdsEl.innerHTML = '<div class="muted" style="padding:12px;">Loading…</div>';
+      return callJson('library_get', null, '').then(function (lib) {
+        library = lib && typeof lib === 'object' ? lib : { schemaVersion: 1, groups: [] };
+        if (!library.groups || !library.groups.length) {
+          library.groups = [{ id: 'grp_default', name: 'General', order: 0, commands: [] }];
+        }
+        renderGroups();
+        renderCommands();
+      }).catch(function () {
+        library = { schemaVersion: 1, groups: [{ id: 'grp_default', name: 'General', order: 0, commands: [] }] };
+        renderGroups();
+        renderCommands();
+      });
+    }
+
+    function persistLibrary() {
+      return callJson('library_put', null, JSON.stringify(library)).catch(function () {});
+    }
+
+    function renderGroups() {
+      while (groupSelect.firstChild) groupSelect.removeChild(groupSelect.firstChild);
+      (library.groups || []).forEach(function (g) {
+        var opt = document.createElement('option');
+        opt.value = String(g.id || '');
+        opt.textContent = String(g.name || 'Group');
+        groupSelect.appendChild(opt);
+      });
+      var preferred = uiState.selectedGroupId || selectedGroupId;
+      if (preferred) groupSelect.value = preferred;
+      if (!groupSelect.value && library.groups && library.groups.length) groupSelect.value = String(library.groups[0].id);
+      selectedGroupId = groupSelect.value;
+      uiState.selectedGroupId = selectedGroupId;
+      saveUiState();
+    }
+
+    function getSelectedGroup() {
+      var gid = String(groupSelect.value || '').trim();
+      var groups = library && library.groups ? library.groups : [];
+      for (var i = 0; i < groups.length; i++) {
+        if (String(groups[i].id) === gid) return groups[i];
+      }
+      return null;
+    }
+
+    function renderCommands() {
+      var g = getSelectedGroup();
+      if (!g) {
+        cmdsEl.innerHTML = '<div class="muted" style="padding:12px;">No group selected.</div>';
+        return;
+      }
+      var cmds = g.commands || [];
+      cmdsEl.innerHTML = '';
+      if (!cmds.length) {
+        cmdsEl.innerHTML = '<div class="muted" style="padding:12px;">No commands yet.</div>';
+      }
+      cmds.forEach(function (c) {
+        var item = document.createElement('div');
+        var id = String(c.id || '');
+        var isSelected = id && id === selectedCmdId;
+        item.className = 'cmd' + (isSelected ? ' selected' : '');
+        item.dataset.cmdId = id;
+        item.draggable = true;
+        var cmdText = String(c.text || '');
+        var isMultiline = cmdText.indexOf('\n') !== -1;
+        var submit = isMultiline ? true : !!c.submit;
+        var cmdName = String(c.name || 'Command');
+        item.innerHTML =
+          '<div class="row" style="justify-content:space-between;gap:10px;align-items:flex-start;">'
+          + '<div style="min-width:0;flex:1;">'
+          + '<div class="name">' + escapeHtml(cmdName) + '</div>'
+          + '<div class="text"><code>' + escapeHtml(cmdText) + '</code></div>'
+          + '</div>'
+          + '<div class="cmdActions">'
+          + '<span class="badge" title="Default behavior for this command">' + (isMultiline ? 'multiline' : (submit ? 'submit' : 'type')) + '</span>'
+          + (isSelected
+              ? ('<button class="btn sm" data-act="go" data-id="' + escapeHtml(id) + '" type="button" title="Send (uses command submit/type)">&gt;</button>'
+                )
+              : '')
+          + '</div>'
+          + '</div>'
+          ;
+        item.addEventListener('click', function (ev) {
+          var t = ev && ev.target ? ev.target : null;
+          var act = t && t.getAttribute ? t.getAttribute('data-act') : null;
+          if (!act) {
+            selectedCmdId = id;
+            renderCommands();
+            return;
+          }
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (act === 'go') return runCommand(c);
+        });
+        item.addEventListener('dblclick', function () {
+          selectedCmdId = id;
+          renderCommands();
+          editCommandModal(c);
+        });
+
+        item.addEventListener('dragstart', function (ev) {
+          dragCmdId = id;
+          try { ev.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+          item.classList.add('dragging');
+        });
+        item.addEventListener('dragend', function () {
+          dragCmdId = '';
+          clearDropTargets();
+          item.classList.remove('dragging');
+        });
+        item.addEventListener('dragover', function (ev) {
+          if (!dragCmdId || dragCmdId === id) return;
+          ev.preventDefault();
+          item.classList.add('dropTarget');
+          try { ev.dataTransfer.dropEffect = 'move'; } catch (_) {}
+        });
+        item.addEventListener('dragleave', function () {
+          item.classList.remove('dropTarget');
+        });
+        item.addEventListener('drop', function (ev) {
+          if (!dragCmdId || dragCmdId === id) return;
+          ev.preventDefault();
+          item.classList.remove('dropTarget');
+          reorderCommand(dragCmdId, id);
+        });
+
+        cmdsEl.appendChild(item);
+      });
+
+      // Add-row (+) at end.
+      var add = document.createElement('div');
+      add.className = 'cmd';
+      add.draggable = false;
+      add.innerHTML = '<div class="row" style="justify-content:space-between;gap:10px;align-items:center;">'
+        + '<div class="name">+</div>'
+        + '<div class="muted">Add command</div>'
+        + '</div>';
+      add.addEventListener('click', function () { addCommandModal(); });
+      cmdsEl.appendChild(add);
+    }
+
+    function clearDropTargets() {
+      var nodes = cmdsEl.querySelectorAll('.cmd.dropTarget');
+      for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('dropTarget');
+    }
+
+    function reorderCommand(fromId, toId) {
+      var g = getSelectedGroup();
+      if (!g || !g.commands) return;
+      var cmds = g.commands;
+      var fromIdx = -1;
+      var toIdx = -1;
+      for (var i = 0; i < cmds.length; i++) {
+        var cid = String(cmds[i] && cmds[i].id ? cmds[i].id : '');
+        if (cid === String(fromId)) fromIdx = i;
+        if (cid === String(toId)) toIdx = i;
+      }
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+      var moved = cmds.splice(fromIdx, 1)[0];
+      // Insert before the drop target.
+      if (toIdx > fromIdx) toIdx--;
+      cmds.splice(toIdx, 0, moved);
+      for (var j = 0; j < cmds.length; j++) cmds[j].order = j;
+      persistLibrary();
+      renderCommands();
+    }
+
+    function runCommand(cmd) {
+      if (!activeId) {
+        statusEl.textContent = 'no active session';
+        dotEl.className = 'dot warn';
+        return;
+      }
+      var raw = String(cmd && cmd.text ? cmd.text : '');
+      var isMultiline = raw.indexOf('\n') !== -1;
+      if (!isMultiline) {
+        return runSingleLine(raw, !!(cmd && cmd.submit));
+      }
+      // Multi-line: always submit, line by line.
+      var lines = raw.replace(/\r\n/g, '\n').split('\n');
+      var queue = [];
+      for (var i = 0; i < lines.length; i++) {
+        var line = String(lines[i] || '');
+        if (!line.trim()) continue;
+        queue.push(line);
+      }
+      if (!queue.length) return;
+      statusEl.textContent = 'sending';
+      return queue.reduce(function (p, line) {
+        return p.then(function () {
+          return runSingleLine(line, true);
+        });
+      }, Promise.resolve()).finally(function () {
+        statusEl.textContent = eventsOn ? 'events' : (pollTimer ? 'polling' : 'idle');
+      });
+    }
+
+    function runSingleLine(text, submit) {
+      var bytes = new TextEncoder().encode(String(text || ''));
+      var b64 = bytesToB64(bytes);
+      return callJson('write', null, activeId + ' ' + viewerId + ' ' + b64).then(function () {
+        if (!submit) return;
+        return new Promise(function (resolve) {
+          setTimeout(function () { resolve(); }, 300);
+        }).then(function () {
+          var enterB64 = bytesToB64(new TextEncoder().encode('\r'));
+          return callJson('write', null, activeId + ' ' + viewerId + ' ' + enterB64).catch(function () {});
+        });
+      }).catch(function () {
+        handleOwnershipLost();
+      });
+    }
+
+    function openModal(title, bodyNode, okLabel, onOk) {
+      modalTitle.textContent = title;
+      modalBody.innerHTML = '';
+      modalBody.appendChild(bodyNode);
+      modalOk.textContent = okLabel || 'Save';
+      modalBack.style.display = 'flex';
+      function close() { modalBack.style.display = 'none'; modalOk.onclick = null; }
+      modalClose.onclick = close;
+      modalCancel.onclick = close;
+      modalOk.onclick = function () {
+        Promise.resolve().then(onOk).then(function () { close(); }).catch(function () { close(); });
+      };
+
+      // Try hard to keep keyboard/paste in the webview while the modal is open.
+      // This helps in environments where the host app also listens for shortcuts.
+      try {
+        modalBack.focus();
+      } catch (_) {}
+      setTimeout(function () {
+        try {
+          var ta = modalBody.querySelector('textarea');
+          if (ta) { ta.focus(); ta.selectionStart = ta.value.length; ta.selectionEnd = ta.value.length; }
+          else {
+            var inp = modalBody.querySelector('input');
+            if (inp) { inp.focus(); inp.select(); }
+          }
+        } catch (_) {}
+      }, 0);
+    }
+
+    // While the modal is visible, prevent key shortcuts from bubbling out of the webview document.
+    // If the Flutter host intercepts Cmd/Ctrl+V before the webview sees it, this cannot fix that.
+    function modalVisible() {
+      return modalBack && modalBack.style && modalBack.style.display === 'flex';
+    }
+    document.addEventListener('keydown', function (ev) {
+      if (!modalVisible()) return;
+      // Capture common editing shortcuts and normal typing.
+      ev.stopPropagation();
+    }, true);
+    document.addEventListener('paste', function (ev) {
+      if (!modalVisible()) return;
+      ev.stopPropagation();
+    }, true);
+
+    function addGroupModal() {
+      var wrap = document.createElement('div');
+      wrap.innerHTML = '<div class="muted">Group name</div><input id="gname" class="input" placeholder="New group" />';
+      openModal('New group', wrap, 'Create', function () {
+        var name = (wrap.querySelector('#gname').value || '').trim();
+        if (!name) return;
+        var id = 'grp_' + String(Date.now()) + '_' + String(Math.random()).slice(2);
+        library.groups.push({ id: id, name: name, order: library.groups.length, commands: [] });
+        uiState.selectedGroupId = id;
+        persistLibrary();
+        renderGroups();
+        renderCommands();
+      });
+    }
+
+    function editGroupModal() {
+      var g = getSelectedGroup();
+      if (!g) return;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = '<div class="muted">Group name</div><input id="gname" class="input" />';
+      wrap.querySelector('#gname').value = String(g.name || '');
+      openModal('Edit group', wrap, 'Save', function () {
+        var name = (wrap.querySelector('#gname').value || '').trim();
+        if (!name) return;
+        g.name = name;
+        persistLibrary();
+        renderGroups();
+        renderCommands();
+      });
+    }
+
+    function deleteGroupModal() {
+      var g = getSelectedGroup();
+      if (!g) return;
+      if ((library.groups || []).length <= 1) {
+        statusEl.textContent = 'need at least one group';
+        return;
+      }
+      var wrap = document.createElement('div');
+      wrap.innerHTML = '<div class="muted">Delete group <code>' + escapeHtml(String(g.name || '')) + '</code> and all its commands?</div>';
+      openModal('Delete group', wrap, 'Delete', function () {
+        library.groups = (library.groups || []).filter(function (x) { return String(x.id) !== String(g.id); });
+        // Re-pack orders.
+        (library.groups || []).forEach(function (x, idx) { x.order = idx; });
+        uiState.selectedGroupId = String((library.groups[0] && library.groups[0].id) || '');
+        persistLibrary();
+        renderGroups();
+        renderCommands();
+      });
+    }
+
+    function addCommandModal() {
+      var g = getSelectedGroup();
+      if (!g) return;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = ''
+        + '<div class="muted">Name</div><input id="cname" class="input" placeholder="Command name" />'
+        + '<div class="muted">Text</div><textarea id="ctext" placeholder="ls -al"></textarea>'
+        + '<label class="row" style="gap:10px;"><input id="csubmit" type="checkbox" checked /> <span class="muted">Submit (send Enter) for single-line commands</span></label>'
+        + '<div class="muted">Multi-line commands always submit line-by-line.</div>';
+      openModal('New command', wrap, 'Create', function () {
+        var name = (wrap.querySelector('#cname').value || '').trim() || 'Command';
+        var text = (wrap.querySelector('#ctext').value || '');
+        var submit = !!wrap.querySelector('#csubmit').checked;
+        var id = 'cmd_' + String(Date.now()) + '_' + String(Math.random()).slice(2);
+        g.commands = g.commands || [];
+        g.commands.push({ id: id, name: name, text: text, submit: submit, order: g.commands.length });
+        persistLibrary();
+        renderCommands();
+      });
+    }
+
+    function editCommandModal(cmd) {
+      var g = getSelectedGroup();
+      if (!g || !cmd) return;
+      var wrap = document.createElement('div');
+      wrap.innerHTML = ''
+        + '<div class="muted">Name</div><input id="cname" class="input" />'
+        + '<div class="muted">Text</div><textarea id="ctext"></textarea>'
+        + '<label class="row" style="gap:10px;"><input id="csubmit" type="checkbox" /> <span class="muted">Submit (send Enter) for single-line commands</span></label>'
+        + '<div class="muted">Multi-line commands always submit line-by-line.</div>'
+        + '<div class="row" style="justify-content:space-between;gap:8px;margin-top:6px;">'
+        + '<button id="delete" class="btn secondary" type="button">Delete</button>'
+        + '<button id="dup" class="btn secondary" type="button">Duplicate</button>'
+        + '</div>';
+      wrap.querySelector('#cname').value = String(cmd.name || '');
+      wrap.querySelector('#ctext').value = String(cmd.text || '');
+      wrap.querySelector('#csubmit').checked = !!cmd.submit;
+      wrap.querySelector('#delete').onclick = function () {
+        g.commands = (g.commands || []).filter(function (x) { return String(x.id) !== String(cmd.id); });
+        persistLibrary();
+        renderCommands();
+        modalBack.style.display = 'none';
+      };
+      wrap.querySelector('#dup').onclick = function () {
+        var id = 'cmd_' + String(Date.now()) + '_' + String(Math.random()).slice(2);
+        g.commands.push({ id: id, name: String(cmd.name || '') + ' copy', text: String(cmd.text || ''), submit: !!cmd.submit, order: g.commands.length });
+        persistLibrary();
+        renderCommands();
+        modalBack.style.display = 'none';
+      };
+      openModal('Edit command', wrap, 'Save', function () {
+        cmd.name = (wrap.querySelector('#cname').value || '').trim() || 'Command';
+        cmd.text = (wrap.querySelector('#ctext').value || '');
+        cmd.submit = !!wrap.querySelector('#csubmit').checked;
+        persistLibrary();
+        renderCommands();
+      });
+    }
+
+    function openSessionModal() {
+      var wrap = document.createElement('div');
+      wrap.innerHTML = '<div class="muted">Session name</div><input id="sname" class="input" placeholder="demo" />';
+      openModal('Open session', wrap, 'Open', function () {
+        var name = (wrap.querySelector('#sname').value || '').trim();
+        if (!name) return;
+        statusEl.textContent = 'opening';
+        return call('open', null, name).then(function () {
+          return refreshSessions().then(function () {
+            // Prefer newly created session if discoverable by name.
+            var id = null;
+            sessionsById.forEach(function (s, sid) {
+              if (!id && s && String(s.name || '').trim() === name) id = sid;
+            });
+            if (id) selectSession(id);
+          });
+        }).catch(function () { statusEl.textContent = 'open failed'; });
+      });
+    }
+
+    btnRefresh.addEventListener('click', function () {
+      setBridgeState();
+      Promise.resolve()
+        .then(refreshSessions)
+        .then(loadLibrary);
     });
-    btnHideScrollback.addEventListener('click', function () { setScrollbackVisible(false); });
-    btnClose.addEventListener('click', function () { if (!activeId) return; var old = activeId; setActive(null); call('close', null, old).then(refreshSessions); });
-    btnKill.addEventListener('click', function () { if (!activeId) return; var old = activeId; setActive(null); call('kill', null, old).then(refreshSessions); });
-    sessionSelect.addEventListener('change', function () { var id = (sessionSelect.value || '').trim(); if (id) setActive(id); });
-    rendererSel.addEventListener('change', function () { setRenderer(); if (activeId) startAuto(); });
-    transportSel.addEventListener('change', function () { if (activeId) startAuto(); });
-    if (termWrap) {
-      termWrap.addEventListener('wheel', function (ev) {
+    rendererSel.addEventListener('change', function () {
+      setRenderer();
+      startForActive();
+    });
+    groupSelect.addEventListener('change', function () {
+      selectedGroupId = String(groupSelect.value || '');
+      uiState.selectedGroupId = selectedGroupId;
+      selectedCmdId = '';
+      saveUiState();
+      renderCommands();
+    });
+    btnAddGroup.addEventListener('click', function () { addGroupModal(); });
+    btnEditGroup.addEventListener('click', function () { editGroupModal(); });
+    btnDelGroup.addEventListener('click', function () { deleteGroupModal(); });
+
+    if (btnHideScrollback) btnHideScrollback.addEventListener('click', function () { setScrollbackVisible(false); });
+    if (scrollbackPre) {
+      scrollbackPre.addEventListener('scroll', function () {
+        if (!scrollbackVisible) return;
+        if (!isScrollbackAtBottom()) return;
+        setScrollbackVisible(false);
+      });
+    }
+    // Wheel-up on terminal opens scrollback snapshot.
+    function wireScrollbackWheel(el) {
+      if (!el) return;
+      el.addEventListener('wheel', function (ev) {
         if (!activeId || scrollbackVisible) return;
         if ((Date.now() - scrollbackExitAtMs) < scrollbackWheelCooldownMs) return;
         if (!ev || ev.deltaY === 0) return;
@@ -679,27 +1157,39 @@
         showScrollback();
       }, { passive: false });
     }
-    if (scrollbackPre) {
-      scrollbackPre.addEventListener('scroll', function () {
-        if (!scrollbackVisible) return;
-        if (!isScrollbackAtBottom()) return;
-        setScrollbackVisible(false);
-      });
-    }
-    window.addEventListener('keydown', function (ev) {
+    wireScrollbackWheel(termDiv);
+    wireScrollbackWheel(plainPre);
+    document.addEventListener('keydown', function (ev) {
       if (!scrollbackVisible) return;
-      var action = keyEventAction(ev);
-      if (!action) return;
-      ev.preventDefault();
       setScrollbackVisible(false);
-    });
-    window.addEventListener('beforeunload', function () {
-      if (activeId && activeOwned) detachSession(activeId);
-    });
+    }, true);
 
+    // Boot
     setBridgeState();
     setRenderer();
-    if (bridgeAvailable()) refreshSessions();
+    function bootOnceBridgeReady() {
+      loadUiState()
+        .then(function () { return Promise.all([refreshSessions(), loadLibrary()]); })
+        .catch(function () { return Promise.all([refreshSessions(), loadLibrary()]); });
+    }
+    if (bridgeAvailable()) {
+      bootOnceBridgeReady();
+    } else {
+      // Webview bridge may appear shortly after load; auto-refresh once it is ready.
+      var tries = 0;
+      var t = setInterval(function () {
+        tries++;
+        setBridgeState();
+        if (bridgeAvailable()) {
+          clearInterval(t);
+          bootOnceBridgeReady();
+          return;
+        }
+        if (tries > 120) { // ~12s
+          clearInterval(t);
+        }
+      }, 100);
+    }
   })();
   </script>
 </body>
