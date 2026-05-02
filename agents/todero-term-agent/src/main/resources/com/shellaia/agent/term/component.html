@@ -52,7 +52,7 @@
     .cmd.dragging { opacity: .55; }
     .cmd.dropTarget { outline: 2px dashed #94a3b8; outline-offset: -6px; }
 
-    .termPane { min-height: 0; display:flex; flex-direction:column; }
+    .termPane { min-height: 0; width: 100%; display:flex; flex-direction:column; }
     .tabs { display:flex; align-items:center; gap:6px; padding: 10px 10px; border-bottom: 1px solid #e2e8f0; overflow:auto; }
     .tab { display:inline-flex; align-items:center; gap:8px; border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor:pointer; user-select:none; white-space:nowrap; }
     .tab.active { background:#0f172a; color:#fff; border-color:#0f172a; }
@@ -61,11 +61,11 @@
     .tab .x:hover { opacity: 1; }
     .tabPlus { border-style:dashed; }
 
-    .termWrap { flex: 1; min-height: 0; display:flex; flex-direction:column; }
+    .termWrap { flex: 1; min-height: 0; width: 100%; display:flex; flex-direction:column; }
     .termHead { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .termArea { flex: 1; min-height: 0; position: relative; }
-    .term { height: 100%; background: #0b1220; width:100%; }
-    pre.plain { margin:0; padding: 10px 10px; height:100%; width:100%; overflow:auto; background:#0b1220; color:#e2e8f0; white-space: pre; font-size: 12px; line-height: 1.45; }
+    .termArea { flex: 1; min-height: 0; width: 100%; position: relative; overflow: hidden; }
+    .term { position:absolute; inset:0; height: 100%; width:100%; background: #0b1220; display:block; }
+    pre.plain { position:absolute; inset:0; box-sizing:border-box; margin:0; padding: 10px 10px; height:100%; width:100%; overflow:auto; background:#0b1220; color:#e2e8f0; white-space: pre; font-size: 12px; line-height: 1.45; }
     .term, pre.plain, .term .xterm-viewport { scrollbar-width: none; }
     .term::-webkit-scrollbar, pre.plain::-webkit-scrollbar, .term .xterm-viewport::-webkit-scrollbar { width:0; height:0; }
 
@@ -73,6 +73,8 @@
     .scrollbackHead { display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 8px 10px; border-bottom:1px solid #1f2937; }
     .scrollbackHead .muted { color:#94a3b8; }
     .scrollbackPre { margin:0; padding: 10px 10px; flex:1; min-height:0; overflow:auto; background:#0b1220; color:#f8fafc; white-space: pre; font-size: 12px; line-height: 1.45; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .detachedOverlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; overflow:hidden; background:linear-gradient(180deg, rgba(11,18,32,.16), rgba(11,18,32,.32)); }
+    .detachedOverlay span { transform: rotate(-14deg); font-size: clamp(38px, 7vw, 86px); font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: rgba(248,250,252,.18); text-shadow: 0 0 1px rgba(248,250,252,.2); user-select:none; }
 
     .modalBack { position: fixed; inset:0; background: rgba(15,23,42,.36); display:none; align-items:center; justify-content:center; padding: 20px; }
     .modal { width: min(560px, 100%); background:#fff; border:1px solid #e2e8f0; border-radius: 16px; overflow:hidden; box-shadow: 0 25px 60px rgba(2,6,23,.28); }
@@ -110,7 +112,6 @@
       </div>
       <div class="row" style="justify-content:flex-end;">
         <span id="bridge" class="pill">bridge: checking</span>
-        <button id="btn-refresh" class="btn secondary icon" type="button">Refresh</button>
       </div>
     </div>
 
@@ -149,10 +150,11 @@
                 <option value="xterm">xterm</option>
                 <option value="plain">plain</option>
               </select>
+              <span id="size-pill" class="pill">120x30</span>
               <span id="status" class="pill">idle</span>
             </div>
           </div>
-          <div class="termArea">
+          <div id="term-fit-box" class="termArea">
             <div id="term" class="term"></div>
             <pre id="plain" class="plain" style="display:none;"></pre>
             <div id="scrollback" class="scrollback">
@@ -162,6 +164,7 @@
               </div>
               <pre id="scrollback-pre" class="scrollbackPre"></pre>
             </div>
+            <div id="detached-overlay" class="detachedOverlay"><span>Detached</span></div>
           </div>
         </div>
       </div>
@@ -189,16 +192,19 @@
   (function () {
     var dotEl = document.getElementById('dot');
     var bridgeEl = document.getElementById('bridge');
-    var btnRefresh = document.getElementById('btn-refresh');
     var tabsEl = document.getElementById('tabs');
     var statusEl = document.getElementById('status');
     var activeLabelEl = document.getElementById('active-label');
+    var sizePillEl = document.getElementById('size-pill');
     var rendererSel = document.getElementById('renderer');
+    var termFitEl = document.getElementById('term-fit-box');
     var termDiv = document.getElementById('term');
     var plainPre = document.getElementById('plain');
     var scrollbackEl = document.getElementById('scrollback');
     var scrollbackPre = document.getElementById('scrollback-pre');
     var btnHideScrollback = document.getElementById('btn-hide-scrollback');
+    var detachedOverlayEl = document.getElementById('detached-overlay');
+    var termAreaEl = termFitEl || ((termDiv && termDiv.parentElement) ? termDiv.parentElement : null);
 
     var groupSelect = document.getElementById('group-select');
     var btnAddGroup = document.getElementById('btn-add-group');
@@ -234,6 +240,19 @@
     var selectedCmdId = '';
     var uiState = { selectedSessionId: '', selectedSessionName: '', selectedGroupId: '' };
     var dragCmdId = '';
+    var resizeObs = null;
+    var uiResizeTimer = null;
+    var beFinalTimer = null;
+    var resizeObserverSuppressUntil = 0;
+    var resizeObserverReleaseTimer = null;
+    var resizeObserverDeferred = false;
+    var lastUiResizeKey = '';
+    var lastBeResizeKey = '';
+    var measureCellEl = null;
+    var pendingFit = null; // {cols, rows, key}
+    var lastUiCols = 0;
+    var lastUiRows = 0;
+    var stableKey = '';
 
     function getBridge() {
       if (window.todero) return { api: window.todero, owner: window };
@@ -254,6 +273,11 @@
     function setBridgeState() {
       bridgeEl.textContent = bridgeAvailable() ? 'bridge: ready' : 'bridge: unavailable';
       dotEl.className = 'dot ' + (bridgeAvailable() ? 'ok' : 'warn');
+    }
+
+    function setDetachedOverlayVisible(visible) {
+      if (!detachedOverlayEl) return;
+      detachedOverlayEl.style.display = visible ? 'flex' : 'none';
     }
 
     function call(action, params, body) {
@@ -328,6 +352,9 @@
           handleOwnershipLost();
         });
       });
+      // Start auto-fit when xterm exists.
+      ensureResizeObserver();
+      scheduleFit();
     }
 
     function setRenderer() {
@@ -339,6 +366,7 @@
         plainPre.style.display = 'none';
         ensureXterm();
       }
+      scheduleFit();
     }
 
     function setScrollbackVisible(visible) {
@@ -418,16 +446,20 @@
       activeOwned = false;
       statusEl.textContent = 'detached';
       dotEl.className = 'dot warn';
+      setDetachedOverlayVisible(!!activeId);
       refreshSessions();
     }
 
     function attachActive() {
       if (!activeId) return Promise.reject('no session');
       statusEl.textContent = 'attaching';
+      setDetachedOverlayVisible(false);
       return callJson('attach', null, activeId + ' ' + viewerId).then(function () {
         activeOwned = true;
         dotEl.className = 'dot ok';
+        setDetachedOverlayVisible(false);
         startHeartbeat();
+        scheduleFit();
       });
     }
 
@@ -441,6 +473,7 @@
       sinceFrame = 0;
       return attachActive().then(function () {
         return initialFetch().then(function () {
+          scheduleFit();
           if (!bridgeAvailable()) return startPolling();
           return startEvents().catch(function () { return startPolling(); });
         });
@@ -558,7 +591,8 @@
       }).catch(function () {});
     }
 
-    function refreshSessions() {
+    function refreshSessions(options) {
+      options = options || {};
       tabsEl.innerHTML = '';
       sessionsById.clear();
       return call('sessions', null, '').then(function (res) {
@@ -573,16 +607,29 @@
         if (desired && sessionsById.has(desired) && desired !== activeId) {
           activeId = null; // force selectSession() to run attach + feed.
         }
-        renderTabs(sessions);
+        renderTabs(sessions, options);
       }).catch(function () {
         tabsEl.innerHTML = '<span class="muted">Unable to load sessions.</span>';
       });
     }
 
-    function renderTabs(sessions) {
+    function renderTabs(sessions, options) {
+      options = options || {};
       tabsEl.innerHTML = '';
+      function appendOpenSessionTab() {
+        var plus = document.createElement('div');
+        plus.className = 'tab tabPlus';
+        plus.textContent = '+';
+        plus.title = 'Open session';
+        plus.addEventListener('click', function () { openSessionModal(); });
+        tabsEl.appendChild(plus);
+      }
       if (!sessions || !sessions.length) {
-        tabsEl.innerHTML = '<span class="muted">No sessions. Use + to open one.</span>';
+        var empty = document.createElement('span');
+        empty.className = 'muted';
+        empty.textContent = 'No sessions. Use + to open one.';
+        tabsEl.appendChild(empty);
+        appendOpenSessionTab();
         if (activeId && activeOwned) {
           callJson('detach', null, activeId + ' ' + viewerId).catch(function () {});
         }
@@ -593,7 +640,9 @@
         saveUiState();
         updateActiveLabel();
         statusEl.textContent = 'idle';
+        setDetachedOverlayVisible(false);
         setScrollbackVisible(false);
+        return;
       }
       sessions.forEach(function (s) {
         var id = String(s.id || '').trim();
@@ -616,12 +665,7 @@
         tabsEl.appendChild(tab);
       });
 
-      var plus = document.createElement('div');
-      plus.className = 'tab tabPlus';
-      plus.textContent = '+';
-      plus.title = 'Open session';
-      plus.addEventListener('click', function () { openSessionModal(); });
-      tabsEl.appendChild(plus);
+      appendOpenSessionTab();
 
       // Restore selection after any reload/refresh:
       // 1) exact id match
@@ -645,9 +689,23 @@
       if (!candidateId && sessions && sessions.length) {
         candidateId = String(sessions[0].id || '').trim();
       }
+      var candidateSession = candidateId ? sessionsById.get(candidateId) : null;
       if (candidateId && candidateId !== activeId) {
         // Next-tick select to ensure DOM is painted and bridge callbacks are ready.
-        setTimeout(function () { selectSession(candidateId); }, 50);
+        setTimeout(function () {
+          if (options.startupRestore === true && desiredId && candidateId === desiredId) {
+            if (candidateSession && String(candidateSession.state || '') === 'detached') {
+              selectSession(candidateId, { retryIfActive: true });
+              return;
+            }
+            selectSession(candidateId, {
+              activateOnly: true,
+              initialStatus: candidateSession && candidateSession.attached ? 'attached' : 'idle'
+            });
+            return;
+          }
+          selectSession(candidateId);
+        }, 50);
       } else {
         // activeId already set; ensure it still exists.
         if (activeId && !sessionsById.has(activeId)) {
@@ -658,14 +716,28 @@
           saveUiState();
           activeLabelEl.textContent = '(none)';
           statusEl.textContent = 'idle';
+          setDetachedOverlayVisible(false);
         }
       }
     }
 
-    function selectSession(id) {
+    function selectSession(id, options) {
+      options = options || {};
       id = String(id || '').trim();
       if (!id) return;
-      if (id === activeId) return;
+      if (id === activeId) {
+        if (activeOwned) return;
+        if (options.activateOnly) {
+          statusEl.textContent = options.initialStatus || 'idle';
+          dotEl.className = 'dot warn';
+          setDetachedOverlayVisible(statusEl.textContent === 'detached');
+          return;
+        }
+        setDetachedOverlayVisible(false);
+        setScrollbackVisible(false);
+        startForActive();
+        return;
+      }
       // Detach old session if we owned it.
       if (activeId && activeOwned) {
         callJson('detach', null, activeId + ' ' + viewerId).catch(function () {});
@@ -683,6 +755,12 @@
       updateActiveLabel();
       highlightActiveTab();
       setScrollbackVisible(false);
+      setDetachedOverlayVisible(false);
+      if (options.activateOnly) {
+        statusEl.textContent = options.initialStatus || 'idle';
+        dotEl.className = 'dot warn';
+        return;
+      }
       startForActive();
     }
 
@@ -714,6 +792,7 @@
         uiState.selectedSessionId = '';
         saveUiState();
         updateActiveLabel();
+        setDetachedOverlayVisible(false);
         setScrollbackVisible(false);
       }
       call('close', null, id).finally(function () { refreshSessions(); });
@@ -1116,12 +1195,6 @@
       });
     }
 
-    btnRefresh.addEventListener('click', function () {
-      setBridgeState();
-      Promise.resolve()
-        .then(refreshSessions)
-        .then(loadLibrary);
-    });
     rendererSel.addEventListener('change', function () {
       setRenderer();
       startForActive();
@@ -1169,8 +1242,8 @@
     setRenderer();
     function bootOnceBridgeReady() {
       loadUiState()
-        .then(function () { return Promise.all([refreshSessions(), loadLibrary()]); })
-        .catch(function () { return Promise.all([refreshSessions(), loadLibrary()]); });
+        .then(function () { return Promise.all([refreshSessions({ startupRestore: true }), loadLibrary()]); })
+        .catch(function () { return Promise.all([refreshSessions({ startupRestore: true }), loadLibrary()]); });
     }
     if (bridgeAvailable()) {
       bootOnceBridgeReady();
@@ -1189,6 +1262,120 @@
           clearInterval(t);
         }
       }, 100);
+    }
+
+    function ensureResizeObserver() {
+      if (resizeObs || !termAreaEl) return;
+      if (typeof ResizeObserver !== 'function') return;
+      resizeObs = new ResizeObserver(function () {
+        if (Date.now() < resizeObserverSuppressUntil) {
+          resizeObserverDeferred = true;
+          return;
+        }
+        scheduleFit();
+      });
+      try { resizeObs.observe(termAreaEl); } catch (_) {}
+      window.addEventListener('resize', scheduleFit, { passive: true });
+    }
+
+    function suppressResizeObserver() {
+      resizeObserverSuppressUntil = Date.now() + 450;
+      if (resizeObserverReleaseTimer) clearTimeout(resizeObserverReleaseTimer);
+      resizeObserverReleaseTimer = setTimeout(function () {
+        resizeObserverReleaseTimer = null;
+        resizeObserverSuppressUntil = 0;
+        if (!resizeObserverDeferred) return;
+        resizeObserverDeferred = false;
+        scheduleFit();
+      }, 460);
+    }
+
+    function scheduleFit() {
+      if (!activeId) return;
+      if (rendererSel.value !== 'xterm') return;
+      if (!xterm) return;
+      if (scrollbackVisible) return;
+      // Compute current target immediately and store it for both UI and BE strategies.
+      var fit = computeFit();
+      if (!fit) return;
+      pendingFit = fit;
+
+      // Stable-for-300ms:
+      // Only apply once the measured key remains unchanged for the entire window.
+      if (stableKey !== pendingFit.key) {
+        stableKey = pendingFit.key;
+      }
+      if (beFinalTimer) clearTimeout(beFinalTimer);
+      beFinalTimer = setTimeout(function () {
+        beFinalTimer = null;
+        // Re-measure; only apply if the key is still the same as when the timer was set.
+        var nowFit = computeFit();
+        if (!nowFit) return;
+        pendingFit = nowFit;
+        if (pendingFit.key !== stableKey) {
+          // Size still changing; restart stability window.
+          scheduleFit();
+          return;
+        }
+        applyFitUi();
+        applyFitBackend();
+      }, 300);
+    }
+
+    function computeFit() {
+      if (!activeId || !activeOwned) return;
+      if (!termAreaEl || !xterm) return;
+      var w = termAreaEl.clientWidth || 0;
+      var h = termAreaEl.clientHeight || 0;
+      if (w <= 0 || h <= 0) return;
+
+      var cell = measureCell();
+      if (!cell || !cell.w || !cell.h) return;
+      var cols = Math.floor(w / cell.w);
+      var rows = Math.floor(h / cell.h);
+      // Conservative mins so the terminal stays usable.
+      if (cols < 40) cols = 40;
+      if (rows < 10) rows = 10;
+      var key = cols + 'x' + rows + ':' + activeId;
+      return { cols: cols, rows: rows, key: key };
+    }
+
+    function applyFitUi() {
+      if (!pendingFit) return;
+      if (sizePillEl) sizePillEl.textContent = pendingFit.cols + 'x' + pendingFit.rows;
+      if (pendingFit.key === lastUiResizeKey) return;
+      lastUiResizeKey = pendingFit.key;
+      lastUiCols = pendingFit.cols;
+      lastUiRows = pendingFit.rows;
+      suppressResizeObserver();
+      try { xterm.resize(pendingFit.cols, pendingFit.rows); } catch (_) {}
+    }
+
+    function applyFitBackend() {
+      if (!pendingFit) return;
+      if (pendingFit.key === lastBeResizeKey) return;
+      lastBeResizeKey = pendingFit.key;
+      callJson('resize', null, activeId + ' ' + viewerId + ' ' + String(pendingFit.cols) + ' ' + String(pendingFit.rows)).catch(function () {});
+    }
+
+    function measureCell() {
+      if (measureCellEl == null) {
+        measureCellEl = document.createElement('span');
+        measureCellEl.textContent = 'W';
+        measureCellEl.style.position = 'absolute';
+        measureCellEl.style.left = '-9999px';
+        measureCellEl.style.top = '-9999px';
+        measureCellEl.style.visibility = 'hidden';
+        measureCellEl.style.whiteSpace = 'pre';
+        measureCellEl.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+        measureCellEl.style.fontSize = '12px';
+        document.body.appendChild(measureCellEl);
+      }
+      var r = measureCellEl.getBoundingClientRect();
+      var cw = r.width || 0;
+      var ch = r.height || 0;
+      if (cw <= 0 || ch <= 0) return null;
+      return { w: cw, h: ch };
     }
   })();
   </script>
