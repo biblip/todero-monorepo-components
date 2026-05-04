@@ -27,6 +27,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -51,9 +52,11 @@ public class TermComponent {
   private static final String XTERM_JS = loadResourceText(XTERM_JS_PATH);
   private static final String XTERM_CSS = loadResourceText(XTERM_CSS_PATH);
   private static final long DEFAULT_VIEWER_LEASE_MS = 30_000L;
+  private static final String ENV_ALLOWED_WORKSPACES = "TODERO_TERM_ALLOWED_WORKSPACES";
+  private static final String ENV_NATIVE_LIB_PATH = "TODERO_TERM_NATIVE_LIB_PATH";
 
   private final Storage storage;
-  private final Map<String, String> dotenv;
+  private volatile Map<String, String> dotenv;
   private final ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, r -> {
@@ -67,7 +70,7 @@ public class TermComponent {
 
   public TermComponent(Storage storage) {
     this.storage = storage;
-    this.dotenv = loadDotenv(storage);
+    reloadDotenvFromStorage();
     startCleanupLoop();
   }
 
@@ -82,10 +85,85 @@ public class TermComponent {
         .replace("${TITLE}", escapeHtml(title))
         .replace("${HEADING}", escapeHtml(heading))
         .replace("${GENERATED_AT}", escapeHtml(generatedAt))
+        .replace("${SETTINGS_ALLOWED_WORKSPACES}", escapeHtml(trimToEmpty(env(ENV_ALLOWED_WORKSPACES))))
+        .replace("${SETTINGS_NATIVE_LIB_PATH}", escapeHtml(trimToEmpty(env(ENV_NATIVE_LIB_PATH))))
         .replace("${XTERM_CSS}", XTERM_CSS)
         .replace("${XTERM_JS}", XTERM_JS);
     context.complete(buildTextResponse(200, html, "text/html; charset=utf-8"));
     return true;
+  }
+
+  @Action(group = MAIN_GROUP, command = "settings_save", description = "Persist terminal component settings into the component .env file. Body JSON: {allowedWorkspaces, nativeLibPath}")
+  public Boolean settingsSave(CommandContext context) {
+    String body = requestBody(context);
+    if (body == null || body.isBlank()) {
+      respondJson(context, 200, Json.obj(Map.of(
+          "ok", false,
+          "message", "Usage: settings_save (body JSON)"
+      )));
+      return false;
+    }
+
+    String allowedRaw = extractJsonString(body, "allowedWorkspaces");
+    String nativeLibPathRaw = extractJsonString(body, "nativeLibPath");
+    if (allowedRaw == null || nativeLibPathRaw == null) {
+      respondJson(context, 400, Json.obj(Map.of(
+          "ok", false,
+          "message", "allowedWorkspaces and nativeLibPath are required"
+      )));
+      return false;
+    }
+
+    try {
+      String normalizedAllowed = normalizeAllowedWorkspaces(allowedRaw);
+      String normalizedLibPath = normalizeNativeLibPath(nativeLibPathRaw);
+      String previousLibPath = trimToNull(env(ENV_NATIVE_LIB_PATH));
+      boolean libPathChanged = !Objects.equals(previousLibPath, normalizedLibPath);
+      boolean reloadRequired = libPathChanged && NativeLibraryLoader.isLoaded();
+
+      writeDotenv(normalizedAllowed, normalizedLibPath);
+      reloadDotenvFromStorage();
+
+      Map<String, Object> resp = new LinkedHashMap<>();
+      resp.put("ok", true);
+      resp.put("message", reloadRequired
+          ? "settings saved; reload required for native library path change"
+          : "settings saved");
+      resp.put("reloadRequired", reloadRequired);
+      resp.put("allowedWorkspaces", normalizedAllowed);
+      resp.put("nativeLibPath", normalizedLibPath);
+      if (reloadRequired && NativeLibraryLoader.loadedPath() != null) {
+        resp.put("loadedNativeLibPath", NativeLibraryLoader.loadedPath());
+      }
+      respondJson(context, 200, Json.obj(resp));
+      return true;
+    } catch (IllegalArgumentException e) {
+      respondJson(context, 400, Json.obj(Map.of("ok", false, "message", e.getMessage())));
+      return false;
+    } catch (IOException e) {
+      respondJson(context, 500, Json.obj(Map.of("ok", false, "message", e.toString())));
+      return false;
+    }
+  }
+
+  @Action(group = MAIN_GROUP, command = "settings_detect_native_lib", description = "Detect the native library path using ttninfo --libpath. Usage: settings_detect_native_lib")
+  public Boolean settingsDetectNativeLib(CommandContext context) {
+    try {
+      String detected = detectNativeLibPath();
+      respondJson(context, 200, Json.obj(Map.of(
+          "ok", true,
+          "message", "native lib path detected",
+          "nativeLibPath", detected
+      )));
+      return true;
+    } catch (IOException e) {
+      respondJson(context, 500, Json.obj(Map.of("ok", false, "message", e.getMessage())));
+      return false;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      respondJson(context, 500, Json.obj(Map.of("ok", false, "message", "ttninfo detection interrupted")));
+      return false;
+    }
   }
 
   @Action(group = MAIN_GROUP, command = "open", description = "Open a terminal session. Body is JSON: {name?, cwd, program?, argv?, env?, cols?, rows?, buffer_max_bytes?, read_chunk_max_bytes?, screen_mode?, screen_scrollback_lines?, screen_diff_history?, screen_retain_raw_buffer?, idleTimeoutMs?}. idleTimeoutMs is accepted but ignored.")
@@ -662,7 +740,7 @@ public class TermComponent {
   }
 
   private NativeTerm ensureNative() {
-    String libPath = env("TODERO_TERM_NATIVE_LIB_PATH");
+    String libPath = env(ENV_NATIVE_LIB_PATH);
     ToderoTermLibrary lib = NativeLibraryLoader.loadOrThrow(libPath);
     return new NativeTerm(lib);
   }
@@ -958,12 +1036,12 @@ public class TermComponent {
     }
   }
 
-  private Path resolveAllowedRootForCwd(String cwd) {
+  Path resolveAllowedRootForCwd(String cwd) {
     Path candidateCwd = canonicalCandidatePath(cwd);
     if (candidateCwd == null) {
       return null;
     }
-    String raw = env("TODERO_TERM_ALLOWED_WORKSPACES");
+    String raw = env(ENV_ALLOWED_WORKSPACES);
     if (raw == null || raw.isBlank()) {
       return null;
     }
@@ -996,7 +1074,7 @@ public class TermComponent {
   private String mergeConfig(String body, String cwd) {
     // Minimal config merge: ensure cwd and allowed_workspaces are set.
     // Callers can pass program/argv/env/cols/rows/buffer_max_bytes/read_chunk_max_bytes directly.
-    String allowedRaw = env("TODERO_TERM_ALLOWED_WORKSPACES");
+    String allowedRaw = env(ENV_ALLOWED_WORKSPACES);
     String[] allowed = allowedRaw == null ? new String[0] : allowedRaw.replace('\n', ';').split(";");
 
     StringBuilder sb = new StringBuilder();
@@ -1037,6 +1115,90 @@ public class TermComponent {
     String v = System.getenv(key);
     if (v != null && !v.isBlank()) return v;
     return null;
+  }
+
+  String effectiveEnv(String key) {
+    return env(key);
+  }
+
+  private synchronized void reloadDotenvFromStorage() {
+    this.dotenv = loadDotenv(storage);
+  }
+
+  private synchronized void writeDotenv(String allowedWorkspaces, String nativeLibPath) throws IOException {
+    if (storage == null) {
+      throw new IOException("storage is not available");
+    }
+    StringBuilder sb = new StringBuilder();
+    sb.append("# Your component settings\n");
+    sb.append(ENV_ALLOWED_WORKSPACES).append('=').append(allowedWorkspaces).append('\n');
+    sb.append(ENV_NATIVE_LIB_PATH).append('=').append(nativeLibPath).append('\n');
+    storage.writeFile(".env", sb.toString().getBytes(StandardCharsets.UTF_8));
+  }
+
+  static String detectNativeLibPath() throws IOException, InterruptedException {
+    Process process = new ProcessBuilder("ttninfo", "--libpath")
+        .redirectErrorStream(true)
+        .start();
+    String output;
+    try (InputStream in = process.getInputStream()) {
+      output = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    }
+    int exit = process.waitFor();
+    String trimmed = trimToNull(output);
+    if (exit != 0) {
+      throw new IOException("ttninfo --libpath failed" + (trimmed == null ? "" : ": " + trimmed));
+    }
+    if (trimmed == null) {
+      throw new IOException("ttninfo --libpath returned an empty value");
+    }
+    return normalizeNativeLibPath(trimmed);
+  }
+
+  private static String normalizeAllowedWorkspaces(String raw) {
+    String value = trimToEmpty(raw);
+    if (value.isBlank()) {
+      throw new IllegalArgumentException(ENV_ALLOWED_WORKSPACES + " is required");
+    }
+    String normalized = value.replace('\n', ';');
+    List<String> parts = new ArrayList<>();
+    for (String entry : normalized.split(";")) {
+      String trimmed = trimToNull(entry);
+      if (trimmed == null) continue;
+      Path path = Path.of(trimmed);
+      if (!path.isAbsolute()) {
+        throw new IllegalArgumentException("allowed workspace entry must be an absolute path: " + trimmed);
+      }
+      parts.add(path.normalize().toString());
+    }
+    if (parts.isEmpty()) {
+      throw new IllegalArgumentException(ENV_ALLOWED_WORKSPACES + " is required");
+    }
+    return String.join(";", parts);
+  }
+
+  private static String normalizeNativeLibPath(String raw) {
+    String value = trimToNull(raw);
+    if (value == null) {
+      throw new IllegalArgumentException(ENV_NATIVE_LIB_PATH + " is required");
+    }
+    Path path = Path.of(value);
+    if (!path.isAbsolute()) {
+      throw new IllegalArgumentException(ENV_NATIVE_LIB_PATH + " must be an absolute path");
+    }
+    if (!Files.isRegularFile(path)) {
+      throw new IllegalArgumentException("native lib not found: " + path.normalize());
+    }
+    return path.normalize().toString();
+  }
+
+  private static String trimToEmpty(String value) {
+    return value == null ? "" : value.trim();
+  }
+
+  private static String trimToNull(String value) {
+    String trimmed = trimToEmpty(value);
+    return trimmed.isEmpty() ? null : trimmed;
   }
 
   private static Map<String, String> loadDotenv(Storage storage) {

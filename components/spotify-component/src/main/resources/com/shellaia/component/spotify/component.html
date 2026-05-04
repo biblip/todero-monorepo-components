@@ -7,386 +7,243 @@
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;color:#0f172a;background:#ffffff;}
     .card{border:1px solid #e2e8f0;border-radius:16px;padding:16px;max-width:880px;}
+    .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+    .card-head-main{min-width:0;flex:1;}
     h1{font-size:20px;margin:0 0 8px 0;}
     .muted{color:#64748b;font-size:12px;}
-    pre{white-space:pre-wrap;background:#0b1220;color:#e2e8f0;border-radius:12px;padding:12px;overflow:auto;}
-    code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
-    .actions{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;}
-    .pill{display:inline-block;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px;font-size:12px;color:#0f172a;text-decoration:none;}
     .warn{margin-top:6px;color:#b91c1c;}
-    .playground{margin-top:16px;}
-    .playground-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-    .input{flex:1 1 420px;border:1px solid #cbd5e1;border-radius:10px;padding:10px 12px;font-size:14px;}
     .button{border:1px solid #0f172a;background:#0f172a;color:#ffffff;border-radius:10px;padding:10px 14px;font-size:13px;cursor:pointer;}
     .button:hover{background:#1e293b;}
-    .result{margin-top:10px;min-height:48px;}
-    .link-row{margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
-    .link{color:#2563eb;text-decoration:underline;word-break:break-all;}
-    .grid{margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;}
-    .kv{border:1px solid #e2e8f0;border-radius:12px;padding:10px 12px;background:#ffffff;}
-    .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin-bottom:6px;font-weight:700;}
-    .v{font-size:13px;word-break:break-word;color:#0f172a;}
-    .log{max-height:240px;overflow:auto;}
+    .button.secondary{background:#ffffff;color:#0f172a;border-color:#cbd5e1;}
+    .button.icon{padding:8px 10px;min-width:40px;font-size:16px;line-height:1;}
+    .button:disabled{opacity:.6;cursor:not-allowed;}
+    .panel{margin-top:14px;border:1px solid #e2e8f0;border-radius:14px;padding:14px;}
+    .panel h2{font-size:14px;margin:0 0 8px 0;}
+    .status-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+    .pill{display:inline-block;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px;font-size:12px;color:#0f172a;text-decoration:none;}
+    pre{white-space:pre-wrap;background:#0b1220;color:#e2e8f0;border-radius:12px;padding:12px;overflow:auto;margin:8px 0 0 0;}
+    .result{margin-top:10px;min-height:20px;white-space:pre-wrap;}
+    .dialog-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;padding:16px;z-index:50;}
+    .dialog-backdrop.open{display:flex;}
+    .dialog{width:min(760px,100%);max-height:90vh;overflow:auto;background:#fff;color:#0f172a;border:1px solid #cbd5e1;border-radius:16px;box-shadow:0 24px 60px rgba(15,23,42,.28);padding:16px;box-sizing:border-box;}
+    .dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+    .dialog h3{margin:0;font-size:18px;}
+    .dialog-close{border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:10px;width:36px;height:36px;cursor:pointer;font-size:18px;}
+    .dialog label{display:block;margin:14px 0 6px 0;font-weight:600;}
+    .dialog input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px 12px;font:inherit;background:#fff;color:#0f172a;}
+    .dialog-status{margin-top:12px;white-space:pre-wrap;}
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>${HEADING}</h1>
-    <div class="muted">This page is served by com.shellaia.spotify/html.</div>
-    <div class="muted">Generated at ${GENERATED_AT}</div>
+    <div class="card-head">
+      <div class="card-head-main">
+        <h1>${HEADING}</h1>
+        <div class="muted">This page is served by <code>com.shellaia.spotify/html</code>.</div>
+        <div class="muted">Generated at ${GENERATED_AT}</div>
+      </div>
+      <button id="btn-settings" class="button secondary icon" type="button" title="Spotify component settings" aria-label="Spotify component settings">⚙</button>
+    </div>
     ${NOT_READY_BLOCK}
 
-    <h2 style="font-size:14px;margin:14px 0 8px 0;">Auth Status</h2>
-    <pre><code>${AUTH_STATUS}</code></pre>
-
-    <div class="actions">
-      <span class="pill">auth-begin</span>
-      <span class="pill">auth-status</span>
-      <span class="pill">status</span>
-      <span class="pill">play</span>
-      <span class="pill">volume</span>
-    </div>
-
-    <div class="playground">
-      <h2 style="font-size:14px;margin:14px 0 8px 0;">JavaScript Playground</h2>
-      <div class="muted">Runs JavaScript in this page context.</div>
-      <div class="playground-row" style="margin-top:8px;">
-        <input id="js-input" class="input" type="text" placeholder="document.title" />
-        <button id="js-run" class="button" type="button">Run JavaScript</button>
-      </div>
-      <pre class="result"><code id="js-result">Ready.</code></pre>
-    </div>
-
-    <div class="playground">
-      <h2 style="font-size:14px;margin:14px 0 8px 0;">Todero Webview Bridge (AIATP)</h2>
-      <div class="muted">Showcase: subscribe to events/responses and call actions via Flutter.</div>
-      <div class="grid">
-        <div class="kv">
-          <div class="k">Bridge Detected</div>
-          <div id="bridge-present" class="v">Checking...</div>
-        </div>
-        <div class="kv">
-          <div class="k">Active Context</div>
-          <div id="bridge-context" class="v">Loading...</div>
-        </div>
-      </div>
-      <div class="actions" style="margin-top:10px;">
-        <button id="bridge-refresh" class="button" type="button">Refresh Context</button>
-        <button id="bridge-subscribe-events" class="button" type="button">Subscribe: all events</button>
-        <button id="bridge-subscribe-responses" class="button" type="button">Subscribe: all responses</button>
-        <button id="bridge-subscribe-chat" class="button" type="button">Subscribe: chat channel</button>
-        <button id="bridge-subscribe-html" class="button" type="button">Subscribe: html channel</button>
-        <button id="bridge-subscribe-thought" class="button" type="button">Subscribe: thought channel</button>
-        <button id="bridge-clear" class="button" type="button">Clear subscriptions</button>
-      </div>
-      <div class="playground" style="margin-top:12px;">
-        <h2 style="font-size:14px;margin:14px 0 8px 0;">Call Action</h2>
-        <div class="muted">Action runs only on the active tab component. Params become query params.</div>
-        <div class="playground-row" style="margin-top:8px;">
-          <input id="call-action" class="input" type="text" placeholder="status | play | volume | auth-begin | auth-status" />
-          <button id="call-run" class="button" type="button">Call</button>
-        </div>
-        <div class="actions" style="margin-top:10px;">
-          <button id="emit-chat" class="button" type="button">Emit(chat)</button>
-          <button id="emit-html" class="button" type="button">Emit(html)</button>
-          <button id="emit-thought" class="button" type="button">Emit(thought)</button>
-        </div>
-        <div class="playground-row" style="margin-top:8px;">
-          <input id="call-params" class="input" type="text" placeholder='Params JSON (optional), e.g. {"q":"enya","limit":5}' />
-        </div>
-        <div class="playground-row" style="margin-top:8px;">
-          <input id="call-body" class="input" type="text" placeholder="Body (optional), e.g. Enya Caribbean Blue" />
-        </div>
-        <pre class="result"><code id="call-result">Ready.</code></pre>
-      </div>
-      <div class="playground" style="margin-top:12px;">
-        <h2 style="font-size:14px;margin:14px 0 8px 0;">Inbound Feed</h2>
-        <div class="muted">Messages arrive only for the active tab connection, and only when subscribed.</div>
-        <pre class="result log"><code id="bridge-log">Waiting...</code></pre>
+    <div class="panel">
+      <h2>Readiness</h2>
+      <div class="status-row">
+        <span id="readiness-pill" class="pill">Checking...</span>
       </div>
     </div>
 
-    <div class="playground">
-      <h2 style="font-size:14px;margin:14px 0 8px 0;">URL Launcher</h2>
-      <div class="muted">Updates an HTML link and opens the same URL with JavaScript.</div>
-      <div class="playground-row" style="margin-top:8px;">
-        <input id="url-input" class="input" type="text" placeholder="https://open.spotify.com/" />
-        <button id="url-open" class="button" type="button">Open via JavaScript</button>
+    <div class="panel">
+      <h2>Login Status</h2>
+      <div class="status-row">
+        <span id="login-pill" class="pill">Checking...</span>
+        <button id="btn-login" class="button" type="button" style="display:none;">Log in to Spotify</button>
       </div>
-      <div class="link-row">
-        <a id="url-link" class="link" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Open via HTML link</a>
-      </div>
-      <pre class="result"><code id="url-result">Ready.</code></pre>
+      <pre><code id="auth-status-text">${AUTH_STATUS}</code></pre>
+      <div id="login-result" class="result muted">Idle.</div>
     </div>
   </div>
+
+  <div id="settings-dialog" class="dialog-backdrop" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="dialog-head">
+        <div>
+          <h3 id="settings-title">Spotify Component Settings</h3>
+          <div class="muted">Writes the component storage <code>.env</code> file used by Spotify authorization and playback routing.</div>
+        </div>
+        <button id="btn-settings-close" class="dialog-close" type="button" aria-label="Close settings">×</button>
+      </div>
+      <label for="settings-client-id">SPOTIFY_CLIENT_ID</label>
+      <input id="settings-client-id" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_CLIENT_ID}" />
+      <label for="settings-redirect-uri-app">SPOTIFY_REDIRECT_URI_APP</label>
+      <input id="settings-redirect-uri-app" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_REDIRECT_URI_APP}" />
+      <label for="settings-redirect-uri-console">SPOTIFY_REDIRECT_URI_CONSOLE</label>
+      <input id="settings-redirect-uri-console" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_REDIRECT_URI_CONSOLE}" />
+      <label for="settings-redirect-uri-allowlist">SPOTIFY_REDIRECT_URI_ALLOWLIST</label>
+      <input id="settings-redirect-uri-allowlist" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_REDIRECT_URI_ALLOWLIST}" />
+      <label for="settings-device-id">SPOTIFY_DEVICE_ID</label>
+      <input id="settings-device-id" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_DEVICE_ID}" />
+      <div class="status-row" style="margin-top:14px;">
+        <button id="btn-settings-save" class="button" type="button">Save settings</button>
+      </div>
+      <div id="settings-status" class="dialog-status muted">Idle.</div>
+    </div>
+  </div>
+
   <script>
     (function () {
-      var input = document.getElementById('js-input');
-      var result = document.getElementById('js-result');
-      var button = document.getElementById('js-run');
-      var urlInput = document.getElementById('url-input');
-      var urlLink = document.getElementById('url-link');
-      var urlButton = document.getElementById('url-open');
-      var urlResult = document.getElementById('url-result');
-      var bridgePresent = document.getElementById('bridge-present');
-      var bridgeContext = document.getElementById('bridge-context');
-      var bridgeRefresh = document.getElementById('bridge-refresh');
-      var bridgeSubEvents = document.getElementById('bridge-subscribe-events');
-      var bridgeSubResponses = document.getElementById('bridge-subscribe-responses');
-      var bridgeSubChat = document.getElementById('bridge-subscribe-chat');
-      var bridgeSubHtml = document.getElementById('bridge-subscribe-html');
-      var bridgeSubThought = document.getElementById('bridge-subscribe-thought');
-      var bridgeClear = document.getElementById('bridge-clear');
-      var bridgeLog = document.getElementById('bridge-log');
-      var callAction = document.getElementById('call-action');
-      var callParams = document.getElementById('call-params');
-      var callBody = document.getElementById('call-body');
-      var callRun = document.getElementById('call-run');
-      var callResult = document.getElementById('call-result');
-      var emitChatBtn = document.getElementById('emit-chat');
-      var emitHtmlBtn = document.getElementById('emit-html');
-      var emitThoughtBtn = document.getElementById('emit-thought');
+      var btnSettings = document.getElementById('btn-settings');
+      var settingsDialog = document.getElementById('settings-dialog');
+      var btnSettingsClose = document.getElementById('btn-settings-close');
+      var btnSettingsSave = document.getElementById('btn-settings-save');
+      var settingsStatus = document.getElementById('settings-status');
+      var settingsClientId = document.getElementById('settings-client-id');
+      var settingsRedirectUriApp = document.getElementById('settings-redirect-uri-app');
+      var settingsRedirectUriConsole = document.getElementById('settings-redirect-uri-console');
+      var settingsRedirectUriAllowlist = document.getElementById('settings-redirect-uri-allowlist');
+      var settingsDeviceId = document.getElementById('settings-device-id');
+      var readinessPill = document.getElementById('readiness-pill');
+      var loginPill = document.getElementById('login-pill');
+      var authStatusText = document.getElementById('auth-status-text');
+      var btnLogin = document.getElementById('btn-login');
+      var loginResult = document.getElementById('login-result');
 
       function render(value) {
-        if (value === undefined) {
-          return 'undefined';
-        }
-        if (typeof value === 'string') {
-          return value;
-        }
-        try {
-          return JSON.stringify(value, null, 2);
-        } catch (_) {
-          return String(value);
-        }
-      }
-
-      function appendLog(line) {
-        var now = new Date().toISOString();
-        var next = '[' + now + '] ' + line;
-        if (!bridgeLog.textContent || bridgeLog.textContent === 'Waiting...') {
-          bridgeLog.textContent = next;
-        } else {
-          bridgeLog.textContent = bridgeLog.textContent + '\n' + next;
-        }
-        bridgeLog.scrollTop = bridgeLog.scrollHeight;
-      }
-
-      function execute() {
-        var source = input.value.trim();
-        if (!source) {
-          result.textContent = 'Enter JavaScript to execute.';
-          return;
-        }
-        try {
-          var value = Function('"use strict"; return (' + source + ');')();
-          result.textContent = render(value);
-        } catch (expressionError) {
-          try {
-            var effectValue = Function('"use strict"; ' + source)();
-            result.textContent = render(effectValue);
-          } catch (statementError) {
-            result.textContent = 'Error: ' + statementError;
-          }
-        }
+        if (value === undefined) return 'undefined';
+        if (typeof value === 'string') return value;
+        try { return JSON.stringify(value, null, 2); } catch (_) { return String(value); }
       }
 
       function bridgeAvailable() {
-        return !!(window.todero && typeof window.todero.getContext === 'function');
+        return !!(window.todero && typeof window.todero.callAction === 'function');
       }
 
-      function setBridgePresent() {
-        bridgePresent.textContent = bridgeAvailable() ? 'yes (window.todero)' : 'no';
+      function lowerText(el) {
+        return ((el && el.textContent) || '').trim().toLowerCase();
       }
 
-      function refreshBridgeContext() {
-        setBridgePresent();
-        if (!bridgeAvailable()) {
-          bridgeContext.textContent = 'n/a (bridge not present)';
-          return Promise.resolve();
-        }
-        return window.todero.getContext().then(function (ctx) {
-          bridgeContext.textContent = render(ctx);
-        }).catch(function (e) {
-          bridgeContext.textContent = 'Error: ' + e;
-        });
+      function isReady() {
+        return document.querySelector('.warn') === null;
       }
 
-      function subscribe(filter) {
-        if (!bridgeAvailable()) {
-          appendLog('bridge not available: cannot subscribe');
-          return;
-        }
-        window.todero.subscribe(filter).then(function (res) {
-          appendLog('subscribe ok id=' + (res && res.id ? res.id : 'n/a') + ' filter=' + render(filter));
-        }).catch(function (e) {
-          appendLog('subscribe error: ' + e);
-        });
+      function isLoggedIn() {
+        var text = lowerText(authStatusText);
+        return text.indexOf('authenticated') !== -1 && text.indexOf('required') === -1;
       }
 
-      function clearSubscriptions() {
-        if (!bridgeAvailable()) {
-          appendLog('bridge not available: cannot clear');
-          return;
-        }
-        window.todero.clearSubscriptions().then(function () {
-          appendLog('subscriptions cleared');
-        }).catch(function (e) {
-          appendLog('clearSubscriptions error: ' + e);
-        });
-      }
-
-      function parseParamsJson() {
-        var raw = (callParams.value || '').trim();
-        if (!raw) return null;
-        try {
-          return JSON.parse(raw);
-        } catch (e) {
-          throw new Error('Params must be valid JSON. Example: {"q":"enya","limit":5}');
-        }
-      }
-
-      function doCallAction() {
-        callResult.textContent = 'Calling...';
-        if (!bridgeAvailable()) {
-          callResult.textContent = 'Bridge not available (window.todero missing).';
-          return;
-        }
-        var action = (callAction.value || '').trim();
-        if (!action) {
-          callResult.textContent = 'Action is required.';
-          return;
-        }
-        var params;
-        try {
-          params = parseParamsJson();
-        } catch (e) {
-          callResult.textContent = 'Error: ' + e.message;
-          return;
-        }
-        var body = (callBody.value || '');
-        window.todero.callAction({
-          action: action,
-          params: params,
-          body: body
-        }).then(function (res) {
-          callResult.textContent = render(res);
-          appendLog('callAction resolved action=' + action + ' status=' + (res && res.response ? res.response.statusCode : 'n/a'));
-        }).catch(function (e) {
-          callResult.textContent = 'Error: ' + e;
-          appendLog('callAction error: ' + e);
-        });
-      }
-
-      function emitDemo(channel) {
-        if (!bridgeAvailable()) {
-          appendLog('bridge not available: cannot emit');
-          return;
-        }
-        window.todero.callAction({
-          action: 'emit',
-          params: { channel: channel, message: 'hello from spotify html emit(' + channel + ')' },
-          body: ''
-        }).then(function (res) {
-          appendLog('emit(' + channel + ') -> ' + render(res && res.response ? res.response.statusCode : res));
-        }).catch(function (e) {
-          appendLog('emit(' + channel + ') error: ' + e);
-        });
-      }
-
-      // Inbound messages from Flutter arrive here.
-      window.__todero_onAiatpMessage = function (payload) {
-        try {
-          var kind = payload && payload.kind ? payload.kind : 'unknown';
-          if (kind === 'event' && payload.event) {
-            appendLog(
-              'event scope=' + payload.event.scope +
-              ' channel=' + payload.event.channel +
-              ' contentType=' + ((payload.event.body && payload.event.body.contentType) || 'n/a') +
-              ' body=' + render(payload.event.body ? payload.event.body.text : null)
-            );
-          } else if (kind === 'response' && payload.response) {
-            appendLog(
-              'response status=' + payload.response.statusCode +
-              ' reason=' + payload.response.reasonPhrase +
-              ' body=' + render(payload.response.body ? payload.response.body.text : null)
-            );
-          } else {
-            appendLog('message ' + render(payload));
+      function refreshStatusUi() {
+        var ready = isReady();
+        var bridgeReady = bridgeAvailable();
+        readinessPill.textContent = ready ? 'ready' : 'not ready';
+        loginPill.textContent = isLoggedIn() ? 'logged in' : 'login required';
+        btnLogin.style.display = isLoggedIn() ? 'none' : 'inline-block';
+        btnLogin.disabled = !bridgeReady || isLoggedIn();
+        if (bridgeReady) {
+          if (loginResult.textContent.indexOf('Bridge unavailable') !== -1) {
+            setLoginResult('Idle.', 'muted');
           }
-        } catch (e) {
-          appendLog('onAiatpMessage error: ' + e);
-        }
-      };
-
-      function syncUrl() {
-        var raw = urlInput.value.trim();
-        var nextUrl = raw || 'https://open.spotify.com/';
-        urlLink.href = nextUrl;
-        urlLink.textContent = 'Open via HTML link';
-        urlResult.textContent = 'Current URL: ' + nextUrl;
-        return nextUrl;
-      }
-
-      function openUrl() {
-        var nextUrl = syncUrl();
-        try {
-          window.open(nextUrl, '_blank', 'noopener');
-          urlResult.textContent = 'Opened via JavaScript: ' + nextUrl;
-        } catch (error) {
-          urlResult.textContent = 'Error: ' + error;
+        } else if (!isLoggedIn()) {
+          setLoginResult('Bridge unavailable. Login handoff requires the Flutter webview bridge.', 'warn');
         }
       }
 
-      button.addEventListener('click', execute);
-      input.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter') {
-          execute();
+      function waitForBridge() {
+        var attempts = 0;
+        var maxAttempts = 40;
+        var timer = setInterval(function () {
+          attempts += 1;
+          refreshStatusUi();
+          if (bridgeAvailable() || attempts >= maxAttempts) {
+            clearInterval(timer);
+          }
+        }, 250);
+      }
+
+      function setSettingsStatus(text, cssClass) {
+        settingsStatus.className = 'dialog-status ' + (cssClass || 'muted');
+        settingsStatus.textContent = text;
+      }
+
+      function setLoginResult(text, cssClass) {
+        loginResult.className = 'result ' + (cssClass || 'muted');
+        loginResult.textContent = text;
+      }
+
+      function setSettingsOpen(open) {
+        var visible = !!open;
+        settingsDialog.classList.toggle('open', visible);
+        settingsDialog.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        if (visible) {
+          setSettingsStatus('Idle.', 'muted');
+          settingsClientId.focus();
+        }
+      }
+
+      function callAction(action, body) {
+        if (!bridgeAvailable()) {
+          return Promise.reject(new Error('window.todero.callAction is not available'));
+        }
+        return window.todero.callAction({
+          action: action,
+          body: body || ''
+        }).then(function (res) {
+          var text = res && res.response && res.response.body ? (res.response.body.text || '') : '';
+          return { raw: res, text: text };
+        });
+      }
+
+      function callSettingsSave(payload) {
+        return callAction('settings_save', JSON.stringify(payload)).then(function (res) {
+          return JSON.parse(res.text || '{}');
+        });
+      }
+
+      function saveSettings() {
+        btnSettingsSave.disabled = true;
+        setSettingsStatus('Saving...', 'muted');
+        return callSettingsSave({
+          clientId: settingsClientId.value || '',
+          redirectUriApp: settingsRedirectUriApp.value || '',
+          redirectUriConsole: settingsRedirectUriConsole.value || '',
+          redirectUriAllowlist: settingsRedirectUriAllowlist.value || '',
+          deviceId: settingsDeviceId.value || ''
+        }).then(function (res) {
+          setSettingsStatus((res && res.message ? res.message : 'settings saved') + '\n' + render(res), res && res.ok ? 'ok' : 'warn');
+        }).catch(function (err) {
+          setSettingsStatus('Save failed\n' + (err && err.message ? err.message : String(err)), 'warn');
+        }).finally(function () {
+          btnSettingsSave.disabled = false;
+        });
+      }
+
+      function beginLogin() {
+        btnLogin.disabled = true;
+        setLoginResult('Starting Spotify login...', 'muted');
+        return callAction('auth-begin', '').then(function (res) {
+          setLoginResult(res.text || 'Login handoff started.', 'muted');
+        }).catch(function (err) {
+          setLoginResult('Login failed\n' + (err && err.message ? err.message : String(err)), 'warn');
+        }).finally(function () {
+          btnLogin.disabled = false;
+        });
+      }
+
+      btnSettings.addEventListener('click', function () { setSettingsOpen(true); });
+      btnSettingsClose.addEventListener('click', function () { setSettingsOpen(false); });
+      btnSettingsSave.addEventListener('click', saveSettings);
+      btnLogin.addEventListener('click', beginLogin);
+      settingsDialog.addEventListener('click', function (event) {
+        if (event.target === settingsDialog) setSettingsOpen(false);
+      });
+      window.addEventListener('keydown', function (event) {
+        if (settingsDialog.classList.contains('open') && event.key === 'Escape') {
+          setSettingsOpen(false);
         }
       });
-      bridgeRefresh.addEventListener('click', function () {
-        refreshBridgeContext();
-      });
-      bridgeSubEvents.addEventListener('click', function () {
-        subscribe({ kind: 'event' });
-      });
-      bridgeSubResponses.addEventListener('click', function () {
-        subscribe({ kind: 'response' });
-      });
-      bridgeSubChat.addEventListener('click', function () {
-        subscribe({ kind: 'event', channel: 'chat' });
-      });
-      bridgeSubHtml.addEventListener('click', function () {
-        subscribe({ kind: 'event', channel: 'html' });
-      });
-      bridgeSubThought.addEventListener('click', function () {
-        subscribe({ kind: 'event', channel: 'thought' });
-      });
-      bridgeClear.addEventListener('click', function () {
-        clearSubscriptions();
-      });
-      callRun.addEventListener('click', function () {
-        doCallAction();
-      });
-      callAction.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter') {
-          doCallAction();
-        }
-      });
-      emitChatBtn.addEventListener('click', function () { emitDemo('chat'); });
-      emitHtmlBtn.addEventListener('click', function () { emitDemo('html'); });
-      emitThoughtBtn.addEventListener('click', function () { emitDemo('thought'); });
-      urlInput.addEventListener('input', syncUrl);
-      urlInput.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter') {
-          openUrl();
-        }
-      });
-      urlButton.addEventListener('click', openUrl);
-      syncUrl();
-      setBridgePresent();
-      refreshBridgeContext();
-    }());
+
+      refreshStatusUi();
+      waitForBridge();
+    })();
   </script>
 </body>
 </html>

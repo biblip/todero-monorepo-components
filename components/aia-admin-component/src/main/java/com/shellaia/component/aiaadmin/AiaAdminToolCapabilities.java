@@ -24,14 +24,14 @@ public final class AiaAdminToolCapabilities implements ToolCapabilityProvider {
                 List.of("update")),
             cmd("install",
                 "Install one or more coordinates into the current runtime set.",
-                List.of("--coord"),
+                List.of("<coord>"),
                 List.of(),
-                List.of("install --coord com.shellaia:renderer-component:0.1.15")),
+                List.of("install com.shellaia:renderer-component", "install com.shellaia:renderer-component:0.1.15")),
             cmd("uninstall",
                 "Uninstall one or more coordinates from the current runtime set.",
-                List.of("--coord"),
+                List.of("<coord>"),
                 List.of(),
-                List.of("uninstall --coord com.shellaia:renderer-component:0.1.15")),
+                List.of("uninstall com.shellaia:renderer-component", "uninstall com.shellaia:renderer-component:0.1.15")),
             cmd("versions",
                 "List versions for the current runtime set.",
                 List.of(),
@@ -75,4 +75,3 @@ public final class AiaAdminToolCapabilities implements ToolCapabilityProvider {
         .build();
   }
 }
-

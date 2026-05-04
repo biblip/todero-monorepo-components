@@ -4,6 +4,7 @@ import java.io.File;
 
 public final class NativeLibraryLoader {
   private static volatile ToderoTermLibrary cached;
+  private static volatile String loadedPath;
 
   private NativeLibraryLoader() {
   }
@@ -20,8 +21,17 @@ public final class NativeLibraryLoader {
       if (!f.isFile()) {
         throw new IllegalStateException("Native lib not found: " + f.getAbsolutePath());
       }
-      cached = ToderoTermLibrary.load(f.getAbsolutePath());
+      loadedPath = f.getAbsolutePath();
+      cached = ToderoTermLibrary.load(loadedPath);
       return cached;
     }
+  }
+
+  public static boolean isLoaded() {
+    return cached != null;
+  }
+
+  public static String loadedPath() {
+    return loadedPath;
   }
 }

@@ -17,15 +17,9 @@ import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.aiatpio.AiatpResponse;
-import com.social100.todero.common.agent.work.AppendActionRequest;
-import com.social100.todero.common.agent.work.CompletionRequest;
-import com.social100.todero.common.agent.work.FailureRequest;
-import com.social100.todero.common.agent.work.OwnerAgentWorkLedger;
-import com.social100.todero.common.agent.work.SharedAgentWorkLedgerRegistry;
-import com.social100.todero.common.agent.work.SubtaskRequest;
-import com.social100.todero.common.agent.work.WorkActionRecord;
 import com.social100.todero.common.agent.work.WorkActionType;
 import com.social100.todero.common.agent.work.WorkItemRecord;
+import com.social100.todero.common.agent.work.WorkStatus;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.lineparser.LineParserUtil;
@@ -37,8 +31,8 @@ import com.social100.todero.processor.EventDefinition;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.text.Normalizer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -51,6 +45,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -76,8 +71,6 @@ public class AgentDJComponent {
   private static final int MAX_RECOMMENDATION_COUNT = 12;
   private static final int PLANNER_RECENT_STEP_LIMIT = 4;
   private static final int PLANNER_HISTORY_LIMIT = 8;
-  private static final int LEDGER_SUMMARY_MAX_ENTRIES = 12;
-  private static final int LEDGER_SUMMARY_MAX_CHARS = 1400;
   private static final String LEDGER_OWNER_ID = "com.shellaia.agent.dj";
   private static final Pattern TRACK_URI_PATTERN = Pattern.compile("spotify:track:[A-Za-z0-9]+");
   private static final Pattern RESOLVED_TRACK_PATTERN = Pattern.compile("^Resolved track:\\s+(.+?)\\s+—\\s+(.+?)\\s+\\[uri=(spotify:track:[A-Za-z0-9]+)]\\s*$", Pattern.MULTILINE);
@@ -104,9 +97,6 @@ public class AgentDJComponent {
     thread.setDaemon(true);
     return thread;
   });
-  private final Path ledgerPath;
-  private volatile OwnerAgentWorkLedger ownerLedger;
-  private final Object ledgerInitLock = new Object();
   private final ObjectMapper mapper = new ObjectMapper();
   private final Map<String, PendingAuthRetry> pendingAuthRetries = new ConcurrentHashMap<>();
   private final Storage storage;
@@ -119,7 +109,6 @@ public class AgentDJComponent {
       t.setDaemon(true);
       return t;
     });
-    this.ledgerPath = defaultLedgerPath();
     this.openApiKey = loadOpenApiKey(storage);
   }
 
@@ -170,25 +159,9 @@ public class AgentDJComponent {
       );
       return true;
     }
-    WorkItemRecord rootWork;
-    try {
-      ensureOwnerLedger(context);
-      rootWork = openRootLedgerWork(source, prompt, true, correlationId);
-    } catch (Exception e) {
-      completeWireTerminal(
-          context,
-          "error",
-          "failure",
-          "ledger_unavailable",
-          "Unable to create execution task in Agent Work Ledger: " + safeTrim(e.getMessage()),
-          "ledger_unavailable",
-          false,
-          null
-      );
-      return true;
-    }
+    String rootWorkId = correlationId;
     CompletableFuture<LoopResult> future = CompletableFuture.supplyAsync(
-        () -> runGoalLoop(context, prompt, true, source, correlationId, rootWork.workId()),
+        () -> runGoalLoop(context, prompt, true, source, correlationId, rootWorkId),
         cognitionExecutor
     );
 
@@ -199,8 +172,10 @@ public class AgentDJComponent {
           + " steps=" + (result.toolSteps == null ? 0 : result.toolSteps.size()));
       emitWireFinal(context, result);
     } catch (Exception e) {
-      String message = safeTrim(e.getMessage()).isEmpty() ? "Unexpected agent failure." : safeTrim(e.getMessage());
-      System.out.println("[DJ-AGENT][EMIT] process exception message=" + safeTrim(e.getMessage()));
+      Throwable reported = (e instanceof ExecutionException && e.getCause() != null) ? e.getCause() : e;
+      String message = safeTrim(reported.getMessage()).isEmpty() ? "Unexpected agent failure." : safeTrim(reported.getMessage());
+      System.out.println("[DJ-AGENT][EMIT] process exception message=" + safeTrim(reported.toString()));
+      logThrowable("[DJ-AGENT][EMIT] process exception", reported);
       completeWireTerminal(
           context,
           "error",
@@ -269,16 +244,27 @@ public class AgentDJComponent {
                                  boolean interactiveRequest,
                                  String source,
                                  String correlationId,
-                                 String rootWorkId) {
+                                  String rootWorkId) {
     System.out.println("[DJ-AGENT][LOOP] start source=" + safeTrim(source)
         + " interactive=" + interactiveRequest + " correlationId=" + safeTrim(correlationId));
     long startedAtNs = System.nanoTime();
     AgentContext llmContext = new AgentContext();
     parentContext.bindAgentLlmRegistry(llmContext);
-    LLMClient llm = llmContext.systemLlm()
-        .map(instance -> instance.client())
-        .orElseThrow(() -> new IllegalStateException(
-            "No system-wide LLM available in registry for agent " + LEDGER_OWNER_ID));
+    LLMClient llm;
+    try {
+      System.out.println("[DJ-AGENT][LOOP] resolving system LLM correlationId=" + safeTrim(correlationId));
+      llm = llmContext.systemLlm()
+          .map(instance -> instance.client())
+          .orElseThrow(() -> new IllegalStateException(
+              "No system-wide LLM available in registry for agent " + LEDGER_OWNER_ID));
+      System.out.println("[DJ-AGENT][LOOP] system LLM resolved correlationId=" + safeTrim(correlationId)
+          + " clientClass=" + llm.getClass().getName());
+    } catch (Throwable t) {
+      System.out.println("[DJ-AGENT][LOOP] system LLM resolution failed correlationId=" + safeTrim(correlationId)
+          + " error=" + safeTrim(t.toString()));
+      logThrowable("[DJ-AGENT][LOOP] system LLM resolution failed", t);
+      throw t;
+    }
     PlaylistAddIntent playlistAddIntent = detectPlaylistAddIntent(initialPrompt);
     String currentPlaylistSongTitle = detectCurrentPlaylistSongTitle(initialPrompt);
 
@@ -420,8 +406,7 @@ public class AgentDJComponent {
       long toolDurationMs = elapsedMs(toolStartedAtNs);
       long stepDurationMs = elapsedMs(stepStartedAtNs);
       toolSteps.add(new ToolStep(step, action, tool.command, tool.args, tool.output, plannerDurationMs, toolDurationMs, stepDurationMs));
-      ownerLedger().recordToolStep(rootWorkId, tool.command, tool.args, redactedForLogs(safeTrim(tool.rawOutput())),
-          toolDurationMs, safeTrim(tool.errorCode), safeTrim(tool.executed ? null : tool.output));
+      recordToolStepSafely(rootWorkId, tool, toolDurationMs);
       boolean authRequiredToolResult = interactiveRequest && isAuthRequiredToolResult(tool);
       ToolResponseDisposition disposition = interactiveRequest
           ? responseDispositionForSuccessfulTool(tool)
@@ -817,6 +802,7 @@ public class AgentDJComponent {
   }
 
   private CommandAgentResponse planNextAction(LLMClient llm, AgentPrompt prompt, AgentContext context) throws Exception {
+    System.out.println("[DJ-AGENT][PLAN] planning with llmClass=" + (llm == null ? "<null>" : llm.getClass().getName()));
     String contextJson = mapper.writeValueAsString(context.getAll());
     String raw = llm.chat(loadSystemPrompt("prompts/default-system-prompt.md"), prompt.getMessage(), contextJson);
     System.out.println("LLM Response");
@@ -3283,47 +3269,29 @@ public class AgentDJComponent {
   }
 
   private String injectLedgerSummary(String prompt, String rootWorkId) {
-    try {
-      List<WorkActionRecord> actions = ownerLedger().getActions(rootWorkId, new com.social100.todero.common.agent.work.QueryOptions(LEDGER_SUMMARY_MAX_ENTRIES, 0));
-      StringBuilder summary = new StringBuilder();
-      for (WorkActionRecord action : actions) {
-        if (summary.length() >= LEDGER_SUMMARY_MAX_CHARS) {
-          break;
-        }
-        summary.append("- ")
-            .append(action.actionType())
-            .append(": ")
-            .append(safeTrim(action.text()))
-            .append('\n');
-      }
-      if (summary.length() == 0) {
-        summary.append("- no prior ledger actions\n");
-      }
-      return "Agent Work Ledger (source of truth):\n"
-          + summary
-          + "\nCurrent task:\n"
-          + prompt;
-    } catch (Exception e) {
-      return "Current task:\n" + prompt;
-    }
+    return "Current task:\n" + prompt;
   }
 
   private WorkItemRecord openRootLedgerWork(String source, String prompt, boolean interactive, String correlationId) {
-    List<String> labels = interactive
-        ? List.of("spotify", "agent", source, "interactive")
-        : List.of("spotify", "agent", source, "event");
-    WorkItemRecord root = ownerLedger().beginGoal(prompt, labels);
-    ownerLedger().appendAction(root.workId(), new AppendActionRequest(
-        WorkActionType.NOTE,
-        "correlationId=" + correlationId + " source=" + source,
-        null, null, null, null, null, null
-    ));
-    ownerLedger().splitIntoSubtasks(root.workId(), List.of(
-        new SubtaskRequest("plan", "derive next spotify action", 1, List.of("plan")),
-        new SubtaskRequest("execute", "execute spotify command", 1, List.of("execute")),
-        new SubtaskRequest("evaluate", "evaluate tool result and decide next step", 1, List.of("evaluate"))
-    ));
-    return root;
+    Instant now = Instant.now();
+    return new WorkItemRecord(
+        correlationId,
+        LEDGER_OWNER_ID,
+        prompt,
+        prompt,
+        null,
+        WorkStatus.NEW,
+        1,
+        List.of("spotify", "agent", source, interactive ? "interactive" : "event"),
+        now,
+        now,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+    );
   }
 
   private void appendLedgerAction(String workId,
@@ -3346,37 +3314,14 @@ public class AgentDJComponent {
                                   Long latencyMs,
                                   String errorCode,
                                   String errorMessage) {
-    try {
-      ownerLedger().appendAction(workId, new AppendActionRequest(
-          type, text, toolName, toolArgs, toolResultDigest, latencyMs, errorCode, errorMessage
-      ));
-    } catch (Exception e) {
-      System.out.println("[DJ-AGENT] ledger append skipped workId=" + workId + " error=" + safeTrim(e.getMessage()));
-    }
+    // One-shot agent mode: ledger persistence disabled.
   }
 
   private void finalizeLedgerWork(String rootWorkId,
                                   StopReason stopReason,
                                   CommandAgentResponse lastResponse,
                                   List<ToolStep> toolSteps) {
-    String summary = safeTrim(lastResponse == null ? null : lastResponse.getUser());
-    if (summary.isEmpty()) {
-      summary = stopReason.message;
-    }
-    try {
-      if (isFailureStopReason(stopReason)) {
-        String details = lastToolOutput(toolSteps);
-        ownerLedger().markFailed(rootWorkId, new FailureRequest(stopReason.code, details, summary));
-        appendLedgerAction(rootWorkId, WorkActionType.FAIL, "finalize_failed stopReason=" + stopReason.code,
-            null, null, details, null, stopReason.code, summary);
-      } else {
-        ownerLedger().markDone(rootWorkId, new CompletionRequest(summary, 1.0));
-        appendLedgerAction(rootWorkId, WorkActionType.COMPLETE, "finalize_done stopReason=" + stopReason.code,
-            null, null, null, null, null);
-      }
-    } catch (Exception e) {
-      System.out.println("[DJ-AGENT] ledger finalize skipped workId=" + rootWorkId + " error=" + safeTrim(e.getMessage()));
-    }
+    // One-shot agent mode: ledger persistence disabled.
   }
 
   private static boolean isFailureStopReason(StopReason stopReason) {
@@ -3390,60 +3335,28 @@ public class AgentDJComponent {
         || stopReason == StopReason.PLANNER_LOOP_DETECTED;
   }
 
-  private static String lastToolOutput(List<ToolStep> toolSteps) {
-    ToolStep step = findLastToolStep(toolSteps);
-    return step == null ? "" : safeTrim(step.toolOutput);
-  }
-
-  private static Path defaultLedgerPath() {
-    String custom = System.getProperty("todero.agent.dj.ledger.dir");
-    if (custom != null && !custom.isBlank()) {
-      return Path.of(custom.trim());
-    }
-    return Path.of(System.getProperty("user.home"), ".todero", "data", "state", "agent-work-ledger", "dj-agent");
-  }
-
   private void recordToolStepSafely(String rootWorkId, ToolExecution tool, long toolDurationMs) {
-    try {
-      ownerLedger().recordToolStep(rootWorkId, tool.command, tool.args, redactedForLogs(safeTrim(tool.rawOutput())),
-          toolDurationMs, safeTrim(tool.errorCode), safeTrim(tool.executed ? null : tool.output));
-    } catch (Exception e) {
-      System.out.println("[DJ-AGENT] ledger tool-step skipped workId=" + rootWorkId + " error=" + safeTrim(e.getMessage()));
-    }
-  }
-
-  private void ensureOwnerLedger(CommandContext context) {
-    if (context == null) {
-      throw new IllegalArgumentException("CommandContext is required to resolve owner-scoped ledger.");
-    }
-    if (this.ownerLedger != null) {
-      return;
-    }
-    synchronized (ledgerInitLock) {
-      if (this.ownerLedger == null) {
-        this.ownerLedger = context.workLedger(this.ledgerPath);
-      }
-    }
-  }
-
-  private OwnerAgentWorkLedger ownerLedger() {
-    OwnerAgentWorkLedger existing = this.ownerLedger;
-    if (existing != null) {
-      return existing;
-    }
-    synchronized (ledgerInitLock) {
-      if (this.ownerLedger == null) {
-        this.ownerLedger = OwnerAgentWorkLedger.bind(
-            SharedAgentWorkLedgerRegistry.shared(this.ledgerPath),
-            LEDGER_OWNER_ID
-        );
-      }
-      return this.ownerLedger;
-    }
+    // One-shot agent mode: ledger persistence disabled.
   }
 
   private static long elapsedMs(long startedAtNs) {
     return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNs);
+  }
+
+  private static void logThrowable(String prefix, Throwable throwable) {
+    if (throwable == null) {
+      return;
+    }
+    System.out.println(prefix + " type=" + throwable.getClass().getName());
+    Throwable cursor = throwable;
+    int depth = 0;
+    while (cursor != null && depth < 8) {
+      System.out.println(prefix + " cause[" + depth + "]=" + cursor.getClass().getName()
+          + " message=" + safeTrim(cursor.getMessage()));
+      cursor = cursor.getCause();
+      depth++;
+    }
+    throwable.printStackTrace(System.out);
   }
 
   private static String newCorrelationId() {

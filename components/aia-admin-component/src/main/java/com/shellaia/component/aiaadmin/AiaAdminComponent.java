@@ -59,19 +59,17 @@ public class AiaAdminComponent {
 
   @Action(group = MAIN_GROUP,
       command = "install",
-      description = "Install coordinates into the current runtime set through internal runtime lifecycle service. Usage: install --coord <coord> [--coord ...]. coord supports g:a:v, g:a:@latest, g:a:<major>, g:a:<major>.<minor>")
+      description = "Install coordinates into the current runtime set through internal runtime lifecycle service. Usage: install <coord> [<coord> ...]. coord supports g:a, g:a:v, g:a:@latest, g:a:<major>, g:a:<major>.<minor>")
   public Boolean install(CommandContext context) {
     ParsedArgs args = parseBody(context);
-    if (!validateAllowedFlags(context, args, usageInstall(), List.of("coord"))) return false;
+    if (!validateAllowedFlags(context, args, usageInstall(), List.of())) return false;
     if (args.tokens.isEmpty()) {
       respondText(context, 200, usageInstall());
       return false;
     }
-    if (!args.positional.isEmpty()) return invalidArgs(context, usageInstall(), args.positional);
-
-    List<String> coords = args.multi("coord");
+    List<String> coords = args.positional;
     if (coords.isEmpty()) {
-      respondText(context, 200, "At least one --coord is required\\n" + usageInstall());
+      respondText(context, 200, "At least one coord is required\n" + usageInstall());
       return false;
     }
 
@@ -91,19 +89,17 @@ public class AiaAdminComponent {
 
   @Action(group = MAIN_GROUP,
       command = "uninstall",
-      description = "Uninstall coordinates from the current runtime set through internal runtime lifecycle service. Usage: uninstall --coord <coord> [--coord ...]. coord supports g:a:v, g:a:@latest, g:a:<major>, g:a:<major>.<minor>")
+      description = "Uninstall coordinates from the current runtime set through internal runtime lifecycle service. Usage: uninstall <coord> [<coord> ...]. coord supports g:a, g:a:v, g:a:@latest, g:a:<major>, g:a:<major>.<minor>")
   public Boolean uninstall(CommandContext context) {
     ParsedArgs args = parseBody(context);
-    if (!validateAllowedFlags(context, args, usageUninstall(), List.of("coord"))) return false;
+    if (!validateAllowedFlags(context, args, usageUninstall(), List.of())) return false;
     if (args.tokens.isEmpty()) {
       respondText(context, 200, usageUninstall());
       return false;
     }
-    if (!args.positional.isEmpty()) return invalidArgs(context, usageUninstall(), args.positional);
-
-    List<String> coords = args.multi("coord");
+    List<String> coords = args.positional;
     if (coords.isEmpty()) {
-      respondText(context, 200, "At least one --coord is required\\n" + usageUninstall());
+      respondText(context, 200, "At least one coord is required\n" + usageUninstall());
       return false;
     }
 
@@ -335,11 +331,11 @@ public class AiaAdminComponent {
   }
 
   private String usageInstall() {
-    return "Usage: install --coord <coord> [--coord ...]\ncoord supports: g:a:v | g:a:@latest | g:a:<major> | g:a:<major>.<minor>\nExamples: --coord com.shellaia:spotify-agent:0.1.4 --coord com.shellaia:spotify-agent:@latest --coord com.shellaia:spotify-agent:0 --coord com.shellaia:spotify-agent:0.1";
+    return "Usage: install <coord> [<coord> ...]\ncoord supports: g:a | g:a:v | g:a:@latest | g:a:<major> | g:a:<major>.<minor>\nExamples: com.shellaia:spotify-agent com.shellaia:spotify-agent:0.1.4 com.shellaia:spotify-agent:@latest com.shellaia:spotify-agent:0 com.shellaia:spotify-agent:0.1";
   }
 
   private String usageUninstall() {
-    return "Usage: uninstall --coord <coord> [--coord ...]\ncoord supports: g:a:v | g:a:@latest | g:a:<major> | g:a:<major>.<minor>";
+    return "Usage: uninstall <coord> [<coord> ...]\ncoord supports: g:a | g:a:v | g:a:@latest | g:a:<major> | g:a:<major>.<minor>";
   }
 
   private String usageVersions() {

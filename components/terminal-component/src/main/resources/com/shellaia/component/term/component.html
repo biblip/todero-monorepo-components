@@ -9,6 +9,8 @@
     html, body { height: 100%; }
     body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin: 0; }
     .card { height: 100%; box-sizing: border-box; margin: 0; padding: 14px 14px; display:flex; flex-direction:column; gap: 10px; }
+    .card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .card-head-main { min-width:0; flex:1; }
     h1 { font-size: 18px; margin: 0 0 6px 0; }
     .muted { color: #64748b; font-size: 12px; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
@@ -16,6 +18,7 @@
     .button { border: 1px solid #0f172a; background: #0f172a; color: #fff; border-radius: 10px; padding: 10px 12px; font-size: 13px; cursor: pointer; }
     .button.secondary { background: #fff; color: #0f172a; }
     .button:disabled { opacity: .5; cursor: not-allowed; }
+    .button.icon { padding: 8px 10px; min-width: 40px; font-size: 16px; line-height: 1; }
     .grid { display: grid; grid-template-columns: 1fr; gap: 12px; flex: 1; min-height: 0; }
     @media (min-width: 900px) { .grid { grid-template-columns: 420px 1fr; } }
     .panel { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; min-height: 0; overflow: auto; display:flex; flex-direction:column; }
@@ -45,6 +48,18 @@
     .term, pre.plain { width: 100%; }
     .term, pre.plain, .term .xterm-viewport { scrollbar-width: none; }
     .term::-webkit-scrollbar, pre.plain::-webkit-scrollbar, .term .xterm-viewport::-webkit-scrollbar { width: 0; height: 0; }
+    .dialog-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+    .dialog-backdrop.open { display: flex; }
+    .dialog { width: min(760px, 100%); max-height: 90vh; overflow: auto; background: #fff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 16px; box-shadow: 0 24px 60px rgba(15, 23, 42, .28); padding: 16px; box-sizing: border-box; }
+    .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .dialog h3 { margin: 0; font-size: 18px; }
+    .dialog-close { border: 1px solid #cbd5e1; background: #fff; color: #0f172a; border-radius: 10px; width: 36px; height: 36px; cursor: pointer; font-size: 18px; }
+    .dialog label { display: block; margin: 14px 0 6px 0; font-weight: 600; }
+    .dialog-label-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:14px 0 6px 0; }
+    .dialog-label-row label { margin:0; }
+    .dialog textarea, .dialog input { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; font: inherit; background: #fff; color: #0f172a; }
+    .dialog textarea { min-height: 96px; resize: vertical; }
+    .dialog-status { margin-top: 12px; white-space: pre-wrap; }
 
     /* xterm */
     ${XTERM_CSS}
@@ -52,8 +67,13 @@
 </head>
 <body>
   <div class="card">
-    <h1>${HEADING}</h1>
-    <div class="muted">Served by <code>com.shellaia.term/html</code>. Generated at ${GENERATED_AT}</div>
+    <div class="card-head">
+      <div class="card-head-main">
+        <h1>${HEADING}</h1>
+        <div class="muted">Served by <code>com.shellaia.term/html</code>. Generated at ${GENERATED_AT}</div>
+      </div>
+      <button id="btn-settings" class="button secondary icon" type="button" title="Terminal component settings" aria-label="Terminal component settings">⚙</button>
+    </div>
 
     <div class="grid">
       <div class="panel">
@@ -133,12 +153,40 @@
     </div>
   </div>
 
+  <div id="settings-dialog" class="dialog-backdrop" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="dialog-head">
+        <div>
+          <h3 id="settings-title">Terminal Component Settings</h3>
+          <div class="muted">Writes the component storage <code>.env</code> file. Workspace changes apply to new open calls immediately. Native library path changes may require reload after the library has been loaded.</div>
+        </div>
+        <button id="btn-settings-close" class="dialog-close" type="button" aria-label="Close settings">×</button>
+      </div>
+      <label for="settings-allowed-workspaces">TODERO_TERM_ALLOWED_WORKSPACES</label>
+      <textarea id="settings-allowed-workspaces" spellcheck="false">${SETTINGS_ALLOWED_WORKSPACES}</textarea>
+      <div class="muted">Absolute paths only. Use <code>;</code> or new lines to provide multiple roots.</div>
+
+      <div class="dialog-label-row">
+        <label for="settings-native-lib-path">TODERO_TERM_NATIVE_LIB_PATH</label>
+        <button id="btn-settings-detect-native-lib" class="button secondary" type="button">Use ttninfo</button>
+      </div>
+      <input id="settings-native-lib-path" type="text" spellcheck="false" value="${SETTINGS_NATIVE_LIB_PATH}" />
+      <div class="muted">Absolute path to <code>libtodero_term</code>.</div>
+
+      <div class="row">
+        <button id="btn-settings-save" class="button" type="button">Save settings</button>
+      </div>
+      <div id="settings-status" class="dialog-status muted">Idle.</div>
+    </div>
+  </div>
+
   <script>
   ${XTERM_JS}
   </script>
   <script>
   (function () {
     var btnRefresh = document.getElementById('btn-refresh');
+    var btnSettings = document.getElementById('btn-settings');
     var btnOpen = document.getElementById('btn-open');
     var sessionsEl = document.getElementById('sessions');
     var sessionSelect = document.getElementById('session-select');
@@ -151,6 +199,13 @@
     var btnClose = document.getElementById('btn-close');
     var btnKill = document.getElementById('btn-kill');
     var btnHideScrollback = document.getElementById('btn-hide-scrollback');
+    var settingsDialog = document.getElementById('settings-dialog');
+    var btnSettingsClose = document.getElementById('btn-settings-close');
+    var btnSettingsSave = document.getElementById('btn-settings-save');
+    var btnSettingsDetectNativeLib = document.getElementById('btn-settings-detect-native-lib');
+    var settingsAllowedWorkspaces = document.getElementById('settings-allowed-workspaces');
+    var settingsNativeLibPath = document.getElementById('settings-native-lib-path');
+    var settingsStatus = document.getElementById('settings-status');
     var sinceFrameEl = document.getElementById('since-frame');
     var statusEl = document.getElementById('status');
 
@@ -467,6 +522,60 @@
         .replace(/'/g, '&#39;');
     }
 
+    function renderSettingsStatus(text, cssClass) {
+      settingsStatus.className = 'dialog-status ' + (cssClass || 'muted');
+      settingsStatus.textContent = text;
+    }
+
+    function setSettingsOpen(open) {
+      var visible = !!open;
+      settingsDialog.classList.toggle('open', visible);
+      settingsDialog.setAttribute('aria-hidden', visible ? 'false' : 'true');
+      if (visible) {
+        renderSettingsStatus('Idle.', 'muted');
+        settingsAllowedWorkspaces.focus();
+      }
+    }
+
+    function saveSettings() {
+      btnSettingsSave.disabled = true;
+      renderSettingsStatus('Saving...', 'muted');
+      return callJson('settings_save', null, JSON.stringify({
+        allowedWorkspaces: settingsAllowedWorkspaces.value || '',
+        nativeLibPath: settingsNativeLibPath.value || ''
+      })).then(function (res) {
+        var note = res && res.reloadRequired ? '\nReload required for native library path changes.' : '';
+        renderSettingsStatus((res && res.message ? res.message : 'settings saved') + note, res && res.ok ? 'ok' : 'warn');
+      }).catch(function (e) {
+        renderSettingsStatus('Save failed\n' + (e && e.message ? e.message : String(e)), 'warn');
+      }).finally(function () {
+        btnSettingsSave.disabled = false;
+      });
+    }
+
+    function detectNativeLibPath() {
+      btnSettingsDetectNativeLib.disabled = true;
+      renderSettingsStatus('Detecting native library path...', 'muted');
+      return callJson('settings_detect_native_lib', null, '').then(function (res) {
+        var current = (settingsNativeLibPath.value || '').trim();
+        var detected = res && res.nativeLibPath ? String(res.nativeLibPath) : '';
+        if (!detected) {
+          renderSettingsStatus('Detection returned an empty native library path.', 'warn');
+          return;
+        }
+        if (!current) {
+          settingsNativeLibPath.value = detected;
+          renderSettingsStatus('Native library path detected and filled from ttninfo.', 'ok');
+        } else {
+          renderSettingsStatus('Native library path detected. Current value was kept because the field is not empty.\nDetected: ' + detected, 'ok');
+        }
+      }).catch(function (e) {
+        renderSettingsStatus('Detection failed\n' + (e && e.message ? e.message : String(e)), 'warn');
+      }).finally(function () {
+        btnSettingsDetectNativeLib.disabled = false;
+      });
+    }
+
     function openSession() {
       openResult.textContent = 'Opening...';
       var body = {
@@ -659,6 +768,10 @@
     };
 
     btnRefresh.addEventListener('click', function () { refreshSessions(); });
+    btnSettings.addEventListener('click', function () { setSettingsOpen(true); });
+    btnSettingsClose.addEventListener('click', function () { setSettingsOpen(false); });
+    btnSettingsSave.addEventListener('click', function () { saveSettings(); });
+    btnSettingsDetectNativeLib.addEventListener('click', function () { detectNativeLibPath(); });
     btnOpen.addEventListener('click', function () { openSession(); });
     btnCtrlC.addEventListener('click', function () {
       if (!activeId || !activeOwned) return;
@@ -705,7 +818,16 @@
         setScrollbackVisible(false);
       });
     }
+    if (settingsDialog) {
+      settingsDialog.addEventListener('click', function (ev) {
+        if (ev.target === settingsDialog) setSettingsOpen(false);
+      });
+    }
     window.addEventListener('keydown', function (ev) {
+      if (settingsDialog && settingsDialog.classList.contains('open') && ev.key === 'Escape') {
+        setSettingsOpen(false);
+        return;
+      }
       if (!scrollbackVisible) return;
       var action = keyEventAction(ev);
       if (!action) return;

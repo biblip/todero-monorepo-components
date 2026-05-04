@@ -689,19 +689,11 @@
       if (!candidateId && sessions && sessions.length) {
         candidateId = String(sessions[0].id || '').trim();
       }
-      var candidateSession = candidateId ? sessionsById.get(candidateId) : null;
       if (candidateId && candidateId !== activeId) {
         // Next-tick select to ensure DOM is painted and bridge callbacks are ready.
         setTimeout(function () {
           if (options.startupRestore === true && desiredId && candidateId === desiredId) {
-            if (candidateSession && String(candidateSession.state || '') === 'detached') {
-              selectSession(candidateId, { retryIfActive: true });
-              return;
-            }
-            selectSession(candidateId, {
-              activateOnly: true,
-              initialStatus: candidateSession && candidateSession.attached ? 'attached' : 'idle'
-            });
+            selectSession(candidateId);
             return;
           }
           selectSession(candidateId);
@@ -727,12 +719,6 @@
       if (!id) return;
       if (id === activeId) {
         if (activeOwned) return;
-        if (options.activateOnly) {
-          statusEl.textContent = options.initialStatus || 'idle';
-          dotEl.className = 'dot warn';
-          setDetachedOverlayVisible(statusEl.textContent === 'detached');
-          return;
-        }
         setDetachedOverlayVisible(false);
         setScrollbackVisible(false);
         startForActive();
@@ -756,11 +742,6 @@
       highlightActiveTab();
       setScrollbackVisible(false);
       setDetachedOverlayVisible(false);
-      if (options.activateOnly) {
-        statusEl.textContent = options.initialStatus || 'idle';
-        dotEl.className = 'dot warn';
-        return;
-      }
       startForActive();
     }
 

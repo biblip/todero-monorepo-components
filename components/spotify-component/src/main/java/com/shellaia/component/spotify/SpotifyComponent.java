@@ -53,6 +53,11 @@ public class SpotifyComponent {
   private static final long DEFAULT_NOTIFY_MIN_MS = 2500L;
   private static final String COMPONENT_HTML_TEMPLATE =
       loadResourceText("com/shellaia/component/spotify/component.html");
+  private static final String ENV_SPOTIFY_CLIENT_ID = "SPOTIFY_CLIENT_ID";
+  private static final String ENV_SPOTIFY_REDIRECT_URI_APP = "SPOTIFY_REDIRECT_URI_APP";
+  private static final String ENV_SPOTIFY_REDIRECT_URI_CONSOLE = "SPOTIFY_REDIRECT_URI_CONSOLE";
+  private static final String ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST = "SPOTIFY_REDIRECT_URI_ALLOWLIST";
+  private static final String ENV_SPOTIFY_DEVICE_ID = "SPOTIFY_DEVICE_ID";
 
   private final Storage storage;
   private final Object initLock = new Object();
@@ -328,7 +333,12 @@ public class SpotifyComponent {
         .replace("${HEADING}", heading)
         .replace("${GENERATED_AT}", escapeHtml(generatedAt))
         .replace("${NOT_READY_BLOCK}", notReadyBlock)
-        .replace("${AUTH_STATUS}", escapeHtml(authStatus));
+        .replace("${AUTH_STATUS}", escapeHtml(authStatus))
+        .replace("${SETTINGS_SPOTIFY_CLIENT_ID}", escapeHtml(envValue(ENV_SPOTIFY_CLIENT_ID)))
+        .replace("${SETTINGS_SPOTIFY_REDIRECT_URI_APP}", escapeHtml(envValue(ENV_SPOTIFY_REDIRECT_URI_APP)))
+        .replace("${SETTINGS_SPOTIFY_REDIRECT_URI_CONSOLE}", escapeHtml(envValue(ENV_SPOTIFY_REDIRECT_URI_CONSOLE)))
+        .replace("${SETTINGS_SPOTIFY_REDIRECT_URI_ALLOWLIST}", escapeHtml(envValue(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST)))
+        .replace("${SETTINGS_SPOTIFY_DEVICE_ID}", escapeHtml(envValue(ENV_SPOTIFY_DEVICE_ID)));
 
     context.complete(buildWireResponse(
         "html",
@@ -341,6 +351,75 @@ public class SpotifyComponent {
         null
     ));
     return true;
+  }
+
+  @Action(group = SpotifyCommandService.MAIN_GROUP,
+      command = "settings_save",
+      description = "Persist Spotify component settings into the component .env file. Body JSON: {clientId, redirectUriApp, redirectUriConsole, redirectUriAllowlist, deviceId}")
+  public Boolean settingsSaveCommand(CommandContext context) {
+    String body = readRawBody(context);
+    if (body.isBlank()) {
+      context.complete(buildWireResponse(
+          "error",
+          "failure",
+          "invalid_arguments",
+          "Usage: settings_save (body JSON)",
+          "application/json; charset=utf-8",
+          "invalid_arguments",
+          null,
+          null
+      ));
+      return false;
+    }
+    try {
+      JsonObject json = GSON.fromJson(body, JsonObject.class);
+      if (json == null) {
+        throw new IllegalArgumentException("invalid JSON body");
+      }
+      LinkedHashMap<String, String> env = new LinkedHashMap<>();
+      env.put(ENV_SPOTIFY_CLIENT_ID, readJsonString(json, "clientId"));
+      env.put(ENV_SPOTIFY_REDIRECT_URI_APP, readJsonString(json, "redirectUriApp"));
+      env.put(ENV_SPOTIFY_REDIRECT_URI_CONSOLE, readJsonString(json, "redirectUriConsole"));
+      env.put(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST, readJsonString(json, "redirectUriAllowlist"));
+      env.put(ENV_SPOTIFY_DEVICE_ID, readJsonString(json, "deviceId"));
+      writeDotenv(env);
+      invalidateReadyState();
+
+      Map<String, Object> payload = new LinkedHashMap<>();
+      payload.put("ok", true);
+      payload.put("message", "settings saved");
+      payload.put("clientId", env.get(ENV_SPOTIFY_CLIENT_ID));
+      payload.put("redirectUriApp", env.get(ENV_SPOTIFY_REDIRECT_URI_APP));
+      payload.put("redirectUriConsole", env.get(ENV_SPOTIFY_REDIRECT_URI_CONSOLE));
+      payload.put("redirectUriAllowlist", env.get(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST));
+      payload.put("deviceId", env.get(ENV_SPOTIFY_DEVICE_ID));
+      context.complete(buildWireResponse(
+          "chat",
+          "success",
+          "completed",
+          GSON.toJson(payload),
+          "application/json; charset=utf-8",
+          null,
+          null,
+          null
+      ));
+      return true;
+    } catch (Exception e) {
+      Map<String, Object> payload = new LinkedHashMap<>();
+      payload.put("ok", false);
+      payload.put("message", redact(e.getMessage()));
+      context.complete(buildWireResponse(
+          "error",
+          "failure",
+          "invalid_arguments",
+          GSON.toJson(payload),
+          "application/json; charset=utf-8",
+          "invalid_arguments",
+          null,
+          null
+      ));
+      return false;
+    }
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
@@ -1416,12 +1495,34 @@ public class SpotifyComponent {
     return spotifyCommandService;
   }
 
+  private void invalidateReadyState() {
+    synchronized (initLock) {
+      spotifyPkceService = null;
+      spotifyCommandService = null;
+    }
+  }
+
+  private String envValue(String key) {
+    try {
+      byte[] envBytes = storage.readFile(".env");
+      Map<String, String> env = parseDotenv(envBytes);
+      return trimToEmpty(env.get(key));
+    } catch (Exception ignored) {
+      return "";
+    }
+  }
+
   private String readArgs(CommandContext context) {
+    String body = readRawBody(context);
+    return body.trim().replaceAll("\\s+", " ");
+  }
+
+  private String readRawBody(CommandContext context) {
     AiatpRequest request = context.getAiatpRequest();
     String body = request == null || request.getBody() == null
         ? ""
         : AiatpIO.bodyToString(request.getBody(), StandardCharsets.UTF_8);
-    return body == null ? "" : body.trim().replaceAll("\\s+", " ");
+    return body == null ? "" : body;
   }
 
   private static Map<String, String> readQueryArgs(CommandContext context) {
@@ -1610,6 +1711,25 @@ public class SpotifyComponent {
       return false;
     }
     return !text.matches("(?i)^[a-z0-9-]+ failed(?:\\s+\\[error_code=[a-z0-9_\\-]+])?:.*");
+  }
+
+  private static String readJsonString(JsonObject json, String key) {
+    if (json == null || key == null || key.isBlank() || !json.has(key) || json.get(key).isJsonNull()) {
+      return "";
+    }
+    JsonElement value = json.get(key);
+    return value == null ? "" : trimToEmpty(value.getAsString());
+  }
+
+  private void writeDotenv(Map<String, String> env) throws IOException {
+    StringBuilder sb = new StringBuilder();
+    sb.append("# Spotify component settings\n");
+    sb.append(ENV_SPOTIFY_CLIENT_ID).append('=').append(trimToEmpty(env.get(ENV_SPOTIFY_CLIENT_ID))).append('\n');
+    sb.append(ENV_SPOTIFY_REDIRECT_URI_APP).append('=').append(trimToEmpty(env.get(ENV_SPOTIFY_REDIRECT_URI_APP))).append('\n');
+    sb.append(ENV_SPOTIFY_REDIRECT_URI_CONSOLE).append('=').append(trimToEmpty(env.get(ENV_SPOTIFY_REDIRECT_URI_CONSOLE))).append('\n');
+    sb.append(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST).append('=').append(trimToEmpty(env.get(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST))).append('\n');
+    sb.append(ENV_SPOTIFY_DEVICE_ID).append('=').append(trimToEmpty(env.get(ENV_SPOTIFY_DEVICE_ID))).append('\n');
+    storage.writeFile(".env", sb.toString().getBytes(StandardCharsets.UTF_8));
   }
 
   private static final Set<String> INTERMEDIATE_RESULT_COMMANDS = Set.of(

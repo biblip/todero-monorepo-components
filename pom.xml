@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.shellaia</groupId>
   <artifactId>shellaia-components</artifactId>
-  <version>0.1.19-SNAPSHOT</version>
+  <version>0.1.32-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>shellaia-components</name>
   <modules>
