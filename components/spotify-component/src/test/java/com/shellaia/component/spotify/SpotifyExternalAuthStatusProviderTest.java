@@ -15,12 +15,12 @@ class SpotifyExternalAuthStatusProviderTest {
   private static final Gson GSON = new Gson();
 
   @Test
-  void missingEnvReturnsUnavailable() {
+  void missingEnvUsesBuiltInDefaults() {
     SpotifyExternalAuthStatusProvider provider = new SpotifyExternalAuthStatusProvider();
 
     ComponentExternalAuthStatus status = provider.snapshot(new TestStorage());
 
-    assertEquals(ExternalAuthState.unavailable, status.getState());
+    assertEquals(ExternalAuthState.authentication_required, status.getState());
   }
 
   @Test
@@ -52,11 +52,6 @@ class SpotifyExternalAuthStatusProviderTest {
 
   private static TestStorage configuredStorage() throws IOException {
     TestStorage storage = new TestStorage();
-    storage.writeFile(
-        ".env",
-        ("SPOTIFY_CLIENT_ID=abc\n"
-            + "SPOTIFY_REDIRECT_URI_APP=https://auth.shellaia.com/component/callback\n"
-            + "SPOTIFY_REDIRECT_URI_CONSOLE=http://127.0.0.1:34895/spotify/callback\n").getBytes());
     return storage;
   }
 }

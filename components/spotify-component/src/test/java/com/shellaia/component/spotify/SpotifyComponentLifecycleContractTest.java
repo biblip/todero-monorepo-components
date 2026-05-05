@@ -12,7 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,7 +24,7 @@ class SpotifyComponentLifecycleContractTest {
   }
 
   @Test
-  void generatedWrapperRegistersDescriptorAndReturnsNotReadyErrorWhenEnvIsMissing() {
+  void generatedWrapperRegistersDescriptorAndReturnsAuthRequiredWhenEnvIsMissing() {
     SpotifyComponentImpl component = new SpotifyComponentImpl((eventName, wrapper) -> {
     }, new TestStorage());
     AtomicReference<AiatpResponse> seen = new AtomicReference<>();
@@ -40,12 +39,12 @@ class SpotifyComponentLifecycleContractTest {
         .build();
 
     assertEquals("com.shellaia.spotify", component.getComponentDescriptor().getName());
-    assertFalse(component.execute("com.shellaia.spotify", "play", context));
+    assertTrue(component.execute("com.shellaia.spotify", "play", context));
 
     assertNotNull(seen.get());
-    assertEquals(503, seen.get().getStatusCode());
-    assertEquals("status_503", seen.get().getReasonPhrase());
+    assertEquals(500, seen.get().getStatusCode());
+    assertEquals("auth_required", seen.get().getReasonPhrase());
     String body = AiatpIO.bodyToString(seen.get().getBody(), StandardCharsets.UTF_8);
-    assertTrue(body.contains("Spotify component is not ready"));
+    assertTrue(body.contains("Spotify authorization is required"));
   }
 }

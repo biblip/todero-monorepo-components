@@ -27,10 +27,6 @@ class SpotifyComponentSettingsTest {
 
     CapturedResponse response = invoke(component, "settings_save", """
         {
-          "clientId":"client-123",
-          "redirectUriApp":"https://auth.example/app",
-          "redirectUriConsole":"http://127.0.0.1:34895/spotify/callback",
-          "redirectUriAllowlist":"https://auth.example/app,http://127.0.0.1:34895/spotify/callback",
           "deviceId":"device-999"
         }
         """);
@@ -39,10 +35,10 @@ class SpotifyComponentSettingsTest {
     assertTrue(response.body().contains("\"ok\":true"));
     assertEquals("""
         # Spotify component settings
-        SPOTIFY_CLIENT_ID=client-123
-        SPOTIFY_REDIRECT_URI_APP=https://auth.example/app
+        SPOTIFY_CLIENT_ID=6a97c2f26f4c4043aef129247f4c7426
+        SPOTIFY_REDIRECT_URI_APP=https://auth.shellaia.com/component/callback
         SPOTIFY_REDIRECT_URI_CONSOLE=http://127.0.0.1:34895/spotify/callback
-        SPOTIFY_REDIRECT_URI_ALLOWLIST=https://auth.example/app,http://127.0.0.1:34895/spotify/callback
+        SPOTIFY_REDIRECT_URI_ALLOWLIST=https://auth.shellaia.com/component/callback,http://127.0.0.1:34895/spotify/callback
         SPOTIFY_DEVICE_ID=device-999
         """, storage.readText(".env"));
   }
@@ -51,10 +47,6 @@ class SpotifyComponentSettingsTest {
   void html_embedsSettingsModalValues() throws Exception {
     InMemoryStorage storage = new InMemoryStorage();
     storage.writeFile(".env", """
-        SPOTIFY_CLIENT_ID=client-123
-        SPOTIFY_REDIRECT_URI_APP=https://auth.example/app
-        SPOTIFY_REDIRECT_URI_CONSOLE=http://127.0.0.1:34895/spotify/callback
-        SPOTIFY_REDIRECT_URI_ALLOWLIST=https://auth.example/app,http://127.0.0.1:34895/spotify/callback
         SPOTIFY_DEVICE_ID=device-999
         """.getBytes(StandardCharsets.UTF_8));
     SpotifyComponent component = new SpotifyComponent(storage);
@@ -64,8 +56,8 @@ class SpotifyComponentSettingsTest {
     assertEquals(200, response.statusCode());
     assertTrue(response.contentType().contains("text/html"));
     assertTrue(response.body().contains("btn-settings-save"));
-    assertTrue(response.body().contains("SPOTIFY_CLIENT_ID"));
-    assertTrue(response.body().contains("client-123"));
+    assertTrue(response.body().contains("SPOTIFY_DEVICE_ID"));
+    assertTrue(response.body().contains("device-999"));
   }
 
   private static CapturedResponse invoke(SpotifyComponent component, String action, String body) {

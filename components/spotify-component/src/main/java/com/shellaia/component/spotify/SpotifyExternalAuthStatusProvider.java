@@ -72,14 +72,18 @@ public final class SpotifyExternalAuthStatusProvider implements ExternalAuthStat
 
   private static void requireConfiguration(Storage storage) {
     try {
-      Map<String, String> env = parseDotenv(storage.readFile(".env"));
-      if (blank(env.get("SPOTIFY_CLIENT_ID"))
-          || blank(env.get("SPOTIFY_REDIRECT_URI_APP"))
-          || blank(env.get("SPOTIFY_REDIRECT_URI_CONSOLE"))) {
+      Map<String, String> env = new java.util.LinkedHashMap<>();
+      try {
+        env.putAll(parseDotenv(storage.readFile(".env")));
+      } catch (IOException ignored) {
+        // Defaults make the component usable without a .env file.
+      }
+      env = SpotifyComponentDefaults.withDefaults(env);
+      if (blank(env.get(SpotifyComponentDefaults.ENV_SPOTIFY_CLIENT_ID))
+          || blank(env.get(SpotifyComponentDefaults.ENV_SPOTIFY_REDIRECT_URI_APP))
+          || blank(env.get(SpotifyComponentDefaults.ENV_SPOTIFY_REDIRECT_URI_CONSOLE))) {
         throw new IllegalStateException("Spotify configuration is incomplete.");
       }
-    } catch (IOException e) {
-      throw new IllegalStateException("Spotify configuration is missing.");
     } catch (RuntimeException e) {
       throw new IllegalStateException("Spotify configuration could not be parsed.");
     }

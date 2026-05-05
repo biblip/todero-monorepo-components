@@ -73,14 +73,7 @@
         </div>
         <button id="btn-settings-close" class="dialog-close" type="button" aria-label="Close settings">×</button>
       </div>
-      <label for="settings-client-id">SPOTIFY_CLIENT_ID</label>
-      <input id="settings-client-id" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_CLIENT_ID}" />
-      <label for="settings-redirect-uri-app">SPOTIFY_REDIRECT_URI_APP</label>
-      <input id="settings-redirect-uri-app" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_REDIRECT_URI_APP}" />
-      <label for="settings-redirect-uri-console">SPOTIFY_REDIRECT_URI_CONSOLE</label>
-      <input id="settings-redirect-uri-console" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_REDIRECT_URI_CONSOLE}" />
-      <label for="settings-redirect-uri-allowlist">SPOTIFY_REDIRECT_URI_ALLOWLIST</label>
-      <input id="settings-redirect-uri-allowlist" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_REDIRECT_URI_ALLOWLIST}" />
+      <div class="muted">Spotify client and redirect settings are built in.</div>
       <label for="settings-device-id">SPOTIFY_DEVICE_ID</label>
       <input id="settings-device-id" type="text" spellcheck="false" value="${SETTINGS_SPOTIFY_DEVICE_ID}" />
       <div class="status-row" style="margin-top:14px;">
@@ -97,10 +90,6 @@
       var btnSettingsClose = document.getElementById('btn-settings-close');
       var btnSettingsSave = document.getElementById('btn-settings-save');
       var settingsStatus = document.getElementById('settings-status');
-      var settingsClientId = document.getElementById('settings-client-id');
-      var settingsRedirectUriApp = document.getElementById('settings-redirect-uri-app');
-      var settingsRedirectUriConsole = document.getElementById('settings-redirect-uri-console');
-      var settingsRedirectUriAllowlist = document.getElementById('settings-redirect-uri-allowlist');
       var settingsDeviceId = document.getElementById('settings-device-id');
       var readinessPill = document.getElementById('readiness-pill');
       var loginPill = document.getElementById('login-pill');
@@ -175,7 +164,7 @@
         settingsDialog.setAttribute('aria-hidden', visible ? 'false' : 'true');
         if (visible) {
           setSettingsStatus('Idle.', 'muted');
-          settingsClientId.focus();
+          settingsDeviceId.focus();
         }
       }
 
@@ -202,10 +191,6 @@
         btnSettingsSave.disabled = true;
         setSettingsStatus('Saving...', 'muted');
         return callSettingsSave({
-          clientId: settingsClientId.value || '',
-          redirectUriApp: settingsRedirectUriApp.value || '',
-          redirectUriConsole: settingsRedirectUriConsole.value || '',
-          redirectUriAllowlist: settingsRedirectUriAllowlist.value || '',
           deviceId: settingsDeviceId.value || ''
         }).then(function (res) {
           setSettingsStatus((res && res.message ? res.message : 'settings saved') + '\n' + render(res), res && res.ok ? 'ok' : 'warn');

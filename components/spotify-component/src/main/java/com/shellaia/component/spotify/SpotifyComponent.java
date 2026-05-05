@@ -53,11 +53,11 @@ public class SpotifyComponent {
   private static final long DEFAULT_NOTIFY_MIN_MS = 2500L;
   private static final String COMPONENT_HTML_TEMPLATE =
       loadResourceText("com/shellaia/component/spotify/component.html");
-  private static final String ENV_SPOTIFY_CLIENT_ID = "SPOTIFY_CLIENT_ID";
-  private static final String ENV_SPOTIFY_REDIRECT_URI_APP = "SPOTIFY_REDIRECT_URI_APP";
-  private static final String ENV_SPOTIFY_REDIRECT_URI_CONSOLE = "SPOTIFY_REDIRECT_URI_CONSOLE";
-  private static final String ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST = "SPOTIFY_REDIRECT_URI_ALLOWLIST";
-  private static final String ENV_SPOTIFY_DEVICE_ID = "SPOTIFY_DEVICE_ID";
+  private static final String ENV_SPOTIFY_CLIENT_ID = SpotifyComponentDefaults.ENV_SPOTIFY_CLIENT_ID;
+  private static final String ENV_SPOTIFY_REDIRECT_URI_APP = SpotifyComponentDefaults.ENV_SPOTIFY_REDIRECT_URI_APP;
+  private static final String ENV_SPOTIFY_REDIRECT_URI_CONSOLE = SpotifyComponentDefaults.ENV_SPOTIFY_REDIRECT_URI_CONSOLE;
+  private static final String ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST = SpotifyComponentDefaults.ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST;
+  private static final String ENV_SPOTIFY_DEVICE_ID = SpotifyComponentDefaults.ENV_SPOTIFY_DEVICE_ID;
 
   private final Storage storage;
   private final Object initLock = new Object();
@@ -334,10 +334,6 @@ public class SpotifyComponent {
         .replace("${GENERATED_AT}", escapeHtml(generatedAt))
         .replace("${NOT_READY_BLOCK}", notReadyBlock)
         .replace("${AUTH_STATUS}", escapeHtml(authStatus))
-        .replace("${SETTINGS_SPOTIFY_CLIENT_ID}", escapeHtml(envValue(ENV_SPOTIFY_CLIENT_ID)))
-        .replace("${SETTINGS_SPOTIFY_REDIRECT_URI_APP}", escapeHtml(envValue(ENV_SPOTIFY_REDIRECT_URI_APP)))
-        .replace("${SETTINGS_SPOTIFY_REDIRECT_URI_CONSOLE}", escapeHtml(envValue(ENV_SPOTIFY_REDIRECT_URI_CONSOLE)))
-        .replace("${SETTINGS_SPOTIFY_REDIRECT_URI_ALLOWLIST}", escapeHtml(envValue(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST)))
         .replace("${SETTINGS_SPOTIFY_DEVICE_ID}", escapeHtml(envValue(ENV_SPOTIFY_DEVICE_ID)));
 
     context.complete(buildWireResponse(
@@ -355,7 +351,7 @@ public class SpotifyComponent {
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
       command = "settings_save",
-      description = "Persist Spotify component settings into the component .env file. Body JSON: {clientId, redirectUriApp, redirectUriConsole, redirectUriAllowlist, deviceId}")
+      description = "Persist Spotify component settings into the component .env file. Body JSON: {deviceId}")
   public Boolean settingsSaveCommand(CommandContext context) {
     String body = readRawBody(context);
     if (body.isBlank()) {
@@ -376,11 +372,7 @@ public class SpotifyComponent {
       if (json == null) {
         throw new IllegalArgumentException("invalid JSON body");
       }
-      LinkedHashMap<String, String> env = new LinkedHashMap<>();
-      env.put(ENV_SPOTIFY_CLIENT_ID, readJsonString(json, "clientId"));
-      env.put(ENV_SPOTIFY_REDIRECT_URI_APP, readJsonString(json, "redirectUriApp"));
-      env.put(ENV_SPOTIFY_REDIRECT_URI_CONSOLE, readJsonString(json, "redirectUriConsole"));
-      env.put(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST, readJsonString(json, "redirectUriAllowlist"));
+      LinkedHashMap<String, String> env = new LinkedHashMap<>(loadEffectiveEnv());
       env.put(ENV_SPOTIFY_DEVICE_ID, readJsonString(json, "deviceId"));
       writeDotenv(env);
       invalidateReadyState();
@@ -388,10 +380,6 @@ public class SpotifyComponent {
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("ok", true);
       payload.put("message", "settings saved");
-      payload.put("clientId", env.get(ENV_SPOTIFY_CLIENT_ID));
-      payload.put("redirectUriApp", env.get(ENV_SPOTIFY_REDIRECT_URI_APP));
-      payload.put("redirectUriConsole", env.get(ENV_SPOTIFY_REDIRECT_URI_CONSOLE));
-      payload.put("redirectUriAllowlist", env.get(ENV_SPOTIFY_REDIRECT_URI_ALLOWLIST));
       payload.put("deviceId", env.get(ENV_SPOTIFY_DEVICE_ID));
       context.complete(buildWireResponse(
           "chat",
@@ -1463,11 +1451,7 @@ public class SpotifyComponent {
       }
       Map<String, String> env;
       try {
-        byte[] envBytes = storage.readFile(".env");
-        env = parseDotenv(envBytes);
-      } catch (IOException e) {
-        throw new ComponentNotReadyException("missing_configuration",
-            "Spotify component is not ready: missing required .env configuration.", e);
+        env = loadEffectiveEnv();
       } catch (RuntimeException e) {
         throw new ComponentNotReadyException("initialization_failed",
             "Spotify component is not ready: failed to parse configuration.", e);
@@ -1504,12 +1488,21 @@ public class SpotifyComponent {
 
   private String envValue(String key) {
     try {
-      byte[] envBytes = storage.readFile(".env");
-      Map<String, String> env = parseDotenv(envBytes);
-      return trimToEmpty(env.get(key));
+      return trimToEmpty(loadEffectiveEnv().get(key));
     } catch (Exception ignored) {
       return "";
     }
+  }
+
+  private Map<String, String> loadEffectiveEnv() {
+    Map<String, String> env = new LinkedHashMap<>();
+    try {
+      byte[] envBytes = storage.readFile(".env");
+      env.putAll(parseDotenv(envBytes));
+    } catch (IOException ignored) {
+      // Defaults make the component usable without a .env file.
+    }
+    return SpotifyComponentDefaults.withDefaults(env);
   }
 
   private String readArgs(CommandContext context) {
