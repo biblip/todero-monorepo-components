@@ -24,6 +24,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TermComponentSettingsTest {
 
   @Test
+  void defaultAllowedWorkspaces_isRoot() {
+    TermComponent component = new TermComponent(new InMemoryStorage());
+    assertEquals("/", component.effectiveEnv("TODERO_TERM_ALLOWED_WORKSPACES"));
+  }
+
+
+  @Test
   void settingsSave_writesCanonicalDotenvAndReloadsEffectiveEnv() throws Exception {
     InMemoryStorage storage = new InMemoryStorage();
     TermComponent component = new TermComponent(storage);

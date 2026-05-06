@@ -57,6 +57,7 @@ public class TermComponent {
 
   private final Storage storage;
   private volatile Map<String, String> dotenv;
+  private volatile String detectedDefaultNativeLibPath;
   private final ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, r -> {
@@ -1114,11 +1115,43 @@ public class TermComponent {
     }
     String v = System.getenv(key);
     if (v != null && !v.isBlank()) return v;
-    return null;
+    return defaultEnvValue(key);
   }
 
   String effectiveEnv(String key) {
     return env(key);
+  }
+
+
+  private String defaultEnvValue(String key) {
+    if (ENV_ALLOWED_WORKSPACES.equals(key)) {
+      return "/";
+    }
+    if (ENV_NATIVE_LIB_PATH.equals(key)) {
+      return detectDefaultNativeLibPath();
+    }
+    return null;
+  }
+
+  private String detectDefaultNativeLibPath() {
+    String cached = detectedDefaultNativeLibPath;
+    if (cached != null && !cached.isBlank()) {
+      return cached;
+    }
+    synchronized (this) {
+      if (detectedDefaultNativeLibPath != null && !detectedDefaultNativeLibPath.isBlank()) {
+        return detectedDefaultNativeLibPath;
+      }
+      try {
+        detectedDefaultNativeLibPath = detectNativeLibPath();
+      } catch (IOException | InterruptedException e) {
+        if (e instanceof InterruptedException) {
+          Thread.currentThread().interrupt();
+        }
+        detectedDefaultNativeLibPath = null;
+      }
+      return detectedDefaultNativeLibPath;
+    }
   }
 
   private synchronized void reloadDotenvFromStorage() {
