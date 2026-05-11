@@ -54,6 +54,10 @@ class AgentDJCapabilitiesTest {
         root.path("manifest").path("routingHints").path("skillSummary").asText());
     assertEquals("Handles Spotify music playback and playlist workflows.",
         root.path("manifest").path("routingHints").path("oneLineSkillSummary").asText());
+    assertEquals(List.of("process", "capabilities"),
+        java.util.stream.StreamSupport.stream(root.path("manifest").path("commands").spliterator(), false)
+            .map(node -> node.path("name").asText())
+            .toList());
   }
 
   private static LLMRegistry fakeRegistry() {

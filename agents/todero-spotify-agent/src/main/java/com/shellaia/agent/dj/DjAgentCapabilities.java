@@ -19,19 +19,7 @@ public final class DjAgentCapabilities implements AgentCapabilityProvider {
             "music.recommend", "music.events"
         ))
         .commands(List.of(
-            command("play", List.of("<query|uri>")),
-            command("pause", List.of()),
-            command("stop", List.of()),
-            command("status", List.of()),
-            command("resolve-track", List.of("<query>")),
-            command("volume", List.of("<0-100>")),
-            command("skip", List.of()),
-            command("previous", List.of()),
-            command("playlists", List.of()),
-            command("playlist-play", List.of("--id")),
-            command("playlist-add", List.of("--id", "--track")),
-            command("playlist-add-current", List.of("--id")),
-            command("events", List.of("ON|OFF")),
+            command("process", List.of("<goal>")),
             command("capabilities", List.of())
         ))
         .followUpPolicyHints(Map.of(

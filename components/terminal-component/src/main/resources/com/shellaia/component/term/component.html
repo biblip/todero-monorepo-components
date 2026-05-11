@@ -133,10 +133,9 @@
 
         <div class="term-wrap" style="margin-top:10px;">
           <div class="term-head muted">
-            <span>Type in the terminal. Output uses <code>screen_diff</code> when possible.</span>
             <span id="status" class="pill">idle</span>
           </div>
-          <div class="term-area">
+          <div class="term-area" data-todero-focus-root tabindex="0" aria-label="Terminal surface">
             <div id="term" class="term"></div>
             <pre id="plain" class="plain" style="display:none;"></pre>
           </div>
@@ -220,6 +219,7 @@
     var termWrap = document.querySelector('.term-wrap');
     var termDiv = document.getElementById('term');
     var plainPre = document.getElementById('plain');
+    var termArea = document.querySelector('.term-area');
     var scrollbackSnapshot = document.getElementById('scrollback-snapshot');
     var scrollbackPre = document.getElementById('scrollback-pre');
 
@@ -308,6 +308,19 @@
         return;
       }
       if (xterm) xterm.write(text);
+    }
+
+    function focusTerminalSurface() {
+      if (rendererSel.value === 'plain') {
+        plainPre.focus();
+        return;
+      }
+      ensureXterm();
+      if (xterm) {
+        xterm.focus();
+        return;
+      }
+      termDiv.focus();
     }
 
     function ensureXterm() {
@@ -766,6 +779,11 @@
         writeUtf8ToTerminal(out);
       } catch (_) {}
     };
+
+    if (termArea) {
+      termArea.addEventListener('focus', function () { focusTerminalSurface(); });
+      termArea.addEventListener('click', function () { focusTerminalSurface(); });
+    }
 
     btnRefresh.addEventListener('click', function () { refreshSessions(); });
     btnSettings.addEventListener('click', function () { setSettingsOpen(true); });

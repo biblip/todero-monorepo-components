@@ -3,7 +3,7 @@
   <parent>
     <groupId>com.shellaia</groupId>
     <artifactId>agents</artifactId>
-    <version>0.1.35-SNAPSHOT</version>
+    <version>0.1.39-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>term-agent</artifactId>

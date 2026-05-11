@@ -132,7 +132,6 @@
             <div class="muted" style="padding:12px;">Loading…</div>
           </div>
           <div class="muted">
-            Double-click sends to the selected tab. Each command can be configured to submit or just type.
           </div>
         </div>
       </div>
@@ -154,7 +153,7 @@
               <span id="status" class="pill">idle</span>
             </div>
           </div>
-          <div id="term-fit-box" class="termArea">
+          <div id="term-fit-box" class="termArea" data-todero-focus-root tabindex="0" aria-label="Terminal surface">
             <div id="term" class="term"></div>
             <pre id="plain" class="plain" style="display:none;"></pre>
             <div id="scrollback" class="scrollback">
@@ -355,6 +354,19 @@
       // Start auto-fit when xterm exists.
       ensureResizeObserver();
       scheduleFit();
+    }
+
+    function focusTerminalSurface() {
+      if (rendererSel.value === 'plain') {
+        if (plainPre) plainPre.focus();
+        return;
+      }
+      ensureXterm();
+      if (xterm) {
+        xterm.focus();
+        return;
+      }
+      if (termDiv) termDiv.focus();
     }
 
     function setRenderer() {
@@ -1180,6 +1192,10 @@
       setRenderer();
       startForActive();
     });
+    if (termAreaEl) {
+      termAreaEl.addEventListener('focus', function () { focusTerminalSurface(); });
+      termAreaEl.addEventListener('click', function () { focusTerminalSurface(); });
+    }
     groupSelect.addEventListener('change', function () {
       selectedGroupId = String(groupSelect.value || '');
       uiState.selectedGroupId = selectedGroupId;
