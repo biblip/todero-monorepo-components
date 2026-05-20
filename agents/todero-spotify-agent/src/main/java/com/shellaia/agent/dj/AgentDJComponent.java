@@ -252,16 +252,11 @@ public class AgentDJComponent {
     parentContext.bindAgentLlmRegistry(llmContext);
     LLMClient llm;
     try {
-      System.out.println("[DJ-AGENT][LOOP] resolving system LLM correlationId=" + safeTrim(correlationId));
       llm = llmContext.systemLlm()
           .map(instance -> instance.client())
           .orElseThrow(() -> new IllegalStateException(
               "No system-wide LLM available in registry for agent " + LEDGER_OWNER_ID));
-      System.out.println("[DJ-AGENT][LOOP] system LLM resolved correlationId=" + safeTrim(correlationId)
-          + " clientClass=" + llm.getClass().getName());
     } catch (Throwable t) {
-      System.out.println("[DJ-AGENT][LOOP] system LLM resolution failed correlationId=" + safeTrim(correlationId)
-          + " error=" + safeTrim(t.toString()));
       logThrowable("[DJ-AGENT][LOOP] system LLM resolution failed", t);
       throw t;
     }

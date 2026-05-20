@@ -258,7 +258,35 @@ class SpotifyPkceServiceAuthFlowTest {
 
     String html = appBegin.ctaHtml();
     assertTrue(html.contains("Authorize Spotify"));
+    assertTrue(html.contains("Copy Link"));
+    assertTrue(html.contains("Use Copy Link to open authentication in an external browser."));
     assertTrue(html.contains("href="));
+    assertFalse(html.contains("URL:"));
+    assertTrue(html.contains("expiresAtLocal:"));
+  }
+
+  @Test
+  void authStatusFormatsTokenExpiryInLocalTime() throws Exception {
+    TestStorage storage = new TestStorage();
+    SpotifyConfig config = SpotifyConfig.builder()
+        .clientId("client-test")
+        .redirectUrlApp("https://auth.shellaia.com/component/callback")
+        .redirectUrlConsole("http://127.0.0.1:34895/spotify/callback")
+        .redirectAllowlist("https://auth.shellaia.com/component/callback,http://127.0.0.1:34895/spotify/callback")
+        .build();
+    SpotifyPkceService service = new SpotifyPkceService(config, storage, URI.create("http://127.0.0.1/token"));
+
+    TokenStore.TokenData tokenData = new TokenStore.TokenData();
+    tokenData.accessToken = "a";
+    tokenData.refreshToken = "r";
+    tokenData.expiresAtEpoch = (System.currentTimeMillis() / 1000L) + 3600L;
+    tokenData.scope = "user-read-playback-state user-modify-playback-state user-read-recently-played user-top-read user-library-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private";
+    new TokenStore(storage).write(tokenData);
+
+    String status = service.authStatus();
+    assertTrue(status.contains("expiresAtLocal:"));
+    assertTrue(status.contains("expired: false"));
+    assertFalse(status.contains("expiresAtEpoch:"));
   }
 
   @Test

@@ -34,6 +34,9 @@ import java.net.http.HttpResponse;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -51,6 +54,9 @@ public class SpotifyPkceService {
   private static final long AUTH_SESSION_TTL_SEC = 300L;
   private static final long ENVELOPE_TTL_SEC = 300L;
   private static final String PROVIDER = "spotify";
+  private static final ZoneId LOCAL_ZONE = ZoneId.systemDefault();
+  private static final DateTimeFormatter LOCAL_DATE_TIME_FORMATTER =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z (VV)");
   private static final Set<String> REQUIRED_SCOPES = Set.of(
       "user-read-playback-state",
       "user-modify-playback-state",
@@ -483,17 +489,23 @@ public class SpotifyPkceService {
   }
 
   private static String buildAuthCtaHtml(String authorizeUrl, long expiresAtMs) {
-    String safeUrl = htmlEscape(authorizeUrl == null ? "" : authorizeUrl);
-    String expiry = expiresAtMs > 0 ? Long.toString(expiresAtMs) : "";
+    String rawUrl = authorizeUrl == null ? "" : authorizeUrl;
+    String safeUrl = htmlEscape(rawUrl);
+    String expiry = formatEpochMillisLocal(expiresAtMs);
     return "<html><body style=\"font-family:sans-serif;padding:14px;margin:0;background:#0d1117;color:#e6edf3;\">"
         + "<div style=\"border:1px solid #30363d;border-radius:12px;padding:14px;background:#161b22;\">"
         + "<div style=\"font-size:12px;color:#8b949e;margin-bottom:6px;\">Spotify Authorization</div>"
         + "<div style=\"font-size:16px;font-weight:700;margin-bottom:8px;\">Connect your Spotify account</div>"
-        + "<p style=\"margin:0 0 10px 0;font-size:13px;color:#c9d1d9;\">Tap the button to open Spotify authorization in your browser.</p>"
+        + "<p style=\"margin:0 0 10px 0;font-size:13px;color:#c9d1d9;\">Use Copy Link to open authentication in an external browser.</p>"
+        + "<div style=\"display:flex;gap:8px;flex-wrap:wrap;align-items:center;\">"
         + "<a href=\"" + safeUrl + "\" target=\"_blank\" rel=\"noopener\" "
         + "style=\"display:inline-block;background:#1db954;color:#04110a;text-decoration:none;font-weight:700;border-radius:8px;padding:10px 12px;\">Authorize Spotify</a>"
-        + "<div style=\"margin-top:10px;font-size:11px;color:#8b949e;word-break:break-all;\">URL: " + safeUrl + "</div>"
-        + (expiry.isEmpty() ? "" : "<div style=\"margin-top:6px;font-size:11px;color:#8b949e;\">expiresAtMs: " + expiry + "</div>")
+        + "<button id=\"spotify-copy-link\" type=\"button\" "
+        + "style=\"display:inline-block;background:#ffffff;color:#0f172a;border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;\">Copy Link</button>"
+        + "</div>"
+        + (expiry.isEmpty() ? "" : "<div style=\"margin-top:6px;font-size:11px;color:#8b949e;\">expiresAtLocal: " + htmlEscape(expiry) + "</div>")
+        + "<script>(function(){var btn=document.getElementById('spotify-copy-link');var url=" + GSON.toJson(rawUrl) + ";"
+        + "async function copy(){var prev=btn?btn.textContent:'';try{if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(url);}else{var ta=document.createElement('textarea');ta.value=url;ta.setAttribute('readonly','');ta.style.position='absolute';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}if(btn){btn.textContent='Copied';setTimeout(function(){btn.textContent=prev||'Copy Link';},1500);}}catch(e){if(btn){btn.textContent='Copy failed';setTimeout(function(){btn.textContent=prev||'Copy Link';},1500);}}}if(btn){btn.addEventListener('click',copy);}})();</script>"
         + "</div></body></html>";
   }
 
@@ -504,6 +516,13 @@ public class SpotifyPkceService {
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
         .replace("'", "&#39;");
+  }
+
+  private static String formatEpochMillisLocal(long epochMs) {
+    if (epochMs <= 0L) {
+      return "";
+    }
+    return ZonedDateTime.ofInstant(Instant.ofEpochMilli(epochMs), LOCAL_ZONE).format(LOCAL_DATE_TIME_FORMATTER);
   }
 
   private static String normalizeOwnerBinding(String ownerBinding) {
@@ -527,6 +546,13 @@ public class SpotifyPkceService {
     }
     String trimmed = value.trim();
     return trimmed.isEmpty() ? "" : trimmed;
+  }
+
+  private static String formatEpochSecondsLocal(long epochSeconds) {
+    if (epochSeconds <= 0L) {
+      return "";
+    }
+    return ZonedDateTime.ofInstant(Instant.ofEpochSecond(epochSeconds), LOCAL_ZONE).format(LOCAL_DATE_TIME_FORMATTER);
   }
 
   private AuthorizationSecureEnvelope buildSecureEnvelope(String sessionId, String state, long nowMs, long ttlSec) {
@@ -834,7 +860,7 @@ public class SpotifyPkceService {
       AuthorizationSession s = active.session();
       out.append("activeSessionId: ").append(s.sessionId()).append("\n");
       out.append("activeSessionStatus: ").append(s.status().name()).append("\n");
-      out.append("activeSessionExpiresAtMs: ").append(s.expiresAtMs()).append("\n");
+      out.append("activeSessionExpiresAtLocal: ").append(formatEpochMillisLocal(s.expiresAtMs())).append("\n");
     });
 
     Optional<TokenStore.TokenData> saved = tokenStore.read();
@@ -852,7 +878,7 @@ public class SpotifyPkceService {
     long remaining = td.expiresAtEpoch - now;
 
     out.append("tokenPresent: true\n");
-    out.append("expiresAtEpoch: ").append(td.expiresAtEpoch).append("\n");
+    out.append("expiresAtLocal: ").append(formatEpochSecondsLocal(td.expiresAtEpoch)).append("\n");
     out.append("expiresInSec: ").append(remaining).append("\n");
     out.append("expired: ").append(TokenStore.isExpired(td)).append("\n");
     out.append("grantedScopes: ").append(td.scope == null ? "" : td.scope).append("\n");
