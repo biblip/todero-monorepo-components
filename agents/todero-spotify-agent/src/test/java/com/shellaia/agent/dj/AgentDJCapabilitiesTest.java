@@ -2,6 +2,7 @@ package com.shellaia.agent.dj;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.social100.todero.common.ai.llm.LLMClient;
 import com.social100.todero.common.ai.llm.LLMInstance;
 import com.social100.todero.common.ai.llm.LLMProviderDefinition;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentDJCapabilitiesTest {
@@ -50,14 +52,35 @@ class AgentDJCapabilitiesTest {
     assertEquals(200, out.get().getStatusCode());
     assertEquals("capabilities", out.get().getReasonPhrase());
     JsonNode root = JSON.readTree(AiatpIO.bodyToString(out.get().getBody(), StandardCharsets.UTF_8));
+    assertEquals(List.of(
+            "music.play", "music.pause", "music.stop", "music.volume",
+            "music.playlist.list", "music.playlist.play", "music.playlist.add",
+            "music.entity.resolve", "music.recommend", "music.events"),
+        JSON.convertValue(root.path("manifest").path("intents"), new TypeReference<List<String>>() {}));
     assertEquals("Handles music playback, playlists, recommendations, and delegated Spotify authorization through a specialized DJ workflow.",
         root.path("manifest").path("routingHints").path("skillSummary").asText());
     assertEquals("Handles Spotify music playback and playlist workflows.",
         root.path("manifest").path("routingHints").path("oneLineSkillSummary").asText());
-    assertEquals(List.of("process", "capabilities"),
-        java.util.stream.StreamSupport.stream(root.path("manifest").path("commands").spliterator(), false)
-            .map(node -> node.path("name").asText())
-            .toList());
+
+    var commands = root.path("manifest").path("commands");
+    assertEquals(2, commands.size());
+    assertCommand(commands.get(0), "process", List.of("<goal>"), List.of(),
+        List.of("process play enya caribbean blue", "process add this song to my playlist"));
+    assertCommand(commands.get(1), "capabilities", List.of(), List.of(), List.of("capabilities"));
+  }
+
+  private static void assertCommand(JsonNode node,
+                                    String name,
+                                    List<String> requiredArgs,
+                                    List<String> optionalArgs,
+                                    List<String> examples) {
+    assertNotNull(node, "Missing command: " + name);
+    assertEquals(name, node.path("name").asText(), "name mismatch for " + name);
+    assertEquals(requiredArgs, JSON.convertValue(node.path("requiredArgs"), new TypeReference<List<String>>() {}), "requiredArgs mismatch for " + name);
+    assertEquals(optionalArgs, JSON.convertValue(node.path("optionalArgs"), new TypeReference<List<String>>() {}), "optionalArgs mismatch for " + name);
+    assertTrue(node.path("argTypes").isObject() && node.path("argTypes").size() == 0, "argTypes mismatch for " + name);
+    assertTrue(node.path("defaults").isObject() && node.path("defaults").size() == 0, "defaults mismatch for " + name);
+    assertEquals(examples, JSON.convertValue(node.path("examples"), new TypeReference<List<String>>() {}), "examples mismatch for " + name);
   }
 
   private static LLMRegistry fakeRegistry() {

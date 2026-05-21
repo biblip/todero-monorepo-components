@@ -25,7 +25,8 @@ import java.util.concurrent.atomic.AtomicLong;
     type = ServerType.AIA,
     visible = true,
     description = "Simple Component",
-    events = SimpleComponent.SimpleEvent.class)
+    events = SimpleComponent.SimpleEvent.class,
+    toolCapabilityProvider = SimpleToolCapabilities.class)
 public class SimpleComponent implements WakeupHandler {
   final static String MAIN_GROUP = "Main";
   private CommandContext globalContext = null;
@@ -332,12 +333,7 @@ public class SimpleComponent implements WakeupHandler {
     String safeMessage = message == null ? "" : message;
     context.completeJson(status, "{"
         + "\"ok\":" + (status < 400) + ","
-        + "\"message\":" + quoteJson(safeMessage) + ","
-        + "\"channels\":{"
-        + "\"chat\":{\"message\":" + quoteJson(safeMessage) + "},"
-        + "\"status\":{\"message\":" + quoteJson(safeMessage) + "},"
-        + "\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}"
-        + "}"
+        + "\"message\":" + quoteJson(safeMessage)
         + "}");
   }
 

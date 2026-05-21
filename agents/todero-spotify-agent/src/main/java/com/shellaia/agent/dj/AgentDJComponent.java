@@ -17,6 +17,13 @@ import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 import com.social100.todero.common.aiatpio.AiatpResponse;
+import com.social100.todero.common.agent.work.AppendActionRequest;
+import com.social100.todero.common.agent.work.CompletionRequest;
+import com.social100.todero.common.agent.work.FailureRequest;
+import com.social100.todero.common.agent.work.OwnerAgentWorkLedger;
+import com.social100.todero.common.agent.work.SharedAgentWorkLedgerRegistry;
+import com.social100.todero.common.agent.work.SubtaskRequest;
+import com.social100.todero.common.agent.work.WorkActionRecord;
 import com.social100.todero.common.agent.work.WorkActionType;
 import com.social100.todero.common.agent.work.WorkItemRecord;
 import com.social100.todero.common.agent.work.WorkStatus;
@@ -31,6 +38,7 @@ import com.social100.todero.processor.EventDefinition;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -97,6 +105,9 @@ public class AgentDJComponent {
     thread.setDaemon(true);
     return thread;
   });
+  private final Path ledgerPath;
+  private volatile OwnerAgentWorkLedger ownerLedger;
+  private final Object ledgerInitLock = new Object();
   private final ObjectMapper mapper = new ObjectMapper();
   private final Map<String, PendingAuthRetry> pendingAuthRetries = new ConcurrentHashMap<>();
   private final Storage storage;
@@ -109,6 +120,7 @@ public class AgentDJComponent {
       t.setDaemon(true);
       return t;
     });
+    this.ledgerPath = defaultLedgerPath();
     this.openApiKey = loadOpenApiKey(storage);
   }
 
@@ -3264,29 +3276,47 @@ public class AgentDJComponent {
   }
 
   private String injectLedgerSummary(String prompt, String rootWorkId) {
-    return "Current task:\n" + prompt;
+    try {
+      StringBuilder summary = new StringBuilder();
+      List<WorkActionRecord> actions = ownerLedger().getActions(rootWorkId, new com.social100.todero.common.agent.work.QueryOptions(10, 0));
+      if (actions == null || actions.isEmpty()) {
+        summary.append("- no prior ledger actions\n");
+      } else {
+        int start = Math.max(0, actions.size() - 10);
+        for (int i = start; i < actions.size(); i++) {
+          WorkActionRecord action = actions.get(i);
+          summary.append("- ")
+              .append(action.actionType())
+              .append(": ")
+              .append(safeTrim(action.text()))
+              .append('\n');
+        }
+      }
+      return "Agent Work Ledger (source of truth):\n"
+          + summary
+          + "\nCurrent task:\n"
+          + prompt;
+    } catch (Exception e) {
+      return "Current task:\n" + prompt;
+    }
   }
 
   private WorkItemRecord openRootLedgerWork(String source, String prompt, boolean interactive, String correlationId) {
-    Instant now = Instant.now();
-    return new WorkItemRecord(
-        correlationId,
-        LEDGER_OWNER_ID,
-        prompt,
-        prompt,
-        null,
-        WorkStatus.NEW,
-        1,
-        List.of("spotify", "agent", source, interactive ? "interactive" : "event"),
-        now,
-        now,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-    );
+    List<String> labels = interactive
+        ? List.of("spotify", "agent", source, "interactive")
+        : List.of("spotify", "agent", source, "event");
+    WorkItemRecord root = ownerLedger().beginGoal(prompt, labels);
+    ownerLedger().appendAction(root.workId(), new AppendActionRequest(
+        WorkActionType.NOTE,
+        "correlationId=" + correlationId + " source=" + source,
+        null, null, null, null, null, null
+    ));
+    ownerLedger().splitIntoSubtasks(root.workId(), List.of(
+        new SubtaskRequest("plan", "derive next spotify action", 1, List.of("plan")),
+        new SubtaskRequest("execute", "execute spotify command", 1, List.of("execute")),
+        new SubtaskRequest("evaluate", "evaluate tool result and decide next step", 1, List.of("evaluate"))
+    ));
+    return root;
   }
 
   private void appendLedgerAction(String workId,
@@ -3309,14 +3339,37 @@ public class AgentDJComponent {
                                   Long latencyMs,
                                   String errorCode,
                                   String errorMessage) {
-    // One-shot agent mode: ledger persistence disabled.
+    try {
+      ownerLedger().appendAction(workId, new AppendActionRequest(
+          type, text, toolName, toolArgs, toolResultDigest, latencyMs, errorCode, errorMessage
+      ));
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT] ledger append skipped workId=" + workId + " error=" + safeTrim(e.getMessage()));
+    }
   }
 
   private void finalizeLedgerWork(String rootWorkId,
                                   StopReason stopReason,
                                   CommandAgentResponse lastResponse,
                                   List<ToolStep> toolSteps) {
-    // One-shot agent mode: ledger persistence disabled.
+    String summary = safeTrim(lastResponse == null ? null : lastResponse.getUser());
+    if (summary.isEmpty()) {
+      summary = stopReason.message;
+    }
+    try {
+      if (isFailureStopReason(stopReason)) {
+        String details = lastToolOutput(toolSteps);
+        ownerLedger().markFailed(rootWorkId, new FailureRequest(stopReason.code, details, summary));
+        appendLedgerAction(rootWorkId, WorkActionType.FAIL, "finalize_failed stopReason=" + stopReason.code,
+            null, null, details, null, stopReason.code, summary);
+      } else {
+        ownerLedger().markDone(rootWorkId, new CompletionRequest(summary, 1.0));
+        appendLedgerAction(rootWorkId, WorkActionType.COMPLETE, "finalize_done stopReason=" + stopReason.code,
+            null, null, null, null, null);
+      }
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT] ledger finalize skipped workId=" + rootWorkId + " error=" + safeTrim(e.getMessage()));
+    }
   }
 
   private static boolean isFailureStopReason(StopReason stopReason) {
@@ -3330,8 +3383,56 @@ public class AgentDJComponent {
         || stopReason == StopReason.PLANNER_LOOP_DETECTED;
   }
 
+  private static String lastToolOutput(List<ToolStep> toolSteps) {
+    ToolStep step = findLastToolStep(toolSteps);
+    return step == null ? "" : safeTrim(step.toolOutput);
+  }
+
   private void recordToolStepSafely(String rootWorkId, ToolExecution tool, long toolDurationMs) {
-    // One-shot agent mode: ledger persistence disabled.
+    try {
+      ownerLedger().recordToolStep(rootWorkId, tool.command, tool.args, redactedForLogs(safeTrim(tool.rawOutput())),
+          toolDurationMs, safeTrim(tool.errorCode), safeTrim(tool.executed ? null : tool.output));
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT] ledger tool-step skipped workId=" + rootWorkId + " error=" + safeTrim(e.getMessage()));
+    }
+  }
+
+  private void ensureOwnerLedger(CommandContext context) {
+    if (context == null) {
+      throw new IllegalArgumentException("CommandContext is required to resolve owner-scoped ledger.");
+    }
+    if (this.ownerLedger != null) {
+      return;
+    }
+    synchronized (ledgerInitLock) {
+      if (this.ownerLedger == null) {
+        this.ownerLedger = context.workLedger(this.ledgerPath);
+      }
+    }
+  }
+
+  private OwnerAgentWorkLedger ownerLedger() {
+    OwnerAgentWorkLedger existing = this.ownerLedger;
+    if (existing != null) {
+      return existing;
+    }
+    synchronized (ledgerInitLock) {
+      if (this.ownerLedger == null) {
+        this.ownerLedger = OwnerAgentWorkLedger.bind(
+            SharedAgentWorkLedgerRegistry.shared(this.ledgerPath),
+            LEDGER_OWNER_ID
+        );
+      }
+      return this.ownerLedger;
+    }
+  }
+
+  private static Path defaultLedgerPath() {
+    String custom = System.getProperty("todero.agent.dj.ledger.dir");
+    if (custom != null && !custom.isBlank()) {
+      return Path.of(custom.trim());
+    }
+    return Path.of(System.getProperty("user.home"), ".todero", "data", "state", "agent-work-ledger", "dj-agent");
   }
 
   private static long elapsedMs(long startedAtNs) {

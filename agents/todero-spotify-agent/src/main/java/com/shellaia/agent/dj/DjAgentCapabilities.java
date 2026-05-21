@@ -16,11 +16,17 @@ public final class DjAgentCapabilities implements AgentCapabilityProvider {
         .intents(List.of(
             "music.play", "music.pause", "music.stop", "music.volume",
             "music.playlist.list", "music.playlist.play", "music.playlist.add",
-            "music.recommend", "music.events"
+            "music.entity.resolve", "music.recommend", "music.events"
         ))
         .commands(List.of(
-            command("process", List.of("<goal>")),
-            command("capabilities", List.of())
+            command("process",
+                List.of("<goal>"),
+                List.of(),
+                List.of("process play enya caribbean blue", "process add this song to my playlist")),
+            command("capabilities",
+                List.of(),
+                List.of(),
+                List.of("capabilities"))
         ))
         .followUpPolicyHints(Map.of(
             "supports_latest", "true",
@@ -29,7 +35,7 @@ public final class DjAgentCapabilities implements AgentCapabilityProvider {
         ))
         .routingHints(Map.of(
             "toolComponentName", "com.shellaia.spotify",
-            "routingKeywords", "music,spotify,dj,playback,playlist,songs,recommendations,audio",
+            "routingKeywords", "music,spotify,dj,playback,playlist,songs,recommendations,audio,resolve,lookup,search,playlist id,track uri",
             "canHandleOpaqueRelay", "true",
             "domain", "music",
             "confidenceBias", "high"
@@ -37,11 +43,17 @@ public final class DjAgentCapabilities implements AgentCapabilityProvider {
         .build();
   }
 
-  private static AgentCommandSchema command(String name, List<String> required) {
+  private static AgentCommandSchema command(String name,
+                                            List<String> required,
+                                            List<String> optional,
+                                            List<String> examples) {
     return AgentCommandSchema.builder()
         .name(name)
         .requiredArgs(required)
-        .optionalArgs(List.of())
+        .optionalArgs(optional == null ? List.of() : optional)
+        .argTypes(Map.of())
+        .defaults(Map.of())
+        .examples(examples == null ? List.of() : examples)
         .build();
   }
 }
