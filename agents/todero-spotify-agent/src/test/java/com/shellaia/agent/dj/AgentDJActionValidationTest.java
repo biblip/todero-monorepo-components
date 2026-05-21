@@ -6,6 +6,9 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
+
+import com.social100.todero.common.storage.Storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -81,6 +84,16 @@ class AgentDJActionValidationTest {
   }
 
   @Test
+  void playlistPlayRequiresCanonicalPlaylistIdentifier() throws Exception {
+    ValidationResult invalid = validate("playlist-play", "My Playlist #1");
+    assertEquals("invalid-arguments", invalid.errorCode);
+
+    ValidationResult valid = validate("playlist-play", "spotify:playlist:7cpHMBDK9bGgj2XlogYX9F 0");
+    assertNull(valid.errorCode);
+    assertEquals("spotify:playlist:7cpHMBDK9bGgj2XlogYX9F 0", valid.args);
+  }
+
+  @Test
   void resolveTrackRequiresQuery() throws Exception {
     ValidationResult result = validate("resolve-track", "");
     assertEquals("invalid-arguments", result.errorCode);
@@ -94,98 +107,194 @@ class AgentDJActionValidationTest {
   }
 
   @Test
-  void detectsPlaylistAddIntentFromPrompt() throws Exception {
-    Method method = AgentDJComponent.class.getDeclaredMethod("detectPlaylistAddIntent", String.class);
+  void currentPlaybackGoalsRequireContextSnapshotBeforePlanning() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "current_playback", "current-playback", true, true, true, 1, 0.95d, "test");
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class);
     method.setAccessible(true);
-    Object intent = method.invoke(null, "I want to add this song, the one that is playing right now, to my playlist called My Place.");
-    assertTrue(intent != null);
 
-    Method playlistName = intent.getClass().getDeclaredMethod("playlistName");
-    playlistName.setAccessible(true);
-    assertEquals("My Place", playlistName.invoke(intent));
+    Object result = method.invoke(component, goalIntent, List.of(), List.of());
+    assertEquals("need_context_snapshot", result);
   }
 
   @Test
-  void findsPlaylistIdByNameFromPlaylistsOutput() throws Exception {
-    Object step = newToolStep(
-        2,
-        "playlists 50 0",
-        "playlists",
-        "50 0",
-        """
-        Playlists (limit=50, offset=0):
-         1) Chill [id=aaa111, uri=spotify:playlist:aaa111, owner=me, public=true, tracks=5]
-         2) My Place [id=pl123, uri=spotify:playlist:pl123, owner=me, public=true, tracks=20]
-        """,
-        0L,
-        0L,
-        0L);
+  void ordinalTargetsRequireContextSnapshotBeforePlanning() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "playback", "song 4", true, false, true, 1, 0.95d, "test");
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class,
+        String.class);
+    method.setAccessible(true);
 
-    Method findPlaylist = AgentDJComponent.class.getDeclaredMethod("findPlaylistIdByName", List.class, String.class);
-    findPlaylist.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    Optional<String> id = (Optional<String>) findPlaylist.invoke(null, List.of(step), "My Place");
-    assertTrue(id.isPresent());
-    assertEquals("pl123", id.get());
+    Object result = method.invoke(component, goalIntent, List.of(), List.of(), "go to song 4");
+    assertEquals("need_context_snapshot", result);
   }
 
   @Test
-  void findsCurrentTrackUriFromStatusOrPlayOutput() throws Exception {
+  void playlistScopedTrackRequestsPreferPlaylistResolutionOverGenericSearchPlayback() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "playlist", "Rivers of Babylon", true, false, true, 1, 0.95d, "test");
     Object statusStep = newToolStep(
         1,
         "status all",
         "status",
         "all",
-        "Track: Corazon de Acero — Yiyo Sarante\nURI: spotify:track:21nc3O8OncUv1jjSrC1ML2",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47\nPlaylistPosition: 4/99",
         0L,
         0L,
         0L);
-    Object playlistsStep = newToolStep(
-        2,
-        "playlists 50 0",
-        "playlists",
-        "50 0",
-        "Playlists (limit=50, offset=0):",
-        0L,
-        0L,
-        0L);
-
-    Method findTrack = AgentDJComponent.class.getDeclaredMethod("findCurrentTrackUri", List.class);
-    findTrack.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    Optional<String> uri = (Optional<String>) findTrack.invoke(null, List.of(statusStep, playlistsStep));
-    assertTrue(uri.isPresent());
-    assertEquals("spotify:track:21nc3O8OncUv1jjSrC1ML2", uri.get());
-  }
-
-  @Test
-  void returnsEmptyWhenNoPlaylistIdMatch() throws Exception {
-    Object step = newToolStep(
-        2,
-        "playlists 50 0",
-        "playlists",
-        "50 0",
-        "Playlists (limit=50, offset=0):\n 1) Salsa [id=salsa1, uri=spotify:playlist:salsa1, owner=me, public=true, tracks=9]",
-        0L,
-        0L,
-        0L);
-
-    Method findPlaylist = AgentDJComponent.class.getDeclaredMethod("findPlaylistIdByName", List.class, String.class);
-    findPlaylist.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    Optional<String> id = (Optional<String>) findPlaylist.invoke(null, List.of(step), "My Place");
-    assertFalse(id.isPresent());
-  }
-
-  @Test
-  void detectsCurrentPlaylistSongTitleFromPrompt() throws Exception {
-    Method method = AgentDJComponent.class.getDeclaredMethod("detectCurrentPlaylistSongTitle", String.class);
+    Object observation = invokeObservation(component, "play Rivers of Babylon in the playlist", goalIntent, 1,
+        newToolExecution(true, "status", "all", """
+            Device: Arturo’s Mac mini
+            Playing: true
+            Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+            Track: Desesperada — Marta Sánchez
+            URI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi
+            Position: 00:21 / 03:47
+            PlaylistPosition: 4/99
+            """, "", "", "INTERMEDIATE_RESULT"),
+        List.of(statusStep));
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class,
+        String.class);
     method.setAccessible(true);
-    String quoted = (String) method.invoke(null, "Add \"Caribbean Blue\" to playlist");
-    assertEquals("Caribbean Blue", quoted);
 
-    String fallback = (String) method.invoke(null, "Add Aventurera to my playlist");
-    assertEquals("Aventurera", fallback);
+    Object result = method.invoke(component, goalIntent, List.of(), List.of(observation), "play Rivers of Babylon in the playlist");
+    assertEquals("need_playlist_resolution", result);
+  }
+
+  @Test
+  void currentPlaybackGoalsCompleteAfterStatusConfirmsTransition() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "current_playback", "current-playback", true, true, true, 1, 0.95d, "test");
+    Object tool1 = newToolExecution(true, "status", "all", """
+        Device: Arturo’s Mac mini
+        Playing: true
+        Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+        Track: Desesperada — Marta Sánchez
+        URI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi
+        Position: 00:21 / 03:47
+        """, "", "", "INTERMEDIATE_RESULT");
+    Object tool2 = newToolExecution(true, "status", "all", """
+        Device: Arturo’s Mac mini
+        Playing: true
+        Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+        Track: Every Breath You Take — The Police
+        URI: spotify:track:1JSTJqkT5qHq8MDJnJbRE1
+        Position: 00:01 / 04:13
+        """, "", "", "INTERMEDIATE_RESULT");
+    Object observation1 = invokeObservation(component, "go to the next song", goalIntent, 1, tool1, List.of());
+    Object observation2 = invokeObservation(component, "go to the next song", goalIntent, 2, tool2, List.of(newToolStep(
+        1,
+        "status all",
+        "status",
+        "all",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47",
+        0L,
+        0L,
+        0L)));
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class);
+    method.setAccessible(true);
+
+    assertEquals("goal_completed", method.invoke(component, goalIntent, List.of(), List.of(observation1, observation2)));
+  }
+
+  @Test
+  void observesPlaylistCandidateFromPlaylistsOutput() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "playlist", "My Place", true, false, true, 1, 0.95d, "test");
+    Object tool = newToolExecution(true, "playlists", "50 0", """
+        Playlists (limit=50, offset=0):
+         1) Chill [id=aaa111, uri=spotify:playlist:aaa111, owner=me, public=true, tracks=5]
+         2) My Place [id=pl1234567890ABCDEfghij, uri=spotify:playlist:pl1234567890ABCDEfghij, owner=me, public=true, tracks=20]
+        """, "", "", "INTERMEDIATE_RESULT");
+    Object observation = invokeObservation(component, "play my playlist called \"My Place\"", goalIntent, 2, tool, List.of());
+
+    assertEquals("playlists", accessor(observation, "toolCommand"));
+    assertEquals("intermediate", accessor(observation, "terminality"));
+    assertEquals("My Place", accessor(observation, "canonicalName"));
+    assertEquals("pl1234567890ABCDEfghij", accessor(observation, "canonicalId"));
+    assertEquals("spotify:playlist:pl1234567890ABCDEfghij", accessor(observation, "canonicalUri"));
+    assertTrue(((String) accessor(observation, "usefulFacts")).contains("matched_playlist_id=pl1234567890ABCDEfghij"));
+  }
+
+  @Test
+  void observesPlaylistFailureWithoutInventingIdentifier() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "playlist", "My Place", true, false, true, 1, 0.95d, "test");
+    Object tool = newToolExecution(false, "playlist-play", "My Place", "playlist-play usage: <playlistId|uri> [offset].", "invalid-arguments", "", "FAILURE");
+    Object observation = invokeObservation(component, "play my playlist called \"My Place\"", goalIntent, 1, tool, List.of());
+
+    assertEquals("invalid_arguments", accessor(observation, "terminality"));
+    assertEquals("", accessor(observation, "canonicalId"));
+    assertEquals("", accessor(observation, "canonicalUri"));
+    assertEquals("invalid-arguments", accessor(observation, "blockers"));
+    assertTrue(((String) accessor(observation, "usefulFacts")).contains("usage"));
+  }
+
+  @Test
+  void observesCurrentTrackFactsFromStatusOutput() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("recommendation_playback", "current_playback", "current-playback", true, true, true, 1, 0.95d, "test");
+    Object tool = newToolExecution(true, "status", "all", "Device: Arturo’s Mac mini\nPlaying: false\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nTrack: Corazon de Acero — Yiyo Sarante\nURI: spotify:track:21nc3O8OncUv1jjSrC1ML2\nPosition: 00:00 / 03:12", "", "", "INTERMEDIATE_RESULT");
+    Object observation = invokeObservation(component, "play something similar", goalIntent, 1, tool, List.of(newToolStep(
+        1,
+        "status all",
+        "status",
+        "all",
+        "Device: Arturo’s Mac mini\nPlaying: false\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nTrack: Corazon de Acero — Yiyo Sarante\nURI: spotify:track:21nc3O8OncUv1jjSrC1ML2\nPosition: 00:00 / 03:12",
+        0L,
+        0L,
+        0L)));
+
+    assertEquals("spotify:track:21nc3O8OncUv1jjSrC1ML2", accessor(observation, "canonicalUri"));
+    assertEquals("", accessor(observation, "playlistPosition"));
+    assertEquals("playlist", accessor(observation, "contextType"));
+    assertEquals("spotify:playlist:7cpHMBDK9bGgj2XlogYX9F", accessor(observation, "contextUri"));
+    assertEquals(Boolean.FALSE, accessor(observation, "playbackActive"));
+    assertTrue(((String) accessor(observation, "usefulFacts")).contains("playback_active=false"));
+  }
+
+  @Test
+  void observesPlaylistPositionFromStatusOutput() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "current_playback", "current-playback", true, true, true, 1, 0.95d, "test");
+    Object tool = newToolExecution(true, "status", "all", """
+        Device: Arturo’s Mac mini
+        Playing: true
+        Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+        Track: Desesperada — Marta Sánchez
+        URI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi
+        Position: 00:21 / 03:47
+        PlaylistPosition: 4/99
+        """, "", "", "INTERMEDIATE_RESULT");
+    Object observation = invokeObservation(component, "go to song 4", goalIntent, 1, tool, List.of(newToolStep(
+        1,
+        "status all",
+        "status",
+        "all",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47\nPlaylistPosition: 4/99",
+        0L,
+        0L,
+        0L)));
+
+    assertEquals("4/99", accessor(observation, "playlistPosition"));
+    assertTrue(((String) accessor(observation, "usefulFacts")).contains("playlist_position=4/99"));
   }
 
   @Test
@@ -259,6 +368,102 @@ class AgentDJActionValidationTest {
         boolean.class, String.class, String.class, String.class, String.class, String.class, outcomeClass);
     ctor.setAccessible(true);
     return ctor.newInstance(executed, command, args, output, errorCode, rawOutput, outcome);
+  }
+
+  private static Object newGoalIntent(String intent,
+                                      String targetScope,
+                                      String seedHint,
+                                      boolean wantsPlayback,
+                                      boolean referencesCurrentPlayback,
+                                      boolean needsDiscovery,
+                                      int requestedCount,
+                                      double confidence,
+                                      String reason) throws Exception {
+    Class<?> clazz = Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent");
+    Constructor<?> ctor = clazz.getDeclaredConstructor(String.class, String.class, String.class, boolean.class, boolean.class,
+        boolean.class, int.class, boolean.class, String.class, double.class, String.class);
+    ctor.setAccessible(true);
+    return ctor.newInstance(intent, targetScope, seedHint, wantsPlayback, referencesCurrentPlayback, needsDiscovery,
+        requestedCount, true, "", confidence, reason);
+  }
+
+  private static Object invokeObservation(Object component,
+                                          String initialPrompt,
+                                          Object goalIntent,
+                                          int step,
+                                          Object toolExecution,
+                                          List<Object> toolSteps) throws Exception {
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "observeToolResult",
+        String.class,
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        int.class,
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$ToolExecution"),
+        List.class);
+    method.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    Object result = method.invoke(component, initialPrompt, goalIntent, step, toolExecution, toolSteps);
+    return result;
+  }
+
+  private static Object accessor(Object target, String name) throws Exception {
+    try {
+      Method method = target.getClass().getDeclaredMethod(name);
+      method.setAccessible(true);
+      return method.invoke(target);
+    } catch (NoSuchMethodException ignored) {
+      String getter = "get" + Character.toUpperCase(name.charAt(0)) + name.substring(1);
+      Method method = target.getClass().getMethod(getter);
+      method.setAccessible(true);
+      return method.invoke(target);
+    }
+  }
+
+  private static final class InMemoryStorage implements Storage {
+    private final Map<String, byte[]> files = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, String> secrets = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @Override
+    public void writeFile(String relativePath, byte[] bytes) {
+      files.put(relativePath, bytes == null ? new byte[0] : bytes);
+    }
+
+    @Override
+    public byte[] readFile(String relativePath) {
+      if (".env".equals(relativePath)) {
+        return new byte[0];
+      }
+      byte[] bytes = files.get(relativePath);
+      if (bytes == null) {
+        throw new RuntimeException("file not found: " + relativePath);
+      }
+      return bytes;
+    }
+
+    @Override
+    public void deleteFile(String relativePath) {
+      files.remove(relativePath);
+    }
+
+    @Override
+    public List<String> listFiles(String relativeDir) {
+      return List.copyOf(files.keySet());
+    }
+
+    @Override
+    public void putSecret(String key, String value) {
+      secrets.put(key, value);
+    }
+
+    @Override
+    public String getSecret(String key) {
+      return secrets.get(key);
+    }
+
+    @Override
+    public void deleteSecret(String key) {
+      secrets.remove(key);
+    }
   }
 
   private record ValidationResult(String command, String args, String errorCode, String error) {

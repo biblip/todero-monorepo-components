@@ -70,6 +70,7 @@ import static com.social100.todero.common.config.Util.parseDotenv;
     events = AgentDJComponent.SimpleEvent.class,
     capabilityProvider = DjAgentCapabilities.class)
 public class AgentDJComponent {
+  private static final String AGENT_BUILD_TAG = "dj-agent-2026-05-21.stepwise-replan-v3";
   private static final String MAIN_GROUP = "Main";
   private static final String SPOTIFY_COMPONENT = "com.shellaia.spotify";
   private static final String UPSTREAM_CONTROL_HEADER = "X-AIATP-Upstream-Control";
@@ -79,14 +80,25 @@ public class AgentDJComponent {
   private static final int MAX_RECOMMENDATION_COUNT = 12;
   private static final int PLANNER_RECENT_STEP_LIMIT = 4;
   private static final int PLANNER_HISTORY_LIMIT = 8;
+  private static final Set<String> TOOL_COMPLETION_OUTCOMES = Set.of("goal_completed", "success", "completed");
   private static final String LEDGER_OWNER_ID = "com.shellaia.agent.dj";
   private static final Pattern TRACK_URI_PATTERN = Pattern.compile("spotify:track:[A-Za-z0-9]+");
+  private static final Pattern PLAYLIST_URI_EXTRACT_PATTERN = Pattern.compile("spotify:playlist:[A-Za-z0-9]{22}");
+  private static final Pattern PLAYLIST_URI_PATTERN = Pattern.compile("^(?:spotify:playlist:)?[A-Za-z0-9]{22}$");
   private static final Pattern RESOLVED_TRACK_PATTERN = Pattern.compile("^Resolved track:\\s+(.+?)\\s+—\\s+(.+?)\\s+\\[uri=(spotify:track:[A-Za-z0-9]+)]\\s*$", Pattern.MULTILINE);
   private static final Pattern PLAYING_PATTERN = Pattern.compile("(?im)^Playing:\\s*(true|false)\\s*$");
+  private static final Pattern CONTEXT_PATTERN = Pattern.compile("(?im)^Context:\\s*([A-Za-z0-9_-]+)\\s*\\((spotify:[^)]+)\\)\\s*$");
   private static final Pattern TRACK_TITLE_PATTERN = Pattern.compile("(?im)^Track:\\s*(.+?)\\s*$");
   private static final Pattern DEVICE_PATTERN = Pattern.compile("(?im)^Device:\\s*(.+?)\\s*$");
   private static final Pattern POSITION_PATTERN = Pattern.compile("(?im)^Position:\\s*(.+?)\\s*$");
+  private static final Pattern PLAYLIST_POSITION_PATTERN = Pattern.compile("(?im)^PlaylistPosition:\\s*(.+?)\\s*$");
   private static final Pattern PLAYLIST_ROW_PATTERN = Pattern.compile("^\\s*\\d+\\)\\s*(.+?)\\s*\\[id=([^,\\]]+).*$");
+  private static final Pattern ORDINAL_TARGET_PATTERN = Pattern.compile(
+      "(?i)\\b(?:song|track|item)\\s*(?:number\\s*|#\\s*)?(\\d+)\\b|\\b(\\d+)(?:st|nd|rd|th)?\\s*(?:song|track|item)\\b|\\b(?:song|track|item)\\s*#\\s*(\\d+)\\b"
+  );
+  private static final Pattern PLAYLIST_SCOPED_TRACK_PATTERN = Pattern.compile(
+      "(?i)\\b(?:in|from|within|inside)\\s+(?:the\\s+)?playlist\\b|\\btrack\\s+in\\s+(?:the\\s+)?playlist\\b|\\bsong\\s+in\\s+(?:the\\s+)?playlist\\b"
+  );
   private static final Pattern ADD_QUOTED_SONG_PATTERN = Pattern.compile("(?i)\\badd\\s+[\"']([^\"']+)[\"']");
   private static final Pattern EXPLICIT_COUNT_PATTERN = Pattern.compile("(?i)\\b(\\d{1,2})\\s+(songs?|tracks?|canciones?)\\b");
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -154,6 +166,7 @@ public class AgentDJComponent {
     final String correlationId = newCorrelationId();
     final String source = "process";
     String prompt = requestBody(context);
+    System.out.println("[DJ-AGENT][BUILD] tag=" + AGENT_BUILD_TAG + " correlationId=" + correlationId);
     System.out.println("[DJ-AGENT] process received correlationId=" + correlationId + " prompt=" + prompt);
     if (!prompt.isEmpty()) {
       context.emitChat("Processing request...", "progress");
@@ -257,6 +270,7 @@ public class AgentDJComponent {
                                  String source,
                                  String correlationId,
                                   String rootWorkId) {
+    System.out.println("[DJ-AGENT][BUILD] tag=" + AGENT_BUILD_TAG + " loop_start correlationId=" + safeTrim(correlationId));
     System.out.println("[DJ-AGENT][LOOP] start source=" + safeTrim(source)
         + " interactive=" + interactiveRequest + " correlationId=" + safeTrim(correlationId));
     long startedAtNs = System.nanoTime();
@@ -272,9 +286,6 @@ public class AgentDJComponent {
       logThrowable("[DJ-AGENT][LOOP] system LLM resolution failed", t);
       throw t;
     }
-    PlaylistAddIntent playlistAddIntent = detectPlaylistAddIntent(initialPrompt);
-    String currentPlaylistSongTitle = detectCurrentPlaylistSongTitle(initialPrompt);
-
     appendLedgerAction(rootWorkId, WorkActionType.PLAN,
         "loop_started source=" + source + " interactive=" + interactiveRequest + " correlationId=" + correlationId,
         null, null, null, null, null);
@@ -309,6 +320,7 @@ public class AgentDJComponent {
 
     CommandAgentResponse lastResponse = null;
     List<ToolStep> toolSteps = new ArrayList<>();
+    List<ToolObservation> observations = new ArrayList<>();
     List<String> plannerHistory = new ArrayList<>();
     boolean awaitingContinuation = false;
     String awaitingCommand = "";
@@ -325,6 +337,7 @@ public class AgentDJComponent {
           step,
           goalIntent,
           toolSteps,
+          observations,
           lastResponse,
           plannerHistory
       );
@@ -336,6 +349,7 @@ public class AgentDJComponent {
           step,
           goalIntent,
           toolSteps,
+          observations,
           lastResponse,
           plannerHistory,
           rootWorkId
@@ -368,8 +382,6 @@ public class AgentDJComponent {
 
       String action = safeTrim(response.getAction());
       action = coercePlannerAction(initialPrompt, goalIntent, action, step, interactiveRequest);
-      action = coerceCurrentPlaylistSongAddAction(action, currentPlaylistSongTitle, step, interactiveRequest);
-      action = coercePlaylistAddAction(action, toolSteps, playlistAddIntent, step, interactiveRequest);
       String actionSignature = normalizeActionSignature(action);
       if (!actionSignature.isEmpty()) {
         plannerHistory.add(actionSignature);
@@ -381,20 +393,10 @@ public class AgentDJComponent {
       if (action.isEmpty() || "none".equalsIgnoreCase(action)) {
         long stepDurationMs = elapsedMs(stepStartedAtNs);
         toolSteps.add(new ToolStep(step, "none", "none", "", "", plannerDurationMs, 0, stepDurationMs));
-        if (awaitingContinuation) {
-          stopReason = StopReason.TOOL_SUCCEEDED_BUT_GOAL_UNRESOLVED;
-          lastResponse = failureResponse(initialPrompt, stopReason, awaitingCommand, correlationId,
-              "Planner returned no next action after a non-terminal tool result.");
-          appendLedgerAction(rootWorkId, WorkActionType.FAIL,
-              "step=" + step + " action=none while goal unresolved",
-              awaitingCommand, null, null, null, stopReason.code,
-              "planner returned no follow-up action");
-        } else {
-          stopReason = StopReason.ACTION_NONE;
-          appendLedgerAction(rootWorkId, WorkActionType.DECISION,
-              "step=" + step + " action=none stopReason=" + stopReason.code,
-              null, null, null, null, null);
-        }
+        stopReason = StopReason.ACTION_NONE;
+        appendLedgerAction(rootWorkId, WorkActionType.DECISION,
+            "step=" + step + " action=none stopReason=" + stopReason.code,
+            null, null, null, null, null);
         break;
       }
 
@@ -414,11 +416,26 @@ public class AgentDJComponent {
       long stepDurationMs = elapsedMs(stepStartedAtNs);
       toolSteps.add(new ToolStep(step, action, tool.command, tool.args, tool.output, plannerDurationMs, toolDurationMs, stepDurationMs));
       recordToolStepSafely(rootWorkId, tool, toolDurationMs);
+      ToolObservation observation = observeToolResult(initialPrompt, goalIntent, step, tool, toolSteps);
+      observations.add(observation);
+      System.out.println("[DJ-AGENT][OBSERVE] step=" + step
+          + " tool=" + safeTrim(observation.toolCommand())
+          + " terminality=" + safeTrim(observation.terminality())
+          + " facts=" + safeTrim(observation.usefulFacts())
+          + " blockers=" + safeTrim(observation.blockers())
+          + " canonicalId=" + safeTrim(observation.canonicalId())
+          + " canonicalUri=" + safeTrim(observation.canonicalUri()));
       boolean authRequiredToolResult = interactiveRequest && isAuthRequiredToolResult(tool);
       ToolResponseDisposition disposition = interactiveRequest
           ? responseDispositionForSuccessfulTool(tool)
           : ToolResponseDisposition.CONTINUE;
-      boolean completesAfterSuccessfulTool = disposition == ToolResponseDisposition.GOAL_COMPLETED;
+      System.out.println("[DJ-AGENT][EVAL] step=" + step
+          + " planner_action=" + safeTrim(action)
+          + " tool_command=" + safeTrim(tool.command)
+          + " executed=" + tool.executed
+          + " outcome=" + (tool.responseOutcome == null ? "<null>" : tool.responseOutcome.jsonValue())
+          + " disposition=" + disposition
+          + " authRequired=" + authRequiredToolResult);
       // Wire-only: preserve tool output for the user even when the tool is terminal.
       if (interactiveRequest && !authRequiredToolResult && !safeTrim(tool.output).isEmpty()) {
         emitToolProgressAsync(parentContext, tool, correlationId, step);
@@ -497,16 +514,12 @@ public class AgentDJComponent {
         appendLedgerAction(rootWorkId, WorkActionType.RECOVERY,
             "tool_failure step=" + step + " stopReason=" + stopReason.code,
             tool.command, tool.args, safeTrim(tool.output), toolDurationMs, safeTrim(tool.errorCode));
-        break;
-      }
-
-      if (completesAfterSuccessfulTool) {
-        awaitingContinuation = false;
-        awaitingCommand = "";
-        stopReason = StopReason.ACTION_NONE;
-        appendLedgerAction(rootWorkId, WorkActionType.DECISION,
-            "step=" + step + " completion=tool_success command=" + tool.command,
-            tool.command, tool.args, redactedForLogs(tool.rawOutput()), toolDurationMs, null);
+        if (interactiveRequest && step < MAX_STEPS) {
+          appendLedgerAction(rootWorkId, WorkActionType.NOTE,
+              "step=" + step + " tool_failed continuing to re-evaluate the goal",
+              tool.command, tool.args, safeTrim(tool.output), toolDurationMs, safeTrim(tool.errorCode));
+          continue;
+        }
         break;
       }
 
@@ -840,8 +853,9 @@ public class AgentDJComponent {
                                          String rootWorkId) {
     GoalIntent fallback = fallbackGoalIntent(initialPrompt);
     String normalizedPrompt = safeTrim(initialPrompt).toLowerCase(Locale.ROOT);
-    boolean explicitPlaybackRequest = hasExplicitPlaybackRequest(normalizedPrompt);
-    boolean recommendationCue = isRecommendationIntent(normalizedPrompt);
+      boolean explicitPlaybackRequest = hasExplicitPlaybackRequest(normalizedPrompt);
+      boolean playlistScopedTrackRequest = hasPlaylistScopedTrackRequest(normalizedPrompt);
+      boolean recommendationCue = isRecommendationIntent(normalizedPrompt);
     try {
       Map<String, Object> context = new LinkedHashMap<>();
       context.put("source", safeTrim(source));
@@ -888,6 +902,13 @@ public class AgentDJComponent {
           fallback.reason()
       );
       String normalizedIntent = safeTrim(intent).toLowerCase(Locale.ROOT);
+      if (playlistScopedTrackRequest && wantsPlayback) {
+        targetScope = "playlist";
+        needsDiscovery = true;
+        if (safeTrim(reason).isEmpty()) {
+          reason = "playlist_scoped_track_request";
+        }
+      }
       // Direct play requests should not enter recommendation verification unless the prompt
       // actually asks for recommendations or similar music.
       if (normalizedIntent.contains("recommend")
@@ -915,6 +936,7 @@ public class AgentDJComponent {
       appendLedgerAction(rootWorkId, WorkActionType.NOTE,
           "goal_normalized intent=" + normalized.intent()
               + " targetScope=" + normalized.targetScope()
+              + " playlistScopedTrackRequest=" + playlistScopedTrackRequest
               + " wantsPlayback=" + normalized.wantsPlayback()
               + " referencesCurrentPlayback=" + normalized.referencesCurrentPlayback(),
           null, null, null, null, null, null);
@@ -1145,8 +1167,8 @@ public class AgentDJComponent {
     if ("auth-begin".equals(normalized)) {
       return ToolResponseOutcome.AWAIT_EXTERNAL_COMPLETION;
     }
-    // Default: successful tool invocations are terminal (the agent may still emit tool output as events).
-    return ToolResponseOutcome.GOAL_COMPLETED;
+    // Default to intermediate so the planner decides whether the result is terminal.
+    return ToolResponseOutcome.INTERMEDIATE_RESULT;
   }
 
   private static ValidatedAction validateAndNormalizeAction(String command, String rawArgs) {
@@ -1290,6 +1312,9 @@ public class AgentDJComponent {
         String[] tokens = args.split("\\s+");
         if (tokens.length > 2) {
           return ValidatedAction.error(command, args, "invalid-arguments", "playlist-play usage: <playlistId|uri> [offset].");
+        }
+        if (!PLAYLIST_URI_PATTERN.matcher(tokens[0]).matches()) {
+          return ValidatedAction.error(command, args, "invalid-arguments", "playlist-play requires a canonical playlistId or spotify:playlist:uri.");
         }
         if (tokens.length == 2 && !tokens[1].matches("^-?\\d+$")) {
           return ValidatedAction.error(command, args, "invalid-arguments", "playlist-play offset must be an integer.");
@@ -1538,166 +1563,220 @@ public class AgentDJComponent {
     return action;
   }
 
-  private static String coerceCurrentPlaylistSongAddAction(String plannerAction,
-                                                           String currentPlaylistSongTitle,
-                                                           int step,
-                                                           boolean interactiveRequest) {
-    if (!interactiveRequest || step != 1) {
-      return plannerAction;
-    }
-    if (safeTrim(currentPlaylistSongTitle).isEmpty()) {
-      return plannerAction;
-    }
-    String action = safeTrim(plannerAction);
-    if (!action.isEmpty() && !"none".equalsIgnoreCase(action)) {
-      return action;
-    }
-    return "playlist-add-current " + currentPlaylistSongTitle;
-  }
+  private ToolObservation observeToolResult(String initialPrompt,
+                                            GoalIntent goalIntent,
+                                            int step,
+                                            ToolExecution tool,
+                                            List<ToolStep> toolSteps) {
+    String command = safeTrim(tool == null ? null : tool.command()).toLowerCase(Locale.ROOT);
+    String args = safeTrim(tool == null ? null : tool.args());
+    String output = extractToolText(tool == null ? null : firstNonBlank(safeTrim(tool.rawOutput()), safeTrim(tool.output())));
+    boolean executed = tool != null && tool.executed();
+      String terminality = "intermediate";
+      String blockers = "";
+      String usefulFacts = "";
+      String canonicalName = "";
+      String canonicalId = "";
+      String canonicalUri = "";
+      String playlistPosition = "";
+      boolean playbackActive = false;
+      String contextType = "";
+      String contextUri = "";
 
-  private static String coercePlaylistAddAction(String plannerAction,
-                                                List<ToolStep> toolSteps,
-                                                PlaylistAddIntent intent,
-                                                int step,
-                                                boolean interactiveRequest) {
-    if (!interactiveRequest || intent == null) {
-      return plannerAction;
-    }
-    String action = safeTrim(plannerAction);
-    if (!action.isEmpty() && !"none".equalsIgnoreCase(action)) {
-      return action;
-    }
-    if (step > 3) {
-      return action;
-    }
-
-    Optional<String> trackUri = findCurrentTrackUri(toolSteps);
-    if (trackUri.isEmpty()) {
-      return "status all";
-    }
-    Optional<String> playlistId = findPlaylistIdByName(toolSteps, intent.playlistName());
-    if (playlistId.isEmpty()) {
-      return "playlists 50 0";
-    }
-    return "playlist-add " + playlistId.get() + " " + trackUri.get();
-  }
-
-  private static Optional<String> findCurrentTrackUri(List<ToolStep> toolSteps) {
-    for (int i = toolSteps.size() - 1; i >= 0; i--) {
-      ToolStep step = toolSteps.get(i);
-      String command = safeTrim(step.toolCommand).toLowerCase();
-      if (!command.equals("status") && !command.equals("play")) {
-        continue;
+    if (tool == null) {
+      terminality = "blocked";
+      blockers = "tool_missing";
+    } else if (!executed) {
+      blockers = firstNonBlank(safeTrim(tool.errorCode()), summarizeToolOutput(output));
+      if (isArgumentShapeFailure(output)) {
+        terminality = "invalid_arguments";
+      } else {
+        terminality = "failure";
       }
-      Matcher m = TRACK_URI_PATTERN.matcher(safeTrim(step.toolOutput));
-      if (m.find()) {
-        return Optional.of(m.group());
-      }
-    }
-    return Optional.empty();
-  }
-
-  private static Optional<String> findPlaylistIdByName(List<ToolStep> toolSteps, String playlistName) {
-    String target = normalizeForCompare(playlistName);
-    if (target.isEmpty()) {
-      return Optional.empty();
-    }
-    for (int i = toolSteps.size() - 1; i >= 0; i--) {
-      ToolStep step = toolSteps.get(i);
-      if (!"playlists".equalsIgnoreCase(safeTrim(step.toolCommand))) {
-        continue;
-      }
-      String[] lines = safeTrim(step.toolOutput).split("\\R");
-      for (String line : lines) {
-        Matcher row = PLAYLIST_ROW_PATTERN.matcher(line);
-        if (!row.matches()) {
-          continue;
+      usefulFacts = summarizeToolOutput(output);
+    } else {
+      switch (command) {
+        case "playlists" -> {
+          String requestedName = extractRequestedEntityName(initialPrompt, goalIntent);
+          PlaylistMatch match = extractPlaylistMatch(output, requestedName);
+          if (match != null) {
+            canonicalName = match.name();
+            canonicalId = match.id();
+            canonicalUri = match.uri();
+            usefulFacts = "matched_playlist_name=" + safeTrim(match.name())
+                + "; matched_playlist_id=" + safeTrim(match.id())
+                + "; matched_playlist_uri=" + safeTrim(match.uri());
+          } else {
+            usefulFacts = summarizeToolOutput(output);
+            blockers = safeTrim(requestedName).isEmpty()
+                ? "no_playlist_name_in_goal"
+                : "no_exact_playlist_match_for=" + requestedName;
+          }
         }
-        String foundName = normalizeForCompare(row.group(1));
-        String foundId = safeTrim(row.group(2));
-        if (foundId.isEmpty()) {
-          continue;
+        case "playlist-list" -> {
+          String playlistId = extractCanonicalPlaylistId(args);
+          if (!playlistId.isEmpty()) {
+            canonicalId = playlistId;
+            canonicalUri = normalizePlaylistUri(playlistId);
+          }
+          usefulFacts = summarizeToolOutput(output);
         }
-        if (foundName.equals(target) || foundName.contains(target) || target.contains(foundName)) {
-          return Optional.of(foundId);
+        case "playlist-play" -> {
+          String playlistUri = extractFirstPlaylistUri(output);
+          if (!playlistUri.isEmpty()) {
+            canonicalUri = playlistUri;
+            canonicalId = playlistUri.substring("spotify:playlist:".length());
+          }
+          usefulFacts = summarizeToolOutput(output);
+          terminality = tool.responseOutcome == ToolResponseOutcome.GOAL_COMPLETED ? "goal_completed" : "intermediate";
         }
+        case "status" -> {
+          PlaybackFacts playback = extractPlaybackFacts(toolSteps);
+          if (!safeTrim(playback.device()).isEmpty()) {
+            usefulFacts = "device=" + playback.device()
+                + "; playback_active=" + playback.playing()
+                + "; track=" + playback.trackTitle()
+                + "; uri=" + playback.trackUri()
+                + "; playlist_position=" + playback.playlistPosition()
+                + "; context_type=" + playback.contextType()
+                + "; context_uri=" + playback.contextUri();
+            canonicalUri = playback.trackUri();
+            canonicalName = playback.trackTitle();
+            playbackActive = playback.playing();
+            playlistPosition = playback.playlistPosition();
+            contextType = playback.contextType();
+            contextUri = playback.contextUri();
+          } else {
+            usefulFacts = summarizeToolOutput(output);
+          }
+        }
+        case "resolve-track" -> {
+          Matcher resolved = RESOLVED_TRACK_PATTERN.matcher(output);
+          if (resolved.find()) {
+            canonicalName = safeTrim(resolved.group(1)) + " — " + safeTrim(resolved.group(2));
+            canonicalUri = safeTrim(resolved.group(3));
+          } else {
+            canonicalUri = firstNonBlank(matchFirst(TRACK_URI_PATTERN, output), "");
+          }
+          usefulFacts = summarizeToolOutput(output);
+        }
+        default -> usefulFacts = summarizeToolOutput(output);
+      }
+      if (tool.responseOutcome == ToolResponseOutcome.GOAL_COMPLETED) {
+        terminality = "goal_completed";
+      } else if (tool.responseOutcome == ToolResponseOutcome.AWAIT_EXTERNAL_COMPLETION) {
+        terminality = "await_external_completion";
+      } else if (tool.responseOutcome == ToolResponseOutcome.UNSUPPORTED_OPERATION) {
+        terminality = "unsupported_operation";
       }
     }
-    return Optional.empty();
+
+    if (canonicalUri.isEmpty() && !canonicalId.isEmpty()) {
+      if (canonicalId.startsWith("spotify:")) {
+        canonicalUri = canonicalId;
+      } else if ("playlist-play".equals(command) || "playlists".equals(command) || "playlist-list".equals(command)) {
+        canonicalUri = normalizePlaylistUri(canonicalId);
+      }
+    }
+
+    if (canonicalName.isEmpty()) {
+      canonicalName = extractRequestedEntityName(initialPrompt, goalIntent);
+    }
+
+    return new ToolObservation(
+        step,
+        safeTrim(goalIntent == null ? null : goalIntent.intent()),
+        command,
+        args,
+        executed,
+        terminality,
+        usefulFacts,
+        blockers,
+        canonicalName,
+        canonicalId,
+        canonicalUri,
+        playlistPosition,
+        playbackActive,
+        contextType,
+        contextUri
+    );
   }
 
-  private static PlaylistAddIntent detectPlaylistAddIntent(String prompt) {
-    String raw = safeTrim(prompt);
-    String lower = raw.toLowerCase();
-    if (lower.isEmpty()) {
-      return null;
+  private static boolean isArgumentShapeFailure(String output) {
+    String text = safeTrim(output);
+    if (text.isEmpty()) {
+      return false;
     }
-    boolean mentionsPlaylist = lower.contains("playlist");
-    boolean addIntent = lower.contains("add ") || lower.contains("add this song")
-        || lower.contains("agrega") || lower.contains("añade");
-    boolean currentSong = lower.contains("current song")
-        || lower.contains("song that is playing")
-        || lower.contains("playing right now")
-        || lower.contains("la que está sonando")
-        || lower.contains("canción actual");
-    if (!mentionsPlaylist || !addIntent || !currentSong) {
-      return null;
-    }
-
-    String extracted = extractPlaylistName(raw);
-    if (safeTrim(extracted).isEmpty()) {
-      return null;
-    }
-    return new PlaylistAddIntent(extracted.trim());
+    return text.matches("(?is).*(usage:|invalid|requires|must be).*");
   }
 
-  private static String detectCurrentPlaylistSongTitle(String prompt) {
-    String raw = safeTrim(prompt);
-    String lower = raw.toLowerCase();
-    if (lower.isEmpty()) {
-      return "";
+  private static String extractRequestedEntityName(String initialPrompt, GoalIntent goalIntent) {
+    String seed = safeTrim(goalIntent == null ? null : goalIntent.seedHint());
+    if (!seed.isEmpty() && !"current-playback".equalsIgnoreCase(seed) && !"current_playback".equalsIgnoreCase(seed)) {
+      return seed;
     }
-    boolean hasAddVerb = lower.contains("add ");
-    if (!hasAddVerb) {
-      return "";
-    }
-    boolean isCurrentTrackByNameIntent = lower.contains("song that is playing")
-        || lower.contains("currently playing")
-        || lower.contains("playing right now")
-        || lower.contains("la que está sonando")
-        || lower.contains("canción actual");
-    if (isCurrentTrackByNameIntent) {
-      return "";
-    }
-    Matcher quoted = ADD_QUOTED_SONG_PATTERN.matcher(raw);
+    String prompt = safeTrim(initialPrompt);
+    Matcher quoted = Pattern.compile("\"([^\"]+)\"|'([^']+)'").matcher(prompt);
     if (quoted.find()) {
-      return safeTrim(quoted.group(1));
+      return firstNonBlank(safeTrim(quoted.group(1)), safeTrim(quoted.group(2)));
     }
-    Matcher addToPlaylist = Pattern.compile("(?i)\\badd\\s+(.+?)\\s+to\\s+(?:my\\s+|current\\s+)?playlist\\b").matcher(raw);
-    if (addToPlaylist.find()) {
-      return safeTrim(addToPlaylist.group(1).replaceAll("^[\"']|[\"']$", ""));
+    return prompt;
+  }
+
+  private static PlaylistMatch extractPlaylistMatch(String output, String requestedName) {
+    String target = normalizeForCompare(requestedName);
+    if (target.isEmpty()) {
+      return null;
+    }
+    String[] lines = safeTrim(output).split("\\R");
+    for (String line : lines) {
+      Matcher row = PLAYLIST_ROW_PATTERN.matcher(line);
+      if (!row.matches()) {
+        continue;
+      }
+      String foundName = safeTrim(row.group(1));
+      String foundId = safeTrim(row.group(2));
+      if (foundId.isEmpty()) {
+        continue;
+      }
+      String normalizedFound = normalizeForCompare(foundName);
+      if (normalizedFound.equals(target) || normalizedFound.contains(target) || target.contains(normalizedFound)) {
+        return new PlaylistMatch(foundName, foundId, normalizePlaylistUri(foundId));
+      }
+    }
+    return null;
+  }
+
+  private static String normalizePlaylistUri(String playlistId) {
+    String id = safeTrim(playlistId);
+    if (id.isEmpty()) {
+      return "";
+    }
+    return id.startsWith("spotify:playlist:") ? id : "spotify:playlist:" + id;
+  }
+
+  private static String extractCanonicalPlaylistId(String args) {
+    String text = safeTrim(args);
+    if (text.isEmpty()) {
+      return "";
+    }
+    String first = text.split("\\s+", 2)[0];
+    if (PLAYLIST_URI_PATTERN.matcher(first).matches()) {
+      return first.startsWith("spotify:playlist:") ? first.substring("spotify:playlist:".length()) : first;
     }
     return "";
   }
 
-  private static String extractPlaylistName(String rawPrompt) {
-    String trimmed = safeTrim(rawPrompt);
-    if (trimmed.isEmpty()) {
+  private static String extractFirstPlaylistUri(String output) {
+    String text = safeTrim(output);
+    if (text.isEmpty()) {
       return "";
     }
-    Pattern[] patterns = new Pattern[] {
-        Pattern.compile("(?i)playlist\\s+called\\s+['\"]?([^'\".!?]+)['\"]?"),
-        Pattern.compile("(?i)playlist\\s+named\\s+['\"]?([^'\".!?]+)['\"]?"),
-        Pattern.compile("(?i)playlist\\s+llamada\\s+['\"]?([^'\".!?]+)['\"]?"),
-        Pattern.compile("(?i)playlist\\s+([A-Za-z0-9][^.!?]+)$")
-    };
-    for (Pattern p : patterns) {
-      Matcher m = p.matcher(trimmed);
-      if (m.find()) {
-        return safeTrim(m.group(1));
-      }
+    Matcher matcher = PLAYLIST_URI_EXTRACT_PATTERN.matcher(text);
+    if (!matcher.find()) {
+      return "";
     }
-    return "";
+    return safeTrim(matcher.group());
   }
 
   private static String normalizeForCompare(String value) {
@@ -1716,6 +1795,46 @@ public class AgentDJComponent {
         || normalizedPrompt.contains("reproduce ")
         || normalizedPrompt.contains("toca ")
         || normalizedPrompt.contains("escuchar ");
+  }
+
+  private static boolean hasOrdinalTargetRequest(String prompt) {
+    String normalized = safeTrim(prompt).toLowerCase(Locale.ROOT);
+    if (normalized.isEmpty()) {
+      return false;
+    }
+    if (ORDINAL_TARGET_PATTERN.matcher(normalized).find()) {
+      return true;
+    }
+    return normalized.contains("song number")
+        || normalized.contains("track number")
+        || normalized.contains("playlist position");
+  }
+
+  private static boolean hasPlaylistScopedTrackRequest(String prompt) {
+    String normalized = safeTrim(prompt).toLowerCase(Locale.ROOT);
+    if (normalized.isEmpty()) {
+      return false;
+    }
+    if (PLAYLIST_SCOPED_TRACK_PATTERN.matcher(normalized).find()) {
+      return true;
+    }
+    return normalized.contains("playlist-scoped track")
+        || normalized.contains("song from the playlist")
+        || normalized.contains("track from the playlist")
+        || normalized.contains("song in a playlist")
+        || normalized.contains("track in a playlist");
+  }
+
+  private static String extractOrdinalTargetHint(String prompt) {
+    String normalized = safeTrim(prompt).toLowerCase(Locale.ROOT);
+    if (normalized.isEmpty()) {
+      return "";
+    }
+    Matcher matcher = ORDINAL_TARGET_PATTERN.matcher(normalized);
+    if (matcher.find()) {
+      return firstNonBlank(safeTrim(matcher.group(1)), safeTrim(matcher.group(2)), safeTrim(matcher.group(3)));
+    }
+    return "";
   }
 
   private static int inferRequestedRecommendationCount(String prompt) {
@@ -1806,6 +1925,7 @@ public class AgentDJComponent {
     String intent = "general_spotify_control";
     String targetScope = "explicit_request";
     boolean wantsPlayback = hasExplicitPlaybackRequest(normalized);
+    boolean playlistScopedTrackRequest = hasPlaylistScopedTrackRequest(normalized);
     boolean referencesCurrentPlayback = normalized.contains("current-playback")
         || normalized.contains("currently playing")
         || normalized.contains("current song")
@@ -1823,6 +1943,10 @@ public class AgentDJComponent {
       intent = wantsPlayback ? "recommendation_playback" : "recommendation_info";
       targetScope = referencesCurrentPlayback ? "current_playback" : "explicit_seed";
       seedHint = referencesCurrentPlayback ? "current-playback" : safeTrim(prompt);
+    } else if (playlistScopedTrackRequest) {
+      intent = "general_spotify_control";
+      targetScope = "playlist";
+      seedHint = safeTrim(prompt);
     } else if (normalized.contains("playlist")) {
       intent = "playlist_management";
     } else if (normalized.contains("status") || normalized.contains("what is playing") || normalized.contains("what's playing")) {
@@ -1994,10 +2118,68 @@ public class AgentDJComponent {
   }
 
   private static String inferPlanState(GoalIntent goalIntent, List<ToolStep> toolSteps) {
+    return inferPlanState(goalIntent, toolSteps, List.of());
+  }
+
+  private static String inferPlanState(GoalIntent goalIntent, List<ToolStep> toolSteps, List<ToolObservation> observations) {
+    return inferPlanState(goalIntent, toolSteps, observations, "");
+  }
+
+  private static String inferPlanState(GoalIntent goalIntent,
+                                       List<ToolStep> toolSteps,
+                                       List<ToolObservation> observations,
+                                       String initialPrompt) {
+    ToolObservation latestObservation = lastObservation(observations);
+    boolean ordinalTarget = hasOrdinalTargetRequest(initialPrompt);
+    boolean playlistScopedTrackRequest = hasPlaylistScopedTrackRequest(initialPrompt)
+        || (goalIntent != null && "playlist".equalsIgnoreCase(goalIntent.targetScope()));
+    if (goalIntent != null && (goalIntent.referencesCurrentPlayback() || ordinalTarget || playlistScopedTrackRequest)
+        && !hasPlaybackContextSnapshot(observations)) {
+      return "need_context_snapshot";
+    }
+    if (hasConfirmedPlaybackTransition(goalIntent, observations)) {
+      return "goal_completed";
+    }
+    if (playlistScopedTrackRequest) {
+      if (latestObservation != null) {
+        String latestTool = safeTrim(latestObservation.toolCommand()).toLowerCase(Locale.ROOT);
+        boolean playlistEvidence = !safeTrim(latestObservation.playlistPosition()).isEmpty()
+            || (!safeTrim(latestObservation.canonicalUri()).isEmpty()
+            && safeTrim(latestObservation.canonicalUri()).startsWith("spotify:playlist:"))
+            || "playlist".equalsIgnoreCase(safeTrim(latestObservation.contextType()));
+        if ("play".equals(latestTool)
+            && safeTrim(latestObservation.canonicalUri()).startsWith("spotify:track:")
+            && !playlistEvidence) {
+          return "need_playlist_resolution";
+        }
+      }
+      if (toolSteps == null || toolSteps.isEmpty()) {
+        return "need_playlist_resolution";
+      }
+    }
+    if (latestObservation != null) {
+      String terminality = safeTrim(latestObservation.terminality()).toLowerCase(Locale.ROOT);
+      if ("invalid_arguments".equals(terminality)) {
+        return "need_argument_repair";
+      }
+      if ("blocked".equals(terminality)) {
+        return "blocked";
+      }
+      if ("goal_completed".equals(terminality)) {
+        return "goal_completed";
+      }
+      if (goalIntent.wantsPlayback() && (!safeTrim(latestObservation.canonicalId()).isEmpty()
+          || !safeTrim(latestObservation.canonicalUri()).isEmpty())) {
+        return "have_candidate_identifier";
+      }
+    }
     if (toolSteps == null || toolSteps.isEmpty()) {
-      return goalIntent.isRecommendationFlow() ? "need_candidate_resolution" : "planning";
+      return goalIntent.isRecommendationFlow() ? "need_context_resolution" : "planning";
     }
     PlaybackFacts playback = extractPlaybackFacts(toolSteps);
+    if (hasLastToolArgumentFailure(toolSteps)) {
+      return "need_argument_repair";
+    }
     if (hasFailedTool(toolSteps)) {
       return "tool_failed";
     }
@@ -2008,10 +2190,16 @@ public class AgentDJComponent {
       return "need_current_playback";
     }
     if (hasSuccessfulTool(toolSteps, "resolve-track")) {
-      return goalIntent.wantsPlayback() ? "need_playback_action" : "have_recommended_tracks";
+      return goalIntent.wantsPlayback() ? "in_progress" : "have_recommended_tracks";
     }
     if (goalIntent.isRecommendationFlow() && !safeTrim(playback.trackUri()).isEmpty()) {
-      return "need_candidate_resolution";
+      return "need_context_resolution";
+    }
+    if (goalIntent.wantsPlayback() && !hasCompletedToolResult(toolSteps)) {
+      if (hasSuccessfulTool(toolSteps, "playlists") || hasSuccessfulTool(toolSteps, "playlist-list") || hasSuccessfulTool(toolSteps, "resolve-track")) {
+        return "in_progress";
+      }
+      return goalIntent.needsDiscovery() ? "need_discovery" : "planning";
     }
     return "planning";
   }
@@ -2019,6 +2207,7 @@ public class AgentDJComponent {
   private void appendKnownFacts(StringBuilder prompt,
                                 PlaybackFacts playback,
                                 List<ToolStep> toolSteps,
+                                List<ToolObservation> observations,
                                 CommandAgentResponse lastResponse) {
     if (!safeTrim(playback.device()).isEmpty()) {
       prompt.append("- device: ").append(playback.device()).append('\n');
@@ -2033,6 +2222,15 @@ public class AgentDJComponent {
     if (!safeTrim(playback.position()).isEmpty()) {
       prompt.append("- position: ").append(playback.position()).append('\n');
     }
+    if (!safeTrim(playback.playlistPosition()).isEmpty()) {
+      prompt.append("- playlist_position: ").append(playback.playlistPosition()).append('\n');
+    }
+    if (!safeTrim(playback.contextType()).isEmpty()) {
+      prompt.append("- playback_context_type: ").append(playback.contextType()).append('\n');
+    }
+    if (!safeTrim(playback.contextUri()).isEmpty()) {
+      prompt.append("- playback_context_uri: ").append(playback.contextUri()).append('\n');
+    }
     ToolStep lastToolStep = findLastToolStep(toolSteps);
     if (lastToolStep != null) {
       prompt.append("- last_tool: ").append(safeTrim(lastToolStep.toolCommand));
@@ -2044,6 +2242,66 @@ public class AgentDJComponent {
     }
     if (lastResponse != null && !safeTrim(lastResponse.getAction()).isEmpty()) {
       prompt.append("- last_planner_action: ").append(safeTrim(lastResponse.getAction())).append('\n');
+    }
+    ToolObservation latestObservation = lastObservation(observations);
+    if (latestObservation != null) {
+      if (!safeTrim(latestObservation.canonicalName()).isEmpty()) {
+        prompt.append("- observed_name: ").append(safeTrim(latestObservation.canonicalName())).append('\n');
+      }
+      if (!safeTrim(latestObservation.canonicalId()).isEmpty()) {
+        prompt.append("- observed_id: ").append(safeTrim(latestObservation.canonicalId())).append('\n');
+      }
+      if (!safeTrim(latestObservation.canonicalUri()).isEmpty()) {
+        prompt.append("- observed_uri: ").append(safeTrim(latestObservation.canonicalUri())).append('\n');
+      }
+      if (!safeTrim(latestObservation.blockers()).isEmpty()) {
+        prompt.append("- observed_blocker: ").append(safeTrim(latestObservation.blockers())).append('\n');
+      }
+      if (!safeTrim(latestObservation.terminality()).isEmpty()) {
+        prompt.append("- observed_terminality: ").append(safeTrim(latestObservation.terminality())).append('\n');
+      }
+      prompt.append("- observed_playback_active: ").append(latestObservation.playbackActive()).append('\n');
+    }
+  }
+
+  private static void appendObservedFacts(StringBuilder prompt, List<ToolObservation> observations) {
+    if (observations == null || observations.isEmpty()) {
+      prompt.append("- none yet\n");
+      return;
+    }
+    int from = Math.max(0, observations.size() - PLANNER_RECENT_STEP_LIMIT);
+    for (int i = from; i < observations.size(); i++) {
+      ToolObservation observation = observations.get(i);
+      prompt.append("- step ").append(observation.step())
+          .append(": tool=").append(safeTrim(observation.toolCommand()));
+      if (!safeTrim(observation.toolArgs()).isEmpty()) {
+        prompt.append(' ').append(safeTrim(observation.toolArgs()));
+      }
+      if (!safeTrim(observation.terminality()).isEmpty()) {
+        prompt.append(", terminality=").append(safeTrim(observation.terminality()));
+      }
+      if (!safeTrim(observation.usefulFacts()).isEmpty()) {
+        prompt.append(", facts=").append(safeTrim(observation.usefulFacts()));
+      }
+      if (!safeTrim(observation.canonicalId()).isEmpty()) {
+        prompt.append(", id=").append(safeTrim(observation.canonicalId()));
+      }
+      if (!safeTrim(observation.canonicalUri()).isEmpty()) {
+        prompt.append(", uri=").append(safeTrim(observation.canonicalUri()));
+      }
+      if (!safeTrim(observation.playlistPosition()).isEmpty()) {
+        prompt.append(", playlist_position=").append(safeTrim(observation.playlistPosition()));
+      }
+      if (!safeTrim(observation.contextType()).isEmpty()) {
+        prompt.append(", context_type=").append(safeTrim(observation.contextType()));
+      }
+      if (!safeTrim(observation.contextUri()).isEmpty()) {
+        prompt.append(", context_uri=").append(safeTrim(observation.contextUri()));
+      }
+      if (!safeTrim(observation.blockers()).isEmpty()) {
+        prompt.append(", blocker=").append(safeTrim(observation.blockers()));
+      }
+      prompt.append('\n');
     }
   }
 
@@ -2071,6 +2329,7 @@ public class AgentDJComponent {
 
   private Map<String, Object> buildKnownFactsMap(PlaybackFacts playback,
                                                  List<ToolStep> toolSteps,
+                                                 List<ToolObservation> observations,
                                                  CommandAgentResponse lastResponse) {
     Map<String, Object> facts = new LinkedHashMap<>();
     if (!safeTrim(playback.device()).isEmpty()) {
@@ -2086,6 +2345,15 @@ public class AgentDJComponent {
     if (!safeTrim(playback.position()).isEmpty()) {
       facts.put("position", playback.position());
     }
+    if (!safeTrim(playback.playlistPosition()).isEmpty()) {
+      facts.put("playlist_position", playback.playlistPosition());
+    }
+    if (!safeTrim(playback.contextType()).isEmpty()) {
+      facts.put("playback_context_type", playback.contextType());
+    }
+    if (!safeTrim(playback.contextUri()).isEmpty()) {
+      facts.put("playback_context_uri", playback.contextUri());
+    }
     ToolStep last = findLastToolStep(toolSteps);
     if (last != null) {
       facts.put("last_tool_command", safeTrim(last.toolCommand()));
@@ -2097,7 +2365,115 @@ public class AgentDJComponent {
     if (lastResponse != null && !safeTrim(lastResponse.getAction()).isEmpty()) {
       facts.put("last_planner_action", safeTrim(lastResponse.getAction()));
     }
+    ToolObservation latestObservation = lastObservation(observations);
+    if (latestObservation != null) {
+      if (!safeTrim(latestObservation.canonicalName()).isEmpty()) {
+        facts.put("observed_name", latestObservation.canonicalName());
+      }
+      if (!safeTrim(latestObservation.canonicalId()).isEmpty()) {
+        facts.put("observed_id", latestObservation.canonicalId());
+      }
+      if (!safeTrim(latestObservation.canonicalUri()).isEmpty()) {
+        facts.put("observed_uri", latestObservation.canonicalUri());
+      }
+      if (!safeTrim(latestObservation.contextType()).isEmpty()) {
+        facts.put("observed_context_type", latestObservation.contextType());
+      }
+      if (!safeTrim(latestObservation.contextUri()).isEmpty()) {
+        facts.put("observed_context_uri", latestObservation.contextUri());
+      }
+      if (!safeTrim(latestObservation.blockers()).isEmpty()) {
+        facts.put("observed_blocker", latestObservation.blockers());
+      }
+      if (!safeTrim(latestObservation.terminality()).isEmpty()) {
+        facts.put("observed_terminality", latestObservation.terminality());
+      }
+    }
     return facts;
+  }
+
+  private static List<Map<String, Object>> buildObservedFactsContext(List<ToolObservation> observations) {
+    List<Map<String, Object>> observed = new ArrayList<>();
+    if (observations == null || observations.isEmpty()) {
+      return observed;
+    }
+    int from = Math.max(0, observations.size() - PLANNER_RECENT_STEP_LIMIT);
+    for (int i = from; i < observations.size(); i++) {
+      observed.add(buildObservationContext(observations.get(i)));
+    }
+    return observed;
+  }
+
+  private static Map<String, Object> buildObservationContext(ToolObservation observation) {
+    Map<String, Object> item = new LinkedHashMap<>();
+    if (observation == null) {
+      return item;
+    }
+    item.put("step", observation.step());
+    item.put("tool_command", safeTrim(observation.toolCommand()));
+    item.put("tool_args", safeTrim(observation.toolArgs()));
+    item.put("terminality", safeTrim(observation.terminality()));
+    item.put("useful_facts", safeTrim(observation.usefulFacts()));
+    item.put("blockers", safeTrim(observation.blockers()));
+    item.put("canonical_name", safeTrim(observation.canonicalName()));
+    item.put("canonical_id", safeTrim(observation.canonicalId()));
+    item.put("canonical_uri", safeTrim(observation.canonicalUri()));
+    item.put("playlist_position", safeTrim(observation.playlistPosition()));
+    item.put("context_type", safeTrim(observation.contextType()));
+    item.put("context_uri", safeTrim(observation.contextUri()));
+    item.put("playback_active", observation.playbackActive());
+    item.put("tool_executed", observation.toolExecuted());
+    return item;
+  }
+
+  private static ToolObservation lastObservation(List<ToolObservation> observations) {
+    if (observations == null || observations.isEmpty()) {
+      return null;
+    }
+    return observations.get(observations.size() - 1);
+  }
+
+  private static boolean hasPlaybackContextSnapshot(List<ToolObservation> observations) {
+    if (observations == null || observations.isEmpty()) {
+      return false;
+    }
+    for (int i = observations.size() - 1; i >= 0; i--) {
+      ToolObservation observation = observations.get(i);
+      if ("status".equalsIgnoreCase(safeTrim(observation.toolCommand()))
+          && !safeTrim(observation.contextUri()).isEmpty()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasConfirmedPlaybackTransition(GoalIntent goalIntent, List<ToolObservation> observations) {
+    if (goalIntent == null || !goalIntent.referencesCurrentPlayback() || observations == null || observations.size() < 2) {
+      return false;
+    }
+    ToolObservation latest = lastObservation(observations);
+    if (latest == null || !"status".equalsIgnoreCase(safeTrim(latest.toolCommand()))) {
+      return false;
+    }
+    ToolObservation previousStatus = null;
+    for (int i = observations.size() - 2; i >= 0; i--) {
+      ToolObservation observation = observations.get(i);
+      if ("status".equalsIgnoreCase(safeTrim(observation.toolCommand()))) {
+        previousStatus = observation;
+        break;
+      }
+    }
+    if (previousStatus == null) {
+      return false;
+    }
+    boolean trackChanged = !safeTrim(previousStatus.canonicalUri()).isEmpty()
+        && !safeTrim(latest.canonicalUri()).isEmpty()
+        && !safeTrim(previousStatus.canonicalUri()).equals(safeTrim(latest.canonicalUri()));
+    boolean contextChanged = !safeTrim(previousStatus.contextUri()).isEmpty()
+        && !safeTrim(latest.contextUri()).isEmpty()
+        && !safeTrim(previousStatus.contextUri()).equals(safeTrim(latest.contextUri()));
+    boolean playbackChanged = previousStatus.playbackActive() != latest.playbackActive();
+    return trackChanged || contextChanged || playbackChanged;
   }
 
   private List<Map<String, Object>> buildRecentStepsContext(List<ToolStep> toolSteps) {
@@ -2141,8 +2517,16 @@ public class AgentDJComponent {
       String uri = matchFirst(TRACK_URI_PATTERN, output);
       String playingRaw = matchFirst(PLAYING_PATTERN, output);
       String position = matchFirst(POSITION_PATTERN, output);
+      String playlistPosition = matchFirst(PLAYLIST_POSITION_PATTERN, output);
+      String contextType = "";
+      String contextUri = "";
+      Matcher context = CONTEXT_PATTERN.matcher(output);
+      if (context.find()) {
+        contextType = safeTrim(context.group(1));
+        contextUri = safeTrim(context.group(2));
+      }
       boolean playing = "true".equalsIgnoreCase(safeTrim(playingRaw));
-      return new PlaybackFacts(device, track, uri, position, playing);
+      return new PlaybackFacts(device, track, uri, position, playlistPosition, contextType, contextUri, playing);
     }
     return PlaybackFacts.empty();
   }
@@ -2182,6 +2566,52 @@ public class AgentDJComponent {
       }
     }
     return false;
+  }
+
+  private static boolean hasLastToolArgumentFailure(List<ToolStep> toolSteps) {
+    if (toolSteps == null || toolSteps.isEmpty()) {
+      return false;
+    }
+    ToolStep last = toolSteps.get(toolSteps.size() - 1);
+    String output = safeTrim(last.toolOutput());
+    if (output.isEmpty()) {
+      return false;
+    }
+    if ("auth-begin".equalsIgnoreCase(safeTrim(last.toolCommand()))) {
+      return false;
+    }
+    return output.matches("(?is).*(usage:|invalid|requires|must be).*");
+  }
+
+  private static boolean hasCompletedToolResult(List<ToolStep> toolSteps) {
+    if (toolSteps == null) {
+      return false;
+    }
+    for (int i = toolSteps.size() - 1; i >= 0; i--) {
+      ToolStep step = toolSteps.get(i);
+      String outcome = firstNonBlank(
+          readPathSafe(step.toolOutput(), "response.outcome"),
+          readPathSafe(step.toolOutput(), "meta.outcome")
+      ).toLowerCase(Locale.ROOT);
+      if (!TOOL_COMPLETION_OUTCOMES.contains(outcome)) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private static String readPathSafe(String rawJson, String path) {
+    String text = safeTrim(rawJson);
+    if (text.isEmpty() || path == null || path.isBlank()) {
+      return "";
+    }
+    try {
+      JsonNode root = JSON.readTree(text);
+      return readPath(root, path);
+    } catch (Exception ignored) {
+      return "";
+    }
   }
 
   private static String extractToolErrorCode(ToolStep step) {
@@ -2240,6 +2670,7 @@ public class AgentDJComponent {
                                     int step,
                                     GoalIntent goalIntent,
                                     List<ToolStep> toolSteps,
+                                    List<ToolObservation> observations,
                                     CommandAgentResponse lastResponse,
                                     List<String> plannerHistory,
                                     String rootWorkId) {
@@ -2256,9 +2687,17 @@ public class AgentDJComponent {
     prompt.append("- target scope: ").append(goalIntent.targetScope()).append('\n');
     prompt.append("- wants playback: ").append(goalIntent.wantsPlayback()).append('\n');
     prompt.append("- references current playback: ").append(goalIntent.referencesCurrentPlayback()).append('\n');
-    prompt.append("- plan state: ").append(inferPlanState(goalIntent, toolSteps)).append("\n\n");
+    prompt.append("- ordinal target: ").append(hasOrdinalTargetRequest(initialPrompt)).append('\n');
+    prompt.append("- playlist scoped request: ").append(hasPlaylistScopedTrackRequest(initialPrompt)).append('\n');
+    String ordinalTargetHint = extractOrdinalTargetHint(initialPrompt);
+    if (!ordinalTargetHint.isEmpty()) {
+      prompt.append("- ordinal target hint: ").append(ordinalTargetHint).append('\n');
+    }
+    prompt.append("- plan state: ").append(inferPlanState(goalIntent, toolSteps, observations, initialPrompt)).append("\n\n");
     prompt.append("Known facts:\n");
-    appendKnownFacts(prompt, playback, toolSteps, lastResponse);
+    appendKnownFacts(prompt, playback, toolSteps, observations, lastResponse);
+    prompt.append("\nObserved facts:\n");
+    appendObservedFacts(prompt, observations);
     prompt.append("\nRecent steps:\n");
     appendRecentSteps(prompt, toolSteps);
     prompt.append("\nPlanner history:\n");
@@ -2268,6 +2707,33 @@ public class AgentDJComponent {
     prompt.append("- Do not repeat a successful tool step unless a required fact is still missing.\n");
     prompt.append("- If the latest tool result did not complete the goal, propose one concrete next command or explicitly explain why the request cannot continue.\n");
     prompt.append("- Never loop on the same command with the same arguments when no new facts were discovered.\n");
+    prompt.append("- Treat tool results as intermediate unless the result clearly satisfies the goal or the tool response explicitly marks itself terminal.\n");
+    prompt.append("- Do not assume a fixed command sequence from discovery to completion; decide the next step from the evidence in front of you.\n");
+    prompt.append("- Prefer the extracted observation facts over raw tool text when deciding the next step.\n");
+    prompt.append("- If the observation step produced a canonical identifier or URI, use that exact value if it matches the goal.\n");
+    prompt.append("- If the latest observation confirms the requested playback transition already happened, treat the goal as satisfied and stop instead of repeating the same navigation command.\n");
+    prompt.append("- If the last tool failed because its arguments were invalid, repair the arguments from the evidence already available or return `none` if the goal cannot be continued safely.\n");
+    prompt.append("- Do not keep probing with new guesses when the failure is an argument-shape problem; use the returned facts or stop.\n");
+    if (hasPlaylistScopedTrackRequest(initialPrompt) || "playlist".equalsIgnoreCase(goalIntent.targetScope())) {
+      prompt.append("- The goal is playlist-scoped. Prefer playlist-aware evidence and playlist-aware playback over generic search playback when the evidence supports it.\n");
+      prompt.append("- If the current playback context is a playlist, the playlist itself is the primary search space. If the requested song is not found there, the planner may ask the user whether to add it to the playlist or play it outside the playlist.\n");
+      prompt.append("- Do not force a single route; choose the next step from the evidence and the user’s intent.\n");
+    }
+    if ("need_context_snapshot".equals(inferPlanState(goalIntent, toolSteps, observations, initialPrompt))) {
+      prompt.append("- The goal depends on current playback context. First acquire a playback snapshot with `status all` before deciding the next action.\n");
+      prompt.append("- Use the snapshot to determine whether something is playing, what source context is active, which track is current, and where it is positioned.\n");
+    }
+    if (hasOrdinalTargetRequest(initialPrompt)) {
+      prompt.append("- The goal contains an ordinal target such as 'song 4' or '4th track'. Treat it as a context problem first: snapshot the current playback, identify the active source, and only continue if the exact ordinal can be established from evidence.\n");
+      prompt.append("- Never guess an ordinal track. If the active source or exact index cannot be established, stop and ask for the missing context.\n");
+    }
+    if ("need_argument_repair".equals(inferPlanState(goalIntent, toolSteps, observations, initialPrompt))) {
+      prompt.append("- The current task is argument repair. Use already discovered identifiers or state; do not invent placeholder IDs or repeat the same invalid shape.\n");
+    }
+    ToolObservation latestObservation = lastObservation(observations);
+    if (latestObservation != null && !safeTrim(latestObservation.canonicalId()).isEmpty()) {
+      prompt.append("- Use the exact canonical identifier from the observation step if it matches the goal; do not invent a new identifier.\n");
+    }
     if (goalIntent.isRecommendationFlow()) {
       prompt.append("- This is a recommendation/similar-song flow.\n");
       if (!safeTrim(playback.trackUri()).isEmpty()) {
@@ -2280,8 +2746,21 @@ public class AgentDJComponent {
         prompt.append("- Resolved candidates already exist. Prefer a play-capable next step instead of more resolution.\n");
       }
     }
-    prompt.append("- Keep the plan moving with exactly one next command, or return `none` if the goal is satisfied or this toolchain cannot fulfill the request.\n");
+    prompt.append("- Keep the plan moving with exactly one next command, or return `none` if the goal is satisfied, blocked, or this toolchain cannot fulfill the request.\n");
     return injectLedgerSummary(prompt.toString(), rootWorkId);
+  }
+
+  private String buildPlannerPrompt(String initialPrompt,
+                                    String source,
+                                    String correlationId,
+                                    boolean interactiveRequest,
+                                    int step,
+                                    GoalIntent goalIntent,
+                                    List<ToolStep> toolSteps,
+                                    CommandAgentResponse lastResponse,
+                                    List<String> plannerHistory,
+                                    String rootWorkId) {
+    return buildPlannerPrompt(initialPrompt, source, correlationId, interactiveRequest, step, goalIntent, toolSteps, List.of(), lastResponse, plannerHistory, rootWorkId);
   }
 
   private void populatePlannerContext(AgentContext context,
@@ -2292,6 +2771,7 @@ public class AgentDJComponent {
                                       int step,
                                       GoalIntent goalIntent,
                                       List<ToolStep> toolSteps,
+                                      List<ToolObservation> observations,
                                       CommandAgentResponse lastResponse,
                                       List<String> plannerHistory) {
     if (context == null) {
@@ -2318,8 +2798,19 @@ public class AgentDJComponent {
         "confidence", goalIntent.confidence(),
         "reason", goalIntent.reason()
     ));
-    context.set("plan_state", inferPlanState(goalIntent, toolSteps));
-    context.set("known_facts", buildKnownFactsMap(playback, toolSteps, lastResponse));
+    context.set("ordinal_target", hasOrdinalTargetRequest(initialPrompt));
+    context.set("playlist_scoped_request", hasPlaylistScopedTrackRequest(initialPrompt));
+    String ordinalTargetHint = extractOrdinalTargetHint(initialPrompt);
+    if (!ordinalTargetHint.isEmpty()) {
+      context.set("ordinal_target_hint", ordinalTargetHint);
+    }
+    context.set("plan_state", inferPlanState(goalIntent, toolSteps, observations, initialPrompt));
+    context.set("known_facts", buildKnownFactsMap(playback, toolSteps, observations, lastResponse));
+    context.set("observed_facts", buildObservedFactsContext(observations));
+    ToolObservation latestObservation = lastObservation(observations);
+    if (latestObservation != null) {
+      context.set("latest_observation", buildObservationContext(latestObservation));
+    }
     context.set("recent_steps", buildRecentStepsContext(toolSteps));
     context.set("planner_history", buildPlannerHistoryContext(plannerHistory));
     if (lastResponse != null) {
@@ -2329,6 +2820,19 @@ public class AgentDJComponent {
           "user", safeTrim(lastResponse.getUser())
       ));
     }
+  }
+
+  private void populatePlannerContext(AgentContext context,
+                                      String initialPrompt,
+                                      String source,
+                                      String correlationId,
+                                      boolean interactiveRequest,
+                                      int step,
+                                      GoalIntent goalIntent,
+                                      List<ToolStep> toolSteps,
+                                      CommandAgentResponse lastResponse,
+                                      List<String> plannerHistory) {
+    populatePlannerContext(context, initialPrompt, source, correlationId, interactiveRequest, step, goalIntent, toolSteps, List.of(), lastResponse, plannerHistory);
   }
 
   private LoopResult runAuthCompletionFlow(CommandContext parentContext,
@@ -3610,6 +4114,10 @@ public class AgentDJComponent {
     ToolResponseOutcome(String jsonValue) {
       this.jsonValue = jsonValue;
     }
+
+    private String jsonValue() {
+      return jsonValue;
+    }
   }
 
   private enum ToolResponseDisposition {
@@ -3623,9 +4131,12 @@ public class AgentDJComponent {
                                String trackTitle,
                                String trackUri,
                                String position,
+                               String playlistPosition,
+                               String contextType,
+                               String contextUri,
                                boolean playing) {
     private static PlaybackFacts empty() {
-      return new PlaybackFacts("", "", "", "", false);
+      return new PlaybackFacts("", "", "", "", "", "", "", false);
     }
   }
 
@@ -3652,6 +4163,26 @@ public class AgentDJComponent {
                           long planningDurationMs,
                           long toolDurationMs,
                           long stepDurationMs) {
+  }
+
+  private record ToolObservation(int step,
+                                 String goalIntent,
+                                 String toolCommand,
+                                 String toolArgs,
+                                 boolean toolExecuted,
+                                 String terminality,
+                                 String usefulFacts,
+                                 String blockers,
+                                 String canonicalName,
+                                 String canonicalId,
+                                 String canonicalUri,
+                                 String playlistPosition,
+                                 boolean playbackActive,
+                                 String contextType,
+                                 String contextUri) {
+  }
+
+  private record PlaylistMatch(String name, String id, String uri) {
   }
 
   private record LoopResult(String request,
@@ -3688,9 +4219,6 @@ public class AgentDJComponent {
       this.code = code;
       this.message = message;
     }
-  }
-
-  private record PlaylistAddIntent(String playlistName) {
   }
 
   private record PendingAuthRetry(String command, String args, String initialPrompt, String rootWorkId) {

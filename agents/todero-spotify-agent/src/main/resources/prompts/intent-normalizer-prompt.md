@@ -35,7 +35,9 @@ Rules:
 - For list/recommendation requests without explicit playback wording, set `wants_playback=false`.
 - Set `references_current_playback=true` when the user refers to what is currently playing, "this song", "that track", or equivalent in any language.
 - Use `target_scope=current_playback` when the request is anchored to the current song/track/playback.
+- Use `target_scope=playlist` when the request is about a song or track that should be found within a playlist, including phrases like "in the playlist", "from the playlist", or "within the playlist".
 - Keep `seed_hint` short. Use `current-playback` when appropriate.
+- For playlist-scoped track requests, keep `seed_hint` focused on the track name if one was given; do not collapse it into a generic search goal.
 - If no explicit seed exists, return `seed_hint` as `""`.
 - Set `requested_count` to the number of songs/tracks the user asked for. If no count was requested, return `1`.
 - Set `supported_by_toolchain=false` when the request cannot be fulfilled through Spotify playback/auth/recommendation tools, even if it is music-related.

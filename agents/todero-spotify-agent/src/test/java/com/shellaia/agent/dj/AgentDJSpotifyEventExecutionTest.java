@@ -89,7 +89,7 @@ class AgentDJSpotifyEventExecutionTest {
         "status all",
         "status",
         "all",
-        "{\"ok\":true,\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: You're The One That I Want - From “Grease” — John Travolta\\nURI: spotify:track:0B9x2BRHqj3Qer7biM3pU3\\nPosition: 00:00 / 02:49\",\"channels\":{\"chat\":{\"message\":\"ok\"}}}",
+        "{\"ok\":true,\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\\nTrack: You're The One That I Want - From “Grease” — John Travolta\\nURI: spotify:track:0B9x2BRHqj3Qer7biM3pU3\\nPosition: 00:00 / 02:49\",\"channels\":{\"chat\":{\"message\":\"ok\"}}}",
         10L,
         20L,
         30L
@@ -120,14 +120,42 @@ class AgentDJSpotifyEventExecutionTest {
     assertEquals("spotify:track:0B9x2BRHqj3Qer7biM3pU3", knownFacts.get("current_track_uri"));
     assertEquals("You're The One That I Want - From “Grease” — John Travolta", knownFacts.get("current_track"));
     assertEquals(Boolean.FALSE, knownFacts.get("playback_active"));
-    assertEquals("need_candidate_resolution", context.get("plan_state"));
+    assertEquals("need_context_snapshot", context.get("plan_state"));
     assertEquals(1, recentSteps.size());
     assertEquals("status", recentSteps.get(0).get("tool_command"));
+    assertEquals("spotify:playlist:7cpHMBDK9bGgj2XlogYX9F", knownFacts.get("playback_context_uri"));
     assertEquals("recommendation_playback", ((Map<?, ?>) context.get("normalized_goal")).get("intent"));
     @SuppressWarnings("unchecked")
     List<Map<String, Object>> plannerHistory = (List<Map<String, Object>>) context.get("planner_history");
     assertEquals(1, plannerHistory.size());
     assertEquals("status all", plannerHistory.get(0).get("action"));
+  }
+
+  @Test
+  void inferPlanStateMarksInvalidArgumentFailuresForRepair() throws Exception {
+    AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
+    List<Object> toolSteps = new ArrayList<>();
+    toolSteps.add(newToolStep(
+        1,
+        "playlist-play My Playlist #1",
+        "playlist-play",
+        "My Playlist #1",
+        "playlist-play usage: <playlistId|uri> [offset].",
+        12L,
+        5L,
+        17L
+    ));
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class);
+    method.setAccessible(true);
+    Object result = method.invoke(component,
+        newGoalIntent("general_spotify_control", "explicit_request", "My Playlist #1", true, false, true, 1, 0.95d, "test"),
+        toolSteps);
+
+    assertEquals("need_argument_repair", result);
   }
 
   @Test
@@ -182,7 +210,7 @@ class AgentDJSpotifyEventExecutionTest {
     AgentDJComponent component = new AgentDJComponent(new InMemoryStorage());
     AgentContext context = new AgentContext();
     context.set("goal", Map.of("original", "play a simmilar song like that", "intent", "recommendation_playback"));
-    context.set("plan_state", "need_candidate_resolution");
+    context.set("plan_state", "need_context_resolution");
     context.set("known_facts", Map.of(
         "current_track", "You're The One That I Want - From “Grease” — John Travolta",
         "current_track_uri", "spotify:track:0B9x2BRHqj3Qer7biM3pU3",
@@ -202,7 +230,7 @@ class AgentDJSpotifyEventExecutionTest {
 
     JsonNode ctx = JSON.readTree(llm.contextJson.get());
     assertEquals("recommendation_playback", ctx.path("goal").path("intent").asText());
-    assertEquals("need_candidate_resolution", ctx.path("plan_state").asText());
+    assertEquals("need_context_resolution", ctx.path("plan_state").asText());
     assertEquals("spotify:track:0B9x2BRHqj3Qer7biM3pU3", ctx.path("known_facts").path("current_track_uri").asText());
     assertEquals("status", ctx.path("recent_steps").get(0).path("tool_command").asText());
   }
@@ -468,24 +496,25 @@ class AgentDJSpotifyEventExecutionTest {
   }
 
   @Test
-  void runGoalLoopFailsWhenPlannerReturnsNoneAfterNonTerminalTool() throws Exception {
+  void runGoalLoopReplansAfterInvalidArguments() throws Exception {
     AgentDJComponent component = newLedgerIsolatedComponent();
     SequencedLlm llm = new SequencedLlm(
-        "{\"intent\":\"general_spotify_control\",\"target_scope\":\"current_playback\",\"seed_hint\":\"current-playback\",\"wants_playback\":true,\"references_current_playback\":true,\"needs_discovery\":true,\"confidence\":0.97,\"reason\":\"Replay current track.\"}",
-        "{\"request\":\"Check playback\",\"action\":\"status all\",\"user\":\"Checking playback.\",\"html\":\"\"}",
-        "{\"request\":\"Replay current track\",\"action\":\"none\",\"user\":\"No further action.\",\"html\":\"\"}"
+        "{\"intent\":\"general_spotify_control\",\"target_scope\":\"explicit_request\",\"seed_hint\":\"My Playlist #1\",\"wants_playback\":true,\"references_current_playback\":false,\"needs_discovery\":true,\"confidence\":0.97,\"reason\":\"User wants to play a named playlist.\"}",
+        "{\"request\":\"Try playback directly\",\"action\":\"playlist-play My Playlist #1\",\"user\":\"Trying playback.\",\"html\":\"\"}",
+        "{\"request\":\"Recover by discovering the playlist\",\"action\":\"playlists 50 0\",\"user\":\"Looking up your playlists.\",\"html\":\"\"}",
+        "{\"request\":\"Stop after recovery\",\"action\":\"none\",\"user\":\"Done.\",\"html\":\"\"}"
     );
     CommandContext parent = CommandContext.builder()
         .sourceId("source-1")
         .componentManager(new EventOnlyManager((cmd, ctx) -> {
-          if ("status".equals(cmd)) {
-            ctx.completeJson(200, "{\"ok\":true,\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: Tan Natural — Felipe Peláez\\nURI: spotify:track:5CiiBycd20QB9YsK95byV6\\nPosition: 00:00 / 04:11\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true},\"channels\":{\"chat\":{\"message\":\"Device: Arturo’s Mac mini\\nPlaying: false\\nTrack: Tan Natural — Felipe Peláez\\nURI: spotify:track:5CiiBycd20QB9YsK95byV6\\nPosition: 00:00 / 04:11\"},\"status\":{\"message\":\"Playback status ready.\"},\"html\":{\"html\":null,\"mode\":\"none\",\"replace\":false}}}");
+          if ("playlists".equals(cmd)) {
+            ctx.completeJson(200, "{\"ok\":true,\"message\":\"Playlists (limit=50, offset=0):\\n 1) My Playlist #1 [id=7cpHMBDK9bGgj2XlogYX9F, uri=spotify:playlist:7cpHMBDK9bGgj2XlogYX9F, owner=Arturoportilla, public=false, tracks=99]\",\"response\":{\"outcome\":\"intermediate_result\",\"completed\":true}}");
             return;
           }
           throw new AssertionError("Unexpected command: " + cmd);
         }))
         .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.agent.dj/process",
-            AiatpIO.Body.ofString("play again the same song", StandardCharsets.UTF_8)))
+            AiatpIO.Body.ofString("start playing my playlist called \"My Playlist #1\"", StandardCharsets.UTF_8)))
         .llmRegistry(singleLlmRegistry(llm))
         .build();
 
@@ -498,13 +527,18 @@ class AgentDJSpotifyEventExecutionTest {
         String.class,
         String.class);
     method.setAccessible(true);
-    Object root = openRootLedgerWork(component, "process", "play again the same song", true, "corr-loop-none");
+    Object root = openRootLedgerWork(component, "process", "start playing my playlist called \"My Playlist #1\"", true, "corr-loop-none");
     String workId = (String) accessor(root, "workId");
-    Object loopResult = method.invoke(component, parent, "play again the same song", true, "process", "corr-loop-none", workId);
+    Object loopResult = method.invoke(component, parent, "start playing my playlist called \"My Playlist #1\"", true, "process", "corr-loop-none", workId);
 
-    assertEquals("tool_succeeded_but_goal_unresolved", fieldAccessor(accessor(loopResult, "stopReason"), "code"));
-    Object response = accessor(loopResult, "finalResponse");
-    assertTrue(((String) accessor(response, "user")).contains("Planner returned no next action"));
+    assertEquals("action_none", fieldAccessor(accessor(loopResult, "stopReason"), "code"));
+    @SuppressWarnings("unchecked")
+    List<Object> toolSteps = (List<Object>) accessor(loopResult, "toolSteps");
+    assertEquals(3, toolSteps.size());
+    assertEquals("playlist-play", accessor(toolSteps.get(0), "toolCommand"));
+    assertEquals("playlists", accessor(toolSteps.get(1), "toolCommand"));
+    assertEquals("none", accessor(toolSteps.get(2), "toolCommand"));
+    assertTrue(accessor(toolSteps.get(0), "toolArgs").toString().contains("My Playlist #1"));
   }
 
   @Test

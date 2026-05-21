@@ -629,36 +629,123 @@ public class SpotifyCommandService {
     return executeCommand("status", () -> {
       CurrentlyPlayingContext c = safeGetPlayback();
       if (c == null) return "No active playback.";
+      PlaybackSnapshot snapshot = PlaybackSnapshot.from(c);
+      String playlistPosition = all ? resolvePlaylistPositionText(snapshot) : "";
+      return formatStatus(snapshot, all, playlistPosition);
+    });
+  }
 
-      StringBuilder sb = new StringBuilder();
-      String deviceName = c.getDevice() != null ? c.getDevice().getName() : "<unknown device>";
-      sb.append("Device: ").append(deviceName).append("\n");
-      sb.append("Playing: ").append(Boolean.TRUE.equals(c.getIs_playing())).append("\n");
-
-      if (c.getContext() != null) {
-        String ctxUri = c.getContext().getUri();
-        String ctxType = (c.getContext().getType() != null) ? c.getContext().getType().getType() : null;
-        sb.append("Context: ").append(ctxType).append(" (").append(ctxUri).append(")\n");
-      }
-
-      if (c.getItem() instanceof Track t) {
-        String artist = (t.getArtists() != null && t.getArtists().length > 0) ? t.getArtists()[0].getName() : "Unknown";
-        sb.append("Track: ").append(t.getName()).append(" — ").append(artist).append("\n");
-        sb.append("URI: ").append(t.getUri()).append("\n");
-        int dur = (t.getDurationMs() != null) ? t.getDurationMs() : 0;
-        int pos = (c.getProgress_ms() != null) ? c.getProgress_ms() : 0;
-        sb.append("Position: ").append(formatTime(pos)).append(" / ").append(formatTime(dur)).append("\n");
-      }
-
-      if (all) {
-        sb.append("Shuffle: ").append(Boolean.TRUE.equals(c.getShuffle_state())).append("\n");
-        sb.append("Repeat: ").append(c.getRepeat_state()).append("\n");
-        if (c.getDevice() != null && c.getDevice().getVolume_percent() != null) {
-          sb.append("Volume: ").append(c.getDevice().getVolume_percent()).append("%\n");
+  private String resolvePlaylistPositionText(PlaybackSnapshot snapshot) {
+    if (snapshot == null || snapshot.contextUri() == null || snapshot.contextUri().isBlank()) {
+      return "";
+    }
+    if (snapshot.contextType() == null || !"playlist".equalsIgnoreCase(snapshot.contextType())) {
+      return "";
+    }
+    String playlistUri = snapshot.contextUri().trim();
+    String playlistId = playlistUri.startsWith("spotify:playlist:")
+        ? playlistUri.substring("spotify:playlist:".length())
+        : playlistUri;
+    if (playlistId.isBlank()) {
+      return "";
+    }
+    try {
+      final int pageSize = 100;
+      int offset = 0;
+      int total = -1;
+      int ordinal = -1;
+      while (true) {
+        GetPlaylistsItemsRequest req = spotifyPkceService.getSpotifyApi().getPlaylistsItems(playlistId)
+            .limit(pageSize)
+            .offset(offset)
+            .build();
+        Paging<PlaylistTrack> page = callSpotifyApi("status", req::execute);
+        if (page == null || page.getItems() == null || page.getItems().length == 0) {
+          break;
+        }
+        total = page.getTotal();
+        PlaylistTrack[] items = page.getItems();
+        for (int i = 0; i < items.length; i++) {
+          IPlaylistItem item = items[i].getTrack();
+          if (item instanceof Track t && snapshot.trackUri() != null && snapshot.trackUri().equals(t.getUri())) {
+            ordinal = offset + i + 1;
+            break;
+          }
+        }
+        if (ordinal > 0 || items.length < pageSize) {
+          break;
+        }
+        offset += items.length;
+        if (total > 0 && offset >= total) {
+          break;
         }
       }
-      return sb.toString().trim();
-    });
+      if (ordinal > 0 && total > 0) {
+        return ordinal + "/" + total;
+      }
+      if (ordinal > 0) {
+        return String.valueOf(ordinal);
+      }
+    } catch (Exception ignored) {
+      return "";
+    }
+    return "";
+  }
+
+  private static String formatStatus(PlaybackSnapshot snapshot, boolean all) {
+    return formatStatus(snapshot, all, "");
+  }
+
+  private static String formatStatus(PlaybackSnapshot snapshot, boolean all, String playlistPositionText) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("Device: ").append(firstNonBlank(snapshot.deviceName(), "<unknown device>")).append("\n");
+    if (all) {
+      sb.append("DeviceId: ").append(firstNonBlank(snapshot.deviceId(), "<unknown device>")).append("\n");
+    }
+    sb.append("Playing: ").append(snapshot.playing()).append("\n");
+
+    if (snapshot.contextUri() != null && !snapshot.contextUri().isBlank()) {
+      String contextType = firstNonBlank(snapshot.contextType(), null);
+      sb.append("Context: ").append(contextType).append(" (").append(snapshot.contextUri()).append(")\n");
+      if (all) {
+        sb.append("ContextType: ").append(firstNonBlank(snapshot.contextType(), "<unknown>")).append("\n");
+        sb.append("ContextUri: ").append(snapshot.contextUri()).append("\n");
+      }
+    }
+
+    if (snapshot.trackName() != null || snapshot.trackUri() != null || snapshot.artistName() != null) {
+      String trackName = firstNonBlank(snapshot.trackName(), "Unknown track");
+      String artist = firstNonBlank(snapshot.artistName(), "Unknown artist");
+      sb.append("Track: ").append(trackName).append(" — ").append(artist).append("\n");
+      sb.append("URI: ").append(firstNonBlank(snapshot.trackUri(), "<unknown track uri>")).append("\n");
+      if (all) {
+        sb.append("TrackUri: ").append(firstNonBlank(snapshot.trackUri(), "<unknown track uri>")).append("\n");
+      }
+      int pos = snapshot.progressMs() != null ? snapshot.progressMs() : 0;
+      int dur = snapshot.durationMs() != null ? snapshot.durationMs() : 0;
+      sb.append("Position: ").append(formatTime(pos)).append(" / ").append(formatTime(dur)).append("\n");
+      if (all) {
+        sb.append("ProgressMs: ").append(pos).append("\n");
+        sb.append("DurationMs: ").append(dur).append("\n");
+      }
+    }
+
+    if (all && playlistPositionText != null && !playlistPositionText.isBlank()) {
+      sb.append("PlaylistPosition: ").append(playlistPositionText.trim()).append("\n");
+    }
+
+    if (all) {
+      sb.append("Shuffle: ").append(Boolean.TRUE.equals(snapshot.shuffleState())).append("\n");
+      sb.append("Repeat: ").append(firstNonBlank(snapshot.repeatState(), "off")).append("\n");
+      if (snapshot.volumePercent() != null) {
+        sb.append("Volume: ").append(snapshot.volumePercent()).append("%\n");
+      }
+    }
+    return sb.toString().trim();
+  }
+
+  private static String firstNonBlank(String value, String fallback) {
+    return value == null || value.isBlank() ? fallback : value;
   }
 
   /* ================== Spotify-specific extras ================== */
