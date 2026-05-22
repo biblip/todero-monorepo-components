@@ -92,7 +92,9 @@ public class AgentDJComponent {
   private static final Pattern DEVICE_PATTERN = Pattern.compile("(?im)^Device:\\s*(.+?)\\s*$");
   private static final Pattern POSITION_PATTERN = Pattern.compile("(?im)^Position:\\s*(.+?)\\s*$");
   private static final Pattern PLAYLIST_POSITION_PATTERN = Pattern.compile("(?im)^PlaylistPosition:\\s*(.+?)\\s*$");
+  private static final Pattern CONTEXT_ID_PATTERN = Pattern.compile("(?im)^ContextId:\\s*(.+?)\\s*$");
   private static final Pattern PLAYLIST_ROW_PATTERN = Pattern.compile("^\\s*\\d+\\)\\s*(.+?)\\s*\\[id=([^,\\]]+).*$");
+  private static final Pattern PLAYLIST_TRACK_ROW_PATTERN = Pattern.compile("^\\s*(\\d+)\\)\\s*(.+?)\\s*\\[uri=(spotify:track:[^,\\]]+).*$");
   private static final Pattern ORDINAL_TARGET_PATTERN = Pattern.compile(
       "(?i)\\b(?:song|track|item)\\s*(?:number\\s*|#\\s*)?(\\d+)\\b|\\b(\\d+)(?:st|nd|rd|th)?\\s*(?:song|track|item)\\b|\\b(?:song|track|item)\\s*#\\s*(\\d+)\\b"
   );
@@ -185,8 +187,19 @@ public class AgentDJComponent {
       return true;
     }
     String rootWorkId = correlationId;
+    try {
+      ensureOwnerLedger(context);
+      WorkItemRecord rootWork = openRootLedgerWork(source, prompt, true, correlationId);
+      if (rootWork != null && !safeTrim(rootWork.workId()).isEmpty()) {
+        rootWorkId = safeTrim(rootWork.workId());
+      }
+    } catch (Exception e) {
+      System.out.println("[DJ-AGENT] ledger root creation skipped correlationId=" + correlationId
+          + " error=" + safeTrim(e.getMessage()));
+    }
+    final String finalRootWorkId = rootWorkId;
     CompletableFuture<LoopResult> future = CompletableFuture.supplyAsync(
-        () -> runGoalLoop(context, prompt, true, source, correlationId, rootWorkId),
+        () -> runGoalLoop(context, prompt, true, source, correlationId, finalRootWorkId),
         cognitionExecutor
     );
 
@@ -1575,13 +1588,16 @@ public class AgentDJComponent {
       String terminality = "intermediate";
       String blockers = "";
       String usefulFacts = "";
+      String observationGoal = buildObservationGoal(initialPrompt, goalIntent, command);
       String canonicalName = "";
       String canonicalId = "";
       String canonicalUri = "";
       String playlistPosition = "";
+      String playlistTrackPosition = "";
       boolean playbackActive = false;
       String contextType = "";
       String contextUri = "";
+      String contextId = "";
 
     if (tool == null) {
       terminality = "blocked";
@@ -1619,13 +1635,29 @@ public class AgentDJComponent {
             canonicalId = playlistId;
             canonicalUri = normalizePlaylistUri(playlistId);
           }
-          usefulFacts = summarizeToolOutput(output);
+          String requestedName = extractRequestedEntityName(initialPrompt, goalIntent);
+          PlaylistTrackMatch trackMatch = extractPlaylistTrackMatch(output, requestedName);
+          if (trackMatch != null) {
+            canonicalName = trackMatch.name();
+            canonicalId = playlistId;
+            canonicalUri = normalizePlaylistUri(playlistId);
+            playlistTrackPosition = String.valueOf(trackMatch.position());
+            usefulFacts = "matched_playlist_track_name=" + safeTrim(trackMatch.name())
+                + "; matched_playlist_track_position=" + trackMatch.position()
+                + "; matched_playlist_id=" + safeTrim(playlistId);
+          } else {
+            usefulFacts = summarizeToolOutput(output);
+          }
         }
         case "playlist-play" -> {
           String playlistUri = extractFirstPlaylistUri(output);
           if (!playlistUri.isEmpty()) {
             canonicalUri = playlistUri;
             canonicalId = playlistUri.substring("spotify:playlist:".length());
+          }
+          int playlistOffset = extractPlaylistOffsetFromArgs(args);
+          if (playlistOffset >= 0) {
+            playlistTrackPosition = String.valueOf(playlistOffset + 1);
           }
           usefulFacts = summarizeToolOutput(output);
           terminality = tool.responseOutcome == ToolResponseOutcome.GOAL_COMPLETED ? "goal_completed" : "intermediate";
@@ -1639,13 +1671,16 @@ public class AgentDJComponent {
                 + "; uri=" + playback.trackUri()
                 + "; playlist_position=" + playback.playlistPosition()
                 + "; context_type=" + playback.contextType()
-                + "; context_uri=" + playback.contextUri();
+                + "; context_uri=" + playback.contextUri()
+                + "; context_id=" + playback.contextId();
             canonicalUri = playback.trackUri();
             canonicalName = playback.trackTitle();
             playbackActive = playback.playing();
             playlistPosition = playback.playlistPosition();
+            playlistTrackPosition = playback.playlistTrackPosition();
             contextType = playback.contextType();
             contextUri = playback.contextUri();
+            contextId = playback.contextId();
           } else {
             usefulFacts = summarizeToolOutput(output);
           }
@@ -1689,6 +1724,7 @@ public class AgentDJComponent {
         command,
         args,
         executed,
+        observationGoal,
         terminality,
         usefulFacts,
         blockers,
@@ -1696,10 +1732,56 @@ public class AgentDJComponent {
         canonicalId,
         canonicalUri,
         playlistPosition,
+        playlistTrackPosition,
         playbackActive,
         contextType,
-        contextUri
+        contextUri,
+        contextId
     );
+  }
+
+  private static String buildObservationGoal(String initialPrompt, GoalIntent goalIntent, String command) {
+    String goal = safeTrim(goalIntent == null ? null : goalIntent.intent());
+    String scope = safeTrim(goalIntent == null ? null : goalIntent.targetScope());
+    String seed = safeTrim(goalIntent == null ? null : goalIntent.seedHint());
+    String tool = safeTrim(command).toLowerCase(Locale.ROOT);
+    if ("status".equals(tool)) {
+      if ("current_playback".equalsIgnoreCase(scope) || (goalIntent != null && goalIntent.referencesCurrentPlayback())) {
+        return "snapshot current playback context, current track, active source, and position";
+      }
+      if ("playlist".equalsIgnoreCase(scope) || hasPlaylistScopedTrackRequest(initialPrompt) || isLikelyTrackPlaybackRequest(initialPrompt)) {
+        return "snapshot active playback so the next step can search the current playlist with exact context";
+      }
+      return "snapshot current playback state for the active goal";
+    }
+    if ("playlist-list".equals(tool)) {
+      if (!seed.isEmpty()) {
+        return "find the requested track '" + seed + "' inside the playlist and extract its exact playlist position if present";
+      }
+      return "scan the playlist for the requested track and extract any exact matching playlist position";
+    }
+    if ("playlists".equals(tool)) {
+      if (!seed.isEmpty()) {
+        return "find the matching playlist by name and extract its exact playlist URI";
+      }
+      return "scan available playlists for the requested playlist name";
+    }
+    if ("resolve-track".equals(tool)) {
+      if (!seed.isEmpty()) {
+        return "resolve the requested track '" + seed + "' to a canonical Spotify track URI";
+      }
+      return "resolve the requested track to a canonical Spotify track URI";
+    }
+    if ("play".equals(tool)) {
+      if (!seed.isEmpty()) {
+        return "determine whether playback started for the requested media '" + seed + "' and whether the returned result is a search result or exact playback";
+      }
+      return "determine whether playback started and whether the result is exact playback or a search-based fallback";
+    }
+    if (!goal.isEmpty()) {
+      return "observe the tool result relative to the current goal: " + goal;
+    }
+    return "observe the tool result for the current goal";
   }
 
   private static boolean isArgumentShapeFailure(String output) {
@@ -1747,6 +1829,39 @@ public class AgentDJComponent {
     return null;
   }
 
+  private static PlaylistTrackMatch extractPlaylistTrackMatch(String output, String requestedName) {
+    String target = normalizeForCompare(requestedName);
+    if (target.isEmpty()) {
+      return null;
+    }
+    String[] lines = safeTrim(output).split("\\R");
+    for (String line : lines) {
+      Matcher row = PLAYLIST_TRACK_ROW_PATTERN.matcher(line);
+      if (!row.matches()) {
+        continue;
+      }
+      int foundPosition;
+      try {
+        foundPosition = Integer.parseInt(safeTrim(row.group(1)));
+      } catch (Exception ignored) {
+        foundPosition = -1;
+      }
+      if (foundPosition <= 0) {
+        continue;
+      }
+      String foundName = safeTrim(row.group(2));
+      String foundUri = safeTrim(row.group(3));
+      if (foundUri.isEmpty()) {
+        continue;
+      }
+      String normalizedFound = normalizeForCompare(foundName);
+      if (normalizedFound.equals(target) || normalizedFound.contains(target) || target.contains(normalizedFound)) {
+        return new PlaylistTrackMatch(foundName, foundPosition, foundUri);
+      }
+    }
+    return null;
+  }
+
   private static String normalizePlaylistUri(String playlistId) {
     String id = safeTrim(playlistId);
     if (id.isEmpty()) {
@@ -1765,6 +1880,22 @@ public class AgentDJComponent {
       return first.startsWith("spotify:playlist:") ? first.substring("spotify:playlist:".length()) : first;
     }
     return "";
+  }
+
+  private static int extractPlaylistOffsetFromArgs(String args) {
+    String text = safeTrim(args);
+    if (text.isEmpty()) {
+      return -1;
+    }
+    String[] parts = text.split("\\s+");
+    if (parts.length < 2) {
+      return -1;
+    }
+    try {
+      return Integer.parseInt(parts[1]);
+    } catch (Exception ignored) {
+      return -1;
+    }
   }
 
   private static String extractFirstPlaylistUri(String output) {
@@ -1823,6 +1954,22 @@ public class AgentDJComponent {
         || normalized.contains("track from the playlist")
         || normalized.contains("song in a playlist")
         || normalized.contains("track in a playlist");
+  }
+
+  private static boolean isLikelyTrackPlaybackRequest(String prompt) {
+    String normalized = safeTrim(prompt).toLowerCase(Locale.ROOT);
+    if (normalized.isEmpty() || !hasExplicitPlaybackRequest(normalized)) {
+      return false;
+    }
+    if (hasPlaylistScopedTrackRequest(normalized) || hasOrdinalTargetRequest(normalized)) {
+      return false;
+    }
+    return !normalized.contains("album")
+        && !normalized.contains("artist")
+        && !normalized.contains("queue")
+        && !normalized.contains("podcast")
+        && !normalized.contains("episode")
+        && !normalized.contains("playlist ");
   }
 
   private static String extractOrdinalTargetHint(String prompt) {
@@ -2130,14 +2277,20 @@ public class AgentDJComponent {
                                        List<ToolObservation> observations,
                                        String initialPrompt) {
     ToolObservation latestObservation = lastObservation(observations);
+    PlaybackFacts playback = extractPlaybackFacts(toolSteps);
     boolean ordinalTarget = hasOrdinalTargetRequest(initialPrompt);
     boolean playlistScopedTrackRequest = hasPlaylistScopedTrackRequest(initialPrompt)
         || (goalIntent != null && "playlist".equalsIgnoreCase(goalIntent.targetScope()));
-    if (goalIntent != null && (goalIntent.referencesCurrentPlayback() || ordinalTarget || playlistScopedTrackRequest)
+    boolean likelyTrackPlaybackRequest = isLikelyTrackPlaybackRequest(initialPrompt);
+    if (goalIntent != null && (goalIntent.referencesCurrentPlayback() || ordinalTarget || playlistScopedTrackRequest || likelyTrackPlaybackRequest)
         && !hasPlaybackContextSnapshot(observations)) {
       return "need_context_snapshot";
     }
     if (hasConfirmedPlaybackTransition(goalIntent, observations)) {
+      return "goal_completed";
+    }
+    if ((playlistScopedTrackRequest || likelyTrackPlaybackRequest)
+        && hasConfirmedPlaylistTrackPlayback(observations)) {
       return "goal_completed";
     }
     if (playlistScopedTrackRequest) {
@@ -2157,6 +2310,24 @@ public class AgentDJComponent {
         return "need_playlist_resolution";
       }
     }
+    if ((playlistScopedTrackRequest || likelyTrackPlaybackRequest)
+        && latestObservation != null
+        && "playlist-list".equalsIgnoreCase(safeTrim(latestObservation.toolCommand()))
+        && !safeTrim(latestObservation.playlistTrackPosition()).isEmpty()) {
+      return "have_playlist_track_candidate";
+    }
+    if ((playlistScopedTrackRequest || likelyTrackPlaybackRequest)
+        && latestObservation != null
+        && "playlist-list".equalsIgnoreCase(safeTrim(latestObservation.toolCommand()))
+        && safeTrim(latestObservation.playlistTrackPosition()).isEmpty()) {
+      return "playlist_scan_miss";
+    }
+    if ((playlistScopedTrackRequest || likelyTrackPlaybackRequest)
+        && "playlist".equalsIgnoreCase(safeTrim(playback.contextType()))
+        && !hasSuccessfulTool(toolSteps, "playlist-list")
+        && !hasSuccessfulTool(toolSteps, "playlists")) {
+      return "need_playlist_scan";
+    }
     if (latestObservation != null) {
       String terminality = safeTrim(latestObservation.terminality()).toLowerCase(Locale.ROOT);
       if ("invalid_arguments".equals(terminality)) {
@@ -2168,7 +2339,7 @@ public class AgentDJComponent {
       if ("goal_completed".equals(terminality)) {
         return "goal_completed";
       }
-      if (goalIntent.wantsPlayback() && (!safeTrim(latestObservation.canonicalId()).isEmpty()
+    if (goalIntent.wantsPlayback() && (!safeTrim(latestObservation.canonicalId()).isEmpty()
           || !safeTrim(latestObservation.canonicalUri()).isEmpty())) {
         return "have_candidate_identifier";
       }
@@ -2176,7 +2347,6 @@ public class AgentDJComponent {
     if (toolSteps == null || toolSteps.isEmpty()) {
       return goalIntent.isRecommendationFlow() ? "need_context_resolution" : "planning";
     }
-    PlaybackFacts playback = extractPlaybackFacts(toolSteps);
     if (hasLastToolArgumentFailure(toolSteps)) {
       return "need_argument_repair";
     }
@@ -2225,11 +2395,17 @@ public class AgentDJComponent {
     if (!safeTrim(playback.playlistPosition()).isEmpty()) {
       prompt.append("- playlist_position: ").append(playback.playlistPosition()).append('\n');
     }
+    if (!safeTrim(playback.playlistTrackPosition()).isEmpty()) {
+      prompt.append("- playlist_track_position: ").append(playback.playlistTrackPosition()).append('\n');
+    }
     if (!safeTrim(playback.contextType()).isEmpty()) {
       prompt.append("- playback_context_type: ").append(playback.contextType()).append('\n');
     }
     if (!safeTrim(playback.contextUri()).isEmpty()) {
       prompt.append("- playback_context_uri: ").append(playback.contextUri()).append('\n');
+    }
+    if (!safeTrim(playback.contextId()).isEmpty()) {
+      prompt.append("- playback_context_id: ").append(playback.contextId()).append('\n');
     }
     ToolStep lastToolStep = findLastToolStep(toolSteps);
     if (lastToolStep != null) {
@@ -2253,6 +2429,12 @@ public class AgentDJComponent {
       }
       if (!safeTrim(latestObservation.canonicalUri()).isEmpty()) {
         prompt.append("- observed_uri: ").append(safeTrim(latestObservation.canonicalUri())).append('\n');
+      }
+      if (!safeTrim(latestObservation.playlistTrackPosition()).isEmpty()) {
+        prompt.append("- observed_playlist_track_position: ").append(safeTrim(latestObservation.playlistTrackPosition())).append('\n');
+      }
+      if (!safeTrim(latestObservation.observationGoal()).isEmpty()) {
+        prompt.append("- observed_goal: ").append(safeTrim(latestObservation.observationGoal())).append('\n');
       }
       if (!safeTrim(latestObservation.blockers()).isEmpty()) {
         prompt.append("- observed_blocker: ").append(safeTrim(latestObservation.blockers())).append('\n');
@@ -2292,11 +2474,20 @@ public class AgentDJComponent {
       if (!safeTrim(observation.playlistPosition()).isEmpty()) {
         prompt.append(", playlist_position=").append(safeTrim(observation.playlistPosition()));
       }
+      if (!safeTrim(observation.playlistTrackPosition()).isEmpty()) {
+        prompt.append(", playlist_track_position=").append(safeTrim(observation.playlistTrackPosition()));
+      }
       if (!safeTrim(observation.contextType()).isEmpty()) {
         prompt.append(", context_type=").append(safeTrim(observation.contextType()));
       }
       if (!safeTrim(observation.contextUri()).isEmpty()) {
         prompt.append(", context_uri=").append(safeTrim(observation.contextUri()));
+      }
+      if (!safeTrim(observation.contextId()).isEmpty()) {
+        prompt.append(", context_id=").append(safeTrim(observation.contextId()));
+      }
+      if (!safeTrim(observation.observationGoal()).isEmpty()) {
+        prompt.append(", goal=").append(safeTrim(observation.observationGoal()));
       }
       if (!safeTrim(observation.blockers()).isEmpty()) {
         prompt.append(", blocker=").append(safeTrim(observation.blockers()));
@@ -2348,11 +2539,17 @@ public class AgentDJComponent {
     if (!safeTrim(playback.playlistPosition()).isEmpty()) {
       facts.put("playlist_position", playback.playlistPosition());
     }
+    if (!safeTrim(playback.playlistTrackPosition()).isEmpty()) {
+      facts.put("playlist_track_position", playback.playlistTrackPosition());
+    }
     if (!safeTrim(playback.contextType()).isEmpty()) {
       facts.put("playback_context_type", playback.contextType());
     }
     if (!safeTrim(playback.contextUri()).isEmpty()) {
       facts.put("playback_context_uri", playback.contextUri());
+    }
+    if (!safeTrim(playback.contextId()).isEmpty()) {
+      facts.put("playback_context_id", playback.contextId());
     }
     ToolStep last = findLastToolStep(toolSteps);
     if (last != null) {
@@ -2376,11 +2573,20 @@ public class AgentDJComponent {
       if (!safeTrim(latestObservation.canonicalUri()).isEmpty()) {
         facts.put("observed_uri", latestObservation.canonicalUri());
       }
+      if (!safeTrim(latestObservation.playlistTrackPosition()).isEmpty()) {
+        facts.put("observed_playlist_track_position", latestObservation.playlistTrackPosition());
+      }
       if (!safeTrim(latestObservation.contextType()).isEmpty()) {
         facts.put("observed_context_type", latestObservation.contextType());
       }
       if (!safeTrim(latestObservation.contextUri()).isEmpty()) {
         facts.put("observed_context_uri", latestObservation.contextUri());
+      }
+      if (!safeTrim(latestObservation.contextId()).isEmpty()) {
+        facts.put("observed_context_id", latestObservation.contextId());
+      }
+      if (!safeTrim(latestObservation.observationGoal()).isEmpty()) {
+        facts.put("observed_goal", latestObservation.observationGoal());
       }
       if (!safeTrim(latestObservation.blockers()).isEmpty()) {
         facts.put("observed_blocker", latestObservation.blockers());
@@ -2419,8 +2625,11 @@ public class AgentDJComponent {
     item.put("canonical_id", safeTrim(observation.canonicalId()));
     item.put("canonical_uri", safeTrim(observation.canonicalUri()));
     item.put("playlist_position", safeTrim(observation.playlistPosition()));
+    item.put("playlist_track_position", safeTrim(observation.playlistTrackPosition()));
     item.put("context_type", safeTrim(observation.contextType()));
     item.put("context_uri", safeTrim(observation.contextUri()));
+    item.put("context_id", safeTrim(observation.contextId()));
+    item.put("observation_goal", safeTrim(observation.observationGoal()));
     item.put("playback_active", observation.playbackActive());
     item.put("tool_executed", observation.toolExecuted());
     return item;
@@ -2476,6 +2685,45 @@ public class AgentDJComponent {
     return trackChanged || contextChanged || playbackChanged;
   }
 
+  private static boolean hasConfirmedPlaylistTrackPlayback(List<ToolObservation> observations) {
+    if (observations == null || observations.size() < 2) {
+      return false;
+    }
+    ToolObservation latest = lastObservation(observations);
+    if (latest == null || !"playlist-play".equalsIgnoreCase(safeTrim(latest.toolCommand()))) {
+      return false;
+    }
+    String playlistTrackPosition = safeTrim(latest.playlistTrackPosition());
+    if (playlistTrackPosition.isEmpty()) {
+      return false;
+    }
+    int candidatePosition;
+    try {
+      candidatePosition = Integer.parseInt(playlistTrackPosition);
+    } catch (Exception ignored) {
+      return false;
+    }
+    if (candidatePosition <= 0) {
+      return false;
+    }
+    String[] args = safeTrim(latest.toolArgs()).split("\\s+");
+    if (args.length < 2) {
+      return false;
+    }
+    String requestedPlaylistId = extractCanonicalPlaylistId(args[0]);
+    String latestContextId = extractCanonicalPlaylistId(latest.contextId());
+    if (!requestedPlaylistId.isEmpty() && !latestContextId.isEmpty() && !requestedPlaylistId.equals(latestContextId)) {
+      return false;
+    }
+    int requestedOffset;
+    try {
+      requestedOffset = Integer.parseInt(args[1]);
+    } catch (Exception ignored) {
+      return false;
+    }
+    return requestedOffset == candidatePosition - 1;
+  }
+
   private List<Map<String, Object>> buildRecentStepsContext(List<ToolStep> toolSteps) {
     List<Map<String, Object>> recent = new ArrayList<>();
     if (toolSteps == null || toolSteps.isEmpty()) {
@@ -2518,6 +2766,7 @@ public class AgentDJComponent {
       String playingRaw = matchFirst(PLAYING_PATTERN, output);
       String position = matchFirst(POSITION_PATTERN, output);
       String playlistPosition = matchFirst(PLAYLIST_POSITION_PATTERN, output);
+      String contextId = matchFirst(CONTEXT_ID_PATTERN, output);
       String contextType = "";
       String contextUri = "";
       Matcher context = CONTEXT_PATTERN.matcher(output);
@@ -2525,10 +2774,28 @@ public class AgentDJComponent {
         contextType = safeTrim(context.group(1));
         contextUri = safeTrim(context.group(2));
       }
+      if (contextId.isEmpty()) {
+        contextId = deriveContextId(contextType, contextUri);
+      }
       boolean playing = "true".equalsIgnoreCase(safeTrim(playingRaw));
-      return new PlaybackFacts(device, track, uri, position, playlistPosition, contextType, contextUri, playing);
+      return new PlaybackFacts(device, track, uri, position, playlistPosition, playlistPosition, contextType, contextUri, contextId, playing);
     }
     return PlaybackFacts.empty();
+  }
+
+  private static String deriveContextId(String contextType, String contextUri) {
+    String type = safeTrim(contextType);
+    String uri = safeTrim(contextUri);
+    if (uri.isEmpty()) {
+      return "";
+    }
+    if ("playlist".equalsIgnoreCase(type) && uri.startsWith("spotify:playlist:")) {
+      return uri.substring("spotify:playlist:".length()).trim();
+    }
+    if (uri.startsWith("spotify:")) {
+      return uri.substring("spotify:".length()).trim();
+    }
+    return "";
   }
 
   private static String summarizeToolOutput(String toolOutput) {
@@ -2689,6 +2956,7 @@ public class AgentDJComponent {
     prompt.append("- references current playback: ").append(goalIntent.referencesCurrentPlayback()).append('\n');
     prompt.append("- ordinal target: ").append(hasOrdinalTargetRequest(initialPrompt)).append('\n');
     prompt.append("- playlist scoped request: ").append(hasPlaylistScopedTrackRequest(initialPrompt)).append('\n');
+    prompt.append("- likely track playback request: ").append(isLikelyTrackPlaybackRequest(initialPrompt)).append('\n');
     String ordinalTargetHint = extractOrdinalTargetHint(initialPrompt);
     if (!ordinalTargetHint.isEmpty()) {
       prompt.append("- ordinal target hint: ").append(ordinalTargetHint).append('\n');
@@ -2718,6 +2986,29 @@ public class AgentDJComponent {
       prompt.append("- The goal is playlist-scoped. Prefer playlist-aware evidence and playlist-aware playback over generic search playback when the evidence supports it.\n");
       prompt.append("- If the current playback context is a playlist, the playlist itself is the primary search space. If the requested song is not found there, the planner may ask the user whether to add it to the playlist or play it outside the playlist.\n");
       prompt.append("- Do not force a single route; choose the next step from the evidence and the user’s intent.\n");
+    }
+    if (isLikelyTrackPlaybackRequest(initialPrompt)) {
+      prompt.append("- This is a direct track playback request. First gather current playback context with `status all` if you have not already confirmed it.\n");
+      prompt.append("- If the snapshot shows the current context is a playlist, scan the playlist first with playlist-aware evidence before using generic search playback.\n");
+      prompt.append("- If the requested track is not in the current playlist, you may either ask whether to add it or play it outside the playlist, depending on the evidence and the user's wording.\n");
+    }
+    if ("need_playlist_scan".equals(inferPlanState(goalIntent, toolSteps, observations, initialPrompt))) {
+      prompt.append("- The current playlist context is known. Stay in playlist-evidence mode until you have scanned the active playlist.\n");
+      prompt.append("- Use `playlist-list <playlistId> [limit]` or `playlists` only to inspect playlist evidence; do not switch to generic search playback yet.\n");
+      prompt.append("- If the snapshot provides a playlist id, use that exact id. If it does not, extract the id from the context URI before scanning.\n");
+      prompt.append("- Do not choose `play` or `resolve-track` until the playlist scan has either found the target or shown that it is absent.\n");
+    }
+    if ("have_playlist_track_candidate".equals(inferPlanState(goalIntent, toolSteps, observations, initialPrompt))) {
+      prompt.append("- A playlist scan found an exact track candidate in the active playlist.\n");
+      prompt.append("- Use the exact playlist row position from the observation facts; convert the 1-based row position to the zero-based offset required by `playlist-play`.\n");
+      prompt.append("- Do not play the track by URI outside the playlist; the row position is the signal to continue inside the playlist.\n");
+      prompt.append("- If `playlist-play` has already been executed at the matching offset for that candidate, treat the goal as satisfied and stop.\n");
+      prompt.append("- Do not restart generic search unless the candidate is clearly not the requested track.\n");
+    }
+    if ("playlist_scan_miss".equals(inferPlanState(goalIntent, toolSteps, observations, initialPrompt))) {
+      prompt.append("- The playlist scan did not find an exact match in the active playlist.\n");
+      prompt.append("- Proceed according to the user’s intent and the available evidence: you may ask to add the track to the playlist, play it outside the playlist, or stop if the goal cannot be continued safely.\n");
+      prompt.append("- Do not force a single fallback path.\n");
     }
     if ("need_context_snapshot".equals(inferPlanState(goalIntent, toolSteps, observations, initialPrompt))) {
       prompt.append("- The goal depends on current playback context. First acquire a playback snapshot with `status all` before deciding the next action.\n");
@@ -2800,6 +3091,7 @@ public class AgentDJComponent {
     ));
     context.set("ordinal_target", hasOrdinalTargetRequest(initialPrompt));
     context.set("playlist_scoped_request", hasPlaylistScopedTrackRequest(initialPrompt));
+    context.set("likely_track_playback_request", isLikelyTrackPlaybackRequest(initialPrompt));
     String ordinalTargetHint = extractOrdinalTargetHint(initialPrompt);
     if (!ordinalTargetHint.isEmpty()) {
       context.set("ordinal_target_hint", ordinalTargetHint);
@@ -4132,11 +4424,13 @@ public class AgentDJComponent {
                                String trackUri,
                                String position,
                                String playlistPosition,
+                               String playlistTrackPosition,
                                String contextType,
                                String contextUri,
+                               String contextId,
                                boolean playing) {
     private static PlaybackFacts empty() {
-      return new PlaybackFacts("", "", "", "", "", "", "", false);
+      return new PlaybackFacts("", "", "", "", "", "", "", "", "", false);
     }
   }
 
@@ -4170,6 +4464,7 @@ public class AgentDJComponent {
                                  String toolCommand,
                                  String toolArgs,
                                  boolean toolExecuted,
+                                 String observationGoal,
                                  String terminality,
                                  String usefulFacts,
                                  String blockers,
@@ -4177,12 +4472,17 @@ public class AgentDJComponent {
                                  String canonicalId,
                                  String canonicalUri,
                                  String playlistPosition,
+                                 String playlistTrackPosition,
                                  boolean playbackActive,
                                  String contextType,
-                                 String contextUri) {
+                                 String contextUri,
+                                 String contextId) {
   }
 
   private record PlaylistMatch(String name, String id, String uri) {
+  }
+
+  private record PlaylistTrackMatch(String name, int position, String uri) {
   }
 
   private record LoopResult(String request,

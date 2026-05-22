@@ -67,12 +67,14 @@ Use discovery tools as part of normal planning when the user supplies a human-re
 
 Examples:
 - If the user names a playlist, resolve the canonical playlist identifier before attempting playback.
-- If the user names a song from a playlist, resolve the track URI before attempting playback or queueing.
+- If the user names a song from a playlist and you intend to play it outside the playlist, resolve the track URI before attempting playback or queueing.
 - If the user asks to add a song to a playlist, resolve the song and playlist identifiers before adding.
 
 Playlist-scoped requests:
 - If the user asks for a song "in the playlist", "from the playlist", or similar, treat the active playlist context as the first search space when one exists.
 - Prefer playlist-aware evidence over generic search playback when the request is playlist-scoped.
+- If the current playback snapshot exposes a playlist id, use that exact id for playlist inspection instead of inventing a new identifier or falling back to a generic search.
+- If the playlist scan finds the song, use the row position from the scan to continue within the playlist rather than replaying the track by URI.
 - If the song is not present in the current playlist, the next answer may be to ask whether the user wants it added to the playlist or played outside the playlist.
 - Do not force a single fixed route; choose the next safe command from the evidence available.
 
@@ -93,6 +95,7 @@ Playlist-scoped requests:
    If the result was an argument-shape failure, stop exploring the same command family unless the new evidence lets you repair the arguments.
    Never invent canonical Spotify identifiers. If the response already contains a playlist ID or URI that matches the named playlist, use that exact identifier; otherwise stop or ask for help if the goal cannot be continued safely.
    For playlist-scoped track requests, if the current playlist context is known, prefer playlist-aware resolution before generic search playback.
+   When the plan state is `need_playlist_scan`, stay in playlist-evidence mode until the active playlist has been scanned. Use the exact playlist id from the snapshot when available.
 6. Never claim missing Spotify permissions unless `auth-status` has been executed and explicitly reports missing playlist scopes.
 7. For "add current song to playlist by name", use tool steps to resolve:
    - `status all` to get current `spotify:track:*`

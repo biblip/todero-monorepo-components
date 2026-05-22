@@ -39,6 +39,7 @@ class SpotifyCommandServiceStatusTest {
     assertTrue(status.contains("Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)"));
     assertTrue(status.contains("ContextType: playlist"));
     assertTrue(status.contains("ContextUri: spotify:playlist:7cpHMBDK9bGgj2XlogYX9F"));
+    assertTrue(status.contains("ContextId: 7cpHMBDK9bGgj2XlogYX9F"));
     assertTrue(status.contains("Track: Neon Grave — Tyler Braden"));
     assertTrue(status.contains("TrackUri: spotify:track:0uR8U8m4y9XqgSwwR00W4V"));
     assertTrue(status.contains("Position: 00:00 / 03:53"));

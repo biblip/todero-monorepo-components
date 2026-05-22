@@ -710,6 +710,10 @@ public class SpotifyCommandService {
       if (all) {
         sb.append("ContextType: ").append(firstNonBlank(snapshot.contextType(), "<unknown>")).append("\n");
         sb.append("ContextUri: ").append(snapshot.contextUri()).append("\n");
+        String contextId = resolveContextId(snapshot);
+        if (!contextId.isBlank()) {
+          sb.append("ContextId: ").append(contextId).append("\n");
+        }
       }
     }
 
@@ -742,6 +746,21 @@ public class SpotifyCommandService {
       }
     }
     return sb.toString().trim();
+  }
+
+  private static String resolveContextId(PlaybackSnapshot snapshot) {
+    if (snapshot == null || snapshot.contextUri() == null || snapshot.contextUri().isBlank()) {
+      return "";
+    }
+    String contextType = firstNonBlank(snapshot.contextType(), "");
+    String contextUri = snapshot.contextUri().trim();
+    if ("playlist".equalsIgnoreCase(contextType) && contextUri.startsWith("spotify:playlist:")) {
+      return contextUri.substring("spotify:playlist:".length()).trim();
+    }
+    if (contextUri.startsWith("spotify:")) {
+      return contextUri.substring("spotify:".length()).trim();
+    }
+    return "";
   }
 
   private static String firstNonBlank(String value, String fallback) {

@@ -138,6 +138,22 @@ class AgentDJActionValidationTest {
   }
 
   @Test
+  void directTrackPlaybackRequestsRequireContextSnapshotBeforePlanning() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "explicit_request", "Rivers of Babylon", true, false, true, 1, 0.95d, "test");
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class,
+        String.class);
+    method.setAccessible(true);
+
+    Object result = method.invoke(component, goalIntent, List.of(), List.of(), "play Rivers of Babylon");
+    assertEquals("need_context_snapshot", result);
+  }
+
+  @Test
   void playlistScopedTrackRequestsPreferPlaylistResolutionOverGenericSearchPlayback() throws Exception {
     Object component = new AgentDJComponent(new InMemoryStorage());
     Object goalIntent = newGoalIntent("general_spotify_control", "playlist", "Rivers of Babylon", true, false, true, 1, 0.95d, "test");
@@ -146,7 +162,7 @@ class AgentDJActionValidationTest {
         "status all",
         "status",
         "all",
-        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47\nPlaylistPosition: 4/99",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nContextId: 7cpHMBDK9bGgj2XlogYX9F\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47\nPlaylistPosition: 4/99",
         0L,
         0L,
         0L);
@@ -155,6 +171,7 @@ class AgentDJActionValidationTest {
             Device: Arturo’s Mac mini
             Playing: true
             Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+            ContextId: 7cpHMBDK9bGgj2XlogYX9F
             Track: Desesperada — Marta Sánchez
             URI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi
             Position: 00:21 / 03:47
@@ -171,6 +188,42 @@ class AgentDJActionValidationTest {
 
     Object result = method.invoke(component, goalIntent, List.of(), List.of(observation), "play Rivers of Babylon in the playlist");
     assertEquals("need_playlist_resolution", result);
+  }
+
+  @Test
+  void directTrackPlaybackRequestsInPlaylistContextPreferPlaylistResolution() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "explicit_request", "Rivers of Babylon", true, false, true, 1, 0.95d, "test");
+    Object statusStep = newToolStep(
+        1,
+        "status all",
+        "status",
+        "all",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nContextId: 7cpHMBDK9bGgj2XlogYX9F\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47\nPlaylistPosition: 4/99",
+        0L,
+        0L,
+        0L);
+    Object tool = newToolExecution(true, "status", "all", """
+        Device: Arturo’s Mac mini
+        Playing: true
+        Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+        ContextId: 7cpHMBDK9bGgj2XlogYX9F
+        Track: Desesperada — Marta Sánchez
+        URI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi
+        Position: 00:21 / 03:47
+        PlaylistPosition: 4/99
+        """, "", "", "INTERMEDIATE_RESULT");
+    Object observation = invokeObservation(component, "play Rivers of Babylon", goalIntent, 1, tool, List.of(statusStep));
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class,
+        String.class);
+    method.setAccessible(true);
+
+    Object result = method.invoke(component, goalIntent, List.of(statusStep), List.of(observation), "play Rivers of Babylon");
+    assertEquals("need_playlist_scan", result);
   }
 
   @Test
@@ -266,6 +319,7 @@ class AgentDJActionValidationTest {
     assertEquals("", accessor(observation, "playlistPosition"));
     assertEquals("playlist", accessor(observation, "contextType"));
     assertEquals("spotify:playlist:7cpHMBDK9bGgj2XlogYX9F", accessor(observation, "contextUri"));
+    assertEquals("7cpHMBDK9bGgj2XlogYX9F", accessor(observation, "contextId"));
     assertEquals(Boolean.FALSE, accessor(observation, "playbackActive"));
     assertTrue(((String) accessor(observation, "usefulFacts")).contains("playback_active=false"));
   }
@@ -288,13 +342,141 @@ class AgentDJActionValidationTest {
         "status all",
         "status",
         "all",
-        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47\nPlaylistPosition: 4/99",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nContextId: 7cpHMBDK9bGgj2XlogYX9F\nTrack: Desesperada — Marta Sánchez\nURI: spotify:track:5XRV6ZW1D8SpdXMXmuuhQi\nPosition: 00:21 / 03:47\nPlaylistPosition: 4/99",
         0L,
         0L,
         0L)));
 
     assertEquals("4/99", accessor(observation, "playlistPosition"));
     assertTrue(((String) accessor(observation, "usefulFacts")).contains("playlist_position=4/99"));
+    assertEquals("7cpHMBDK9bGgj2XlogYX9F", accessor(observation, "contextId"));
+  }
+
+  @Test
+  void playlistScanExactTrackCandidatePromotesCandidateState() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "playlist", "Rivers of Babylon", true, false, true, 1, 0.95d, "test");
+    Object statusStep = newToolStep(
+        1,
+        "status all",
+        "status",
+        "all",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nContextId: 7cpHMBDK9bGgj2XlogYX9F\nTrack: Oxygène, Pt. 2 — Jean-Michel Jarre\nURI: spotify:track:7vLKG4ww0P8seUUsbgpcz3\nPosition: 00:21 / 07:46\nPlaylistPosition: 3/99",
+        0L,
+        0L,
+        0L);
+    Object playlistStep = newToolStep(
+        2,
+        "playlist-list 7cpHMBDK9bGgj2XlogYX9F 100",
+        "playlist-list",
+        "7cpHMBDK9bGgj2XlogYX9F 100",
+        "Playlist: 7cpHMBDK9bGgj2XlogYX9F\n 5) Rivers of Babylon — Boney M. [uri=spotify:track:78His8pbKjbDQF7aX5asgv]",
+        0L,
+        0L,
+        0L);
+    Object statusObservation = invokeObservation(component, "play Rivers of Babylon in the current playlist", goalIntent, 1,
+        newToolExecution(true, "status", "all", """
+            Device: Arturo’s Mac mini
+            Playing: true
+            Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+            ContextId: 7cpHMBDK9bGgj2XlogYX9F
+            Track: Oxygène, Pt. 2 — Jean-Michel Jarre
+            URI: spotify:track:7vLKG4ww0P8seUUsbgpcz3
+            Position: 00:21 / 07:46
+            PlaylistPosition: 3/99
+            """, "", "", "INTERMEDIATE_RESULT"),
+        List.of(statusStep));
+    Object observation = invokeObservation(component, "play Rivers of Babylon in the current playlist", goalIntent, 2,
+        newToolExecution(true, "playlist-list", "7cpHMBDK9bGgj2XlogYX9F 100", """
+            Playlist: 7cpHMBDK9bGgj2XlogYX9F
+             5) Rivers of Babylon — Boney M. [uri=spotify:track:78His8pbKjbDQF7aX5asgv]
+            """, "", "", "INTERMEDIATE_RESULT"),
+        List.of(statusStep, playlistStep));
+
+    assertEquals("Rivers of Babylon — Boney M.", accessor(observation, "canonicalName"));
+    assertEquals("spotify:playlist:7cpHMBDK9bGgj2XlogYX9F", accessor(observation, "canonicalUri"));
+    assertEquals("7cpHMBDK9bGgj2XlogYX9F", accessor(observation, "canonicalId"));
+    assertEquals("5", accessor(observation, "playlistTrackPosition"));
+    assertEquals("snapshot active playback so the next step can search the current playlist with exact context", accessor(statusObservation, "observationGoal"));
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class,
+        String.class);
+    method.setAccessible(true);
+
+    Object result = method.invoke(component, goalIntent, List.of(statusStep, playlistStep), List.of(statusObservation, observation), "play Rivers of Babylon in the current playlist");
+    assertEquals("have_playlist_track_candidate", result);
+
+    Object playStep = newToolStep(
+        3,
+        "playlist-play 7cpHMBDK9bGgj2XlogYX9F 4",
+        "playlist-play",
+        "7cpHMBDK9bGgj2XlogYX9F 4",
+        "Playing context spotify:playlist:7cpHMBDK9bGgj2XlogYX9F at index 4.",
+        0L,
+        0L,
+        0L);
+    Object playObservation = invokeObservation(component, "play Rivers of Babylon in the current playlist", goalIntent, 3,
+        newToolExecution(true, "playlist-play", "7cpHMBDK9bGgj2XlogYX9F 4", "Playing context spotify:playlist:7cpHMBDK9bGgj2XlogYX9F at index 4.", "", "", "INTERMEDIATE_RESULT"),
+        List.of(statusStep, playlistStep, playStep));
+
+    assertEquals("5", accessor(playObservation, "playlistTrackPosition"));
+    assertEquals("goal_completed", method.invoke(component, goalIntent, List.of(statusStep, playlistStep, playStep), List.of(statusObservation, observation, playObservation), "play Rivers of Babylon in the current playlist"));
+  }
+
+  @Test
+  void playlistScanMissAllowsIntentDrivenFallbackState() throws Exception {
+    Object component = new AgentDJComponent(new InMemoryStorage());
+    Object goalIntent = newGoalIntent("general_spotify_control", "playlist", "Ghost Track", true, false, true, 1, 0.95d, "test");
+    Object statusStep = newToolStep(
+        1,
+        "status all",
+        "status",
+        "all",
+        "Device: Arturo’s Mac mini\nPlaying: true\nContext: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)\nContextId: 7cpHMBDK9bGgj2XlogYX9F\nTrack: Oxygène, Pt. 2 — Jean-Michel Jarre\nURI: spotify:track:7vLKG4ww0P8seUUsbgpcz3\nPosition: 00:21 / 07:46\nPlaylistPosition: 3/99",
+        0L,
+        0L,
+        0L);
+    Object playlistStep = newToolStep(
+        2,
+        "playlist-list 7cpHMBDK9bGgj2XlogYX9F 100",
+        "playlist-list",
+        "7cpHMBDK9bGgj2XlogYX9F 100",
+        "Playlist: 7cpHMBDK9bGgj2XlogYX9F\n 5) Rivers of Babylon — Boney M. [uri=spotify:track:78His8pbKjbDQF7aX5asgv]",
+        0L,
+        0L,
+        0L);
+    Object statusObservation = invokeObservation(component, "play Ghost Track in the current playlist", goalIntent, 1,
+        newToolExecution(true, "status", "all", """
+            Device: Arturo’s Mac mini
+            Playing: true
+            Context: playlist (spotify:playlist:7cpHMBDK9bGgj2XlogYX9F)
+            ContextId: 7cpHMBDK9bGgj2XlogYX9F
+            Track: Oxygène, Pt. 2 — Jean-Michel Jarre
+            URI: spotify:track:7vLKG4ww0P8seUUsbgpcz3
+            Position: 00:21 / 07:46
+            PlaylistPosition: 3/99
+            """, "", "", "INTERMEDIATE_RESULT"),
+        List.of(statusStep));
+    Object observation = invokeObservation(component, "play Ghost Track in the current playlist", goalIntent, 2,
+        newToolExecution(true, "playlist-list", "7cpHMBDK9bGgj2XlogYX9F 100", """
+            Playlist: 7cpHMBDK9bGgj2XlogYX9F
+             5) Rivers of Babylon — Boney M. [uri=spotify:track:78His8pbKjbDQF7aX5asgv]
+            """, "", "", "INTERMEDIATE_RESULT"),
+        List.of(statusStep, playlistStep));
+
+    Method method = AgentDJComponent.class.getDeclaredMethod(
+        "inferPlanState",
+        Class.forName("com.shellaia.agent.dj.AgentDJComponent$GoalIntent"),
+        List.class,
+        List.class,
+        String.class);
+    method.setAccessible(true);
+
+    assertEquals("playlist_scan_miss", method.invoke(component, goalIntent, List.of(statusStep, playlistStep), List.of(statusObservation, observation), "play Ghost Track in the current playlist"));
   }
 
   @Test
