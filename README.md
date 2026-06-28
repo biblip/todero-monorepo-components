@@ -162,7 +162,7 @@ If you run the Spotify pair directly, copy environment templates from:
 Assumes `todero-runner.jar` is available at the project root.
 
 ```sh
-java -jar todero-runner.jar   --workspace-dir <path>   --server-type AI   --component com.shellaia.agent.dj   --command process   --body "help"   --no-preprocessors   --no-postprocessors
+java -jar todero-runner.jar   --workspace-dir <path>   --server-type AI   --component com.shellaia.agent.spotify   --command process   --body "help"   --no-preprocessors   --no-postprocessors
 ```
 
 Behavior notes:

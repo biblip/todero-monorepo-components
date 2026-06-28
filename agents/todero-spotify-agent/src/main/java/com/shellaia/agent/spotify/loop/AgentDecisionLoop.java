@@ -1,4 +1,4 @@
-package com.shellaia.agent.dj.loop;
+package com.shellaia.agent.spotify.loop;
 
 import com.social100.todero.common.command.CommandContext;
 

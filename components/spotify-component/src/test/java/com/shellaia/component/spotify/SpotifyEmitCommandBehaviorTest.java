@@ -50,12 +50,12 @@ class SpotifyEmitCommandBehaviorTest {
 
   @Test
   void emitThoughtUsesThoughtChannelAndPlainText() {
-    CapturedEmit captured = executeEmit("/com.shellaia.spotify/emit?channel=thought&message=route%3Ddj");
+    CapturedEmit captured = executeEmit("/com.shellaia.spotify/emit?channel=thought&message=route%3Dspotify");
 
     assertEquals(200, captured.response.getStatusCode());
     assertEquals("thought", captured.event.getAiatpEvent().getChannel());
     assertEquals(
-        "route=dj",
+        "route=spotify",
         AiatpIO.bodyToString(captured.event.getAiatpEvent().getBody(), StandardCharsets.UTF_8)
     );
   }

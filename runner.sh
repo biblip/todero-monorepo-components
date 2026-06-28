@@ -2,7 +2,7 @@
 set -euo pipefail
 
 workspace_dir="${1:-./workspace}"
-component_name="${2:-com.shellaia.agent.dj}"
+component_name="${2:-com.shellaia.agent.spotify}"
 command_name="${3:-process}"
 body_value="${4:-get status}"
 #modules_to_copy=(

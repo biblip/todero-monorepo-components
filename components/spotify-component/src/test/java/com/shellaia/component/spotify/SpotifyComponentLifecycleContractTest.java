@@ -47,4 +47,27 @@ class SpotifyComponentLifecycleContractTest {
     String body = AiatpIO.bodyToString(seen.get().getBody(), StandardCharsets.UTF_8);
     assertTrue(body.contains("Spotify authorization is required"));
   }
+
+  @Test
+  void capabilitiesActionReturnsManifest() {
+    SpotifyComponentImpl component = new SpotifyComponentImpl((eventName, wrapper) -> {
+    }, new TestStorage());
+    AtomicReference<AiatpResponse> seen = new AtomicReference<>();
+
+    CommandContext context = CommandContext.builder()
+        .sourceId("spotify-capabilities")
+        .aiatpRequest(AiatpRuntimeAdapter.request("ACTION", "/com.shellaia.spotify/capabilities", AiatpIO.Body.ofString("", StandardCharsets.UTF_8)))
+        .responseConsumer(seen::set)
+        .build();
+
+    assertTrue(component.execute("com.shellaia.spotify", "capabilities", context));
+
+    assertNotNull(seen.get());
+    assertEquals(200, seen.get().getStatusCode());
+    assertEquals("capabilities", seen.get().getReasonPhrase());
+    String body = AiatpIO.bodyToString(seen.get().getBody(), StandardCharsets.UTF_8);
+    assertTrue(body.contains("\"manifest\""));
+    assertTrue(body.contains("\"componentName\":\"com.shellaia.spotify\""));
+    assertTrue(body.contains("\"capabilities\""));
+  }
 }

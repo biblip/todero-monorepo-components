@@ -1,4 +1,4 @@
-package com.shellaia.agent.dj;
+package com.shellaia.agent.spotify;
 
 import org.junit.jupiter.api.Test;
 

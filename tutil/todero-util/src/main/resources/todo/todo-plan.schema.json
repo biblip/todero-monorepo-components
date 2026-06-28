@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shellaia.com/schema/tutil/todo-plan.schema.json",
+  "title": "Todero Util Todo Plan Document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "exportedAt",
+    "goals"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "tutil.todo.plan.v1"
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string"
+    },
+    "goals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/goal"
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PLANNED",
+        "READY",
+        "IN_PROGRESS",
+        "BLOCKED",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED"
+      ]
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "status",
+        "outcome",
+        "priority",
+        "dependencyTaskIds",
+        "claimedBy",
+        "metadata",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ownerId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "status": { "$ref": "#/$defs/status" },
+        "outcome": { "type": "string" },
+        "dueAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "priority": { "type": "integer" },
+        "dependencyTaskIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "claimedBy": { "type": "string" },
+        "claimedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "claimExpiresAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "metadata": { "$ref": "#/$defs/metadata" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "status",
+        "outcome",
+        "tasks",
+        "metadata",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ownerId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "status": { "$ref": "#/$defs/status" },
+        "outcome": { "type": "string" },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/task" }
+        },
+        "metadata": { "$ref": "#/$defs/metadata" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "status",
+        "outcome",
+        "phases",
+        "metadata",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ownerId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "status": { "$ref": "#/$defs/status" },
+        "outcome": { "type": "string" },
+        "phases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/phase" }
+        },
+        "metadata": { "$ref": "#/$defs/metadata" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "version": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

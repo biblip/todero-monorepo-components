@@ -1,4 +1,4 @@
-package com.shellaia.agent.dj;
+package com.shellaia.agent.spotify;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;

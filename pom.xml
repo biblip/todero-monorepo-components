@@ -9,6 +9,7 @@
     <module>components</module>
     <module>agents</module>
     <module>processors</module>
+    <module>tutil</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

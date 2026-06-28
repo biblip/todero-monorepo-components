@@ -14,6 +14,7 @@ import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.model.component.ComponentNotReadyException;
 import com.social100.todero.common.runtime.auth.AuthorizationErrorCode;
 import com.social100.todero.common.runtime.auth.AuthorizationSecureEnvelope;
+import com.social100.todero.common.routing.ToolCapabilityManifest;
 import com.social100.todero.common.storage.Storage;
 import com.shellaia.component.spotify.core.SpotifyCommandService;
 import com.shellaia.component.spotify.core.SpotifyConfig;
@@ -49,7 +50,7 @@ import static com.social100.todero.common.config.Util.parseDotenv;
     externalAuthStatusProvider = SpotifyExternalAuthStatusProvider.class)
 public class SpotifyComponent {
   private static final Gson GSON = new Gson();
-  private static final String DJ_AGENT = "com.shellaia.agent.dj";
+  private static final String SPOTIFY_AGENT = "com.shellaia.agent.spotify";
   private static final long DEFAULT_NOTIFY_MIN_MS = 2500L;
   private static final String COMPONENT_HTML_TEMPLATE =
       loadResourceText("com/shellaia/component/spotify/component.html");
@@ -73,6 +74,38 @@ public class SpotifyComponent {
 
   public SpotifyComponent(Storage storage) {
     this.storage = storage;
+  }
+
+  @Action(group = SpotifyCommandService.MAIN_GROUP,
+      command = "capabilities",
+      description = "Return the Spotify tool capability manifest for discovery.")
+  public Boolean capabilities(CommandContext context) {
+    try {
+      ToolCapabilityManifest manifest = new SpotifyToolCapabilities().manifest();
+      String payload = GSON.toJson(Map.of("manifest", manifest));
+      context.complete(buildWireResponse(
+          "status",
+          "success",
+          "capabilities",
+          payload,
+          "application/json; charset=utf-8",
+          null,
+          null,
+          null
+      ));
+    } catch (Exception e) {
+      context.complete(buildWireResponse(
+          "error",
+          "failure",
+          "capabilities_failed",
+          "Spotify capability manifest could not be generated.",
+          "text/plain; charset=utf-8",
+          "capabilities_failed",
+          false,
+          null
+      ));
+    }
+    return true;
   }
 
   @Action(group = SpotifyCommandService.MAIN_GROUP,
@@ -250,15 +283,15 @@ public class SpotifyComponent {
         try {
           AiatpRequest internalRequest = AiatpRuntimeAdapter.request(
               "ACTION",
-              "/" + DJ_AGENT + "/react",
+              "/" + SPOTIFY_AGENT + "/react",
               AiatpIO.Body.ofString(payload, StandardCharsets.UTF_8)
           );
           CommandContext internal = CommandContext.builder()
               .aiatpRequest(internalRequest)
               .responseConsumer(ignored -> {})
               .build();
-          context.execute(DJ_AGENT, "react", internal);
-          System.out.println("[SPOTIFY] notify-agent execute sent to DJ agent");
+          context.execute(SPOTIFY_AGENT, "react", internal);
+          System.out.println("[SPOTIFY] notify-agent execute sent to Spotify agent");
         } catch (Exception e) {
           System.out.println("[SPOTIFY] notify-agent execute skipped reason=execute_failed type="
               + e.getClass().getSimpleName() + " message=" + e.getMessage());

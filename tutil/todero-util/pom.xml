@@ -2,28 +2,30 @@
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>com.shellaia</groupId>
-    <artifactId>agents</artifactId>
+    <artifactId>tutil</artifactId>
     <version>0.1.42-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
-  <artifactId>spotify-agent</artifactId>
+  <artifactId>todero-util</artifactId>
   <packaging>jar</packaging>
-  <name>spotify-agent</name>
+  <name>todero-util</name>
+  <properties>
+    <todero.runtime.metadata.enforcer.skip>true</todero.runtime.metadata.enforcer.skip>
+  </properties>
   <dependencies>
     <dependency>
-      <groupId>com.shellaia</groupId>
-      <artifactId>todero-util</artifactId>
-      <version>${project.version}</version>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
     </dependency>
     <dependency>
-      <groupId>com.social100.todero</groupId>
-      <artifactId>todero-component-api</artifactId>
-      <version>${todero.version}</version>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+      <version>${jackson.version}</version>
     </dependency>
     <dependency>
-      <groupId>com.social100.todero</groupId>
-      <artifactId>aiatp-io</artifactId>
-      <version>${todero.version}</version>
+      <groupId>org.rocksdb</groupId>
+      <artifactId>rocksdbjni</artifactId>
+      <version>9.10.0</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -40,13 +42,6 @@
         <version>3.11.0</version>
         <configuration>
           <release>${maven.compiler.release}</release>
-          <annotationProcessorPaths>
-            <path>
-              <groupId>com.social100.todero</groupId>
-              <artifactId>processor</artifactId>
-              <version>${todero.version}</version>
-            </path>
-          </annotationProcessorPaths>
         </configuration>
       </plugin>
       <plugin>

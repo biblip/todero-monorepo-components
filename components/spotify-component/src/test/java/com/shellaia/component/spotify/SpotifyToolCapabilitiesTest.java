@@ -24,7 +24,7 @@ class SpotifyToolCapabilitiesTest {
     Map<String, ToolCommandSchema> commands = manifest.getCommands().stream()
         .collect(Collectors.toMap(ToolCommandSchema::getName, c -> c));
 
-    assertEquals(42, commands.size());
+    assertEquals(43, commands.size());
     assertCommand(commands.get("events"), "events", List.of("ON|OFF"),
         List.of("intervalMs", "notify-agent=true|false", "notify-min-ms=<ms>", "output=typed|legacy", "filter=all|track|playback|device|context"),
         List.of("events ON", "events OFF 1500 notify-agent=true output=typed filter=track"));
@@ -44,6 +44,7 @@ class SpotifyToolCapabilitiesTest {
     assertCommand(commands.get("play"), "play", List.of(), List.of("[media]"), List.of("play", "play enya caribbean blue"));
     assertCommand(commands.get("skip"), "skip", List.of("<+/-seconds>"), List.of(), List.of("skip 30", "skip -15"));
     assertCommand(commands.get("status"), "status", List.of(), List.of("[all]"), List.of("status", "status all"));
+    assertCommand(commands.get("capabilities"), "capabilities", List.of(), List.of(), List.of("capabilities"));
     assertCommand(commands.get("stop"), "stop", List.of(), List.of(), List.of("stop"));
     assertCommand(commands.get("volume"), "volume", List.of("<level>"), List.of(), List.of("volume 75"));
     assertCommand(commands.get("volume-down"), "volume-down", List.of(), List.of(), List.of("volume-down"));

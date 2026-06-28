@@ -1,4 +1,4 @@
-package com.shellaia.agent.dj;
+package com.shellaia.agent.spotify;
 
 import com.social100.todero.common.routing.AgentCapabilityManifest;
 import com.social100.todero.common.routing.AgentCapabilityProvider;
@@ -7,38 +7,55 @@ import com.social100.todero.common.routing.AgentCommandSchema;
 import java.util.List;
 import java.util.Map;
 
-public final class DjAgentCapabilities implements AgentCapabilityProvider {
+public final class SpotifyAgentCapabilities implements AgentCapabilityProvider {
   @Override
   public AgentCapabilityManifest manifest() {
     return AgentCapabilityManifest.builder()
         .contractVersion(2)
-        .agentName("com.shellaia.agent.dj")
+        .agentName("com.shellaia.agent.spotify")
         .intents(List.of(
-            "music.play", "music.pause", "music.stop", "music.volume",
-            "music.playlist.list", "music.playlist.play", "music.playlist.add",
-            "music.entity.resolve", "music.recommend", "music.events"
+            "music.play",
+            "music.pause",
+            "music.stop",
+            "music.playlist.play",
+            "music.playback.device",
+            "music.playback.device.select",
+            "music.plan.inspect",
+            "music.plan.export"
         ))
         .commands(List.of(
             command("process",
                 List.of("<goal>"),
                 List.of(),
-                List.of("process play enya caribbean blue", "process add this song to my playlist")),
+                List.of("process play rivers of babylon", "process go to song 4")),
+            command("health",
+                List.of(),
+                List.of(),
+                List.of("health")),
+            command("plan-status",
+                List.of("<goalId>"),
+                List.of(),
+                List.of("plan-status 123e4567-e89b-12d3-a456-426614174000")),
+            command("plan-export",
+                List.of("<goalId>"),
+                List.of(),
+                List.of("plan-export 123e4567-e89b-12d3-a456-426614174000")),
             command("capabilities",
                 List.of(),
                 List.of(),
                 List.of("capabilities"))
         ))
         .followUpPolicyHints(Map.of(
-            "supports_latest", "true",
-            "slot_track_uri", "last_track_uri",
-            "slot_playlist_id", "last_playlist_id"
+            "supports_plan_export", "true",
+            "supports_plan_status", "true",
+            "supports_device_selection", "true"
         ))
         .routingHints(Map.of(
             "toolComponentName", "com.shellaia.spotify",
-            "routingKeywords", "music,spotify,dj,playback,playlist,songs,recommendations,audio,resolve,lookup,search,playlist id,track uri",
+            "routingKeywords", "music,spotify,todo,plan,playlist,track,execution,verification,devices,select-device,playback device",
             "canHandleOpaqueRelay", "true",
             "domain", "music",
-            "confidenceBias", "high"
+            "confidenceBias", "medium"
         ))
         .build();
   }
