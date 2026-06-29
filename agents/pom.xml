@@ -36,6 +36,7 @@
     </plugins>
   </build>
   <modules>
+    <module>todero-context-agent</module>
     <module>todero-spotify-agent</module>
     <module>todero-term-agent</module>
   </modules>

@@ -1,0 +1,1264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${TITLE}</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f7fb;
+      --bg-2: #eef2ff;
+      --card: rgba(255, 255, 255, 0.82);
+      --card-border: rgba(148, 163, 184, 0.22);
+      --text: #0f172a;
+      --muted: #475569;
+      --primary: #0f172a;
+      --primary-strong: #020617;
+      --accent: #2563eb;
+      --accent-soft: rgba(37, 99, 235, 0.12);
+      --good: #059669;
+      --warn: #b45309;
+      --bad: #b91c1c;
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+      --radius-xl: 24px;
+      --radius-lg: 18px;
+      --radius-md: 14px;
+      --radius-pill: 999px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1220;
+        --bg-2: #111827;
+        --card: rgba(15, 23, 42, 0.88);
+        --card-border: rgba(148, 163, 184, 0.16);
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --primary: #e5e7eb;
+        --primary-strong: #ffffff;
+        --accent: #60a5fa;
+        --accent-soft: rgba(96, 165, 250, 0.14);
+        --shadow: 0 30px 70px rgba(2, 6, 23, 0.45);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 30%),
+        radial-gradient(circle at top right, rgba(15, 23, 42, 0.10), transparent 26%),
+        linear-gradient(180deg, var(--bg), var(--bg-2));
+    }
+    a { color: inherit; }
+    .shell {
+      min-height: 100%;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .hero {
+      display: flex;
+      align-items: stretch;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 22px 24px;
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-xl);
+      background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.48));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+    @media (prefers-color-scheme: dark) {
+      .hero {
+        background: linear-gradient(180deg, rgba(15,23,42,0.88), rgba(15,23,42,0.72));
+      }
+    }
+    .hero-main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-self: flex-start;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 3vw, 44px);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+      max-width: 70ch;
+    }
+    .hero-side {
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      justify-content: space-between;
+    }
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--card-border);
+      background: rgba(255,255,255,0.5);
+      font-size: 12px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    @media (prefers-color-scheme: dark) {
+      .pill { background: rgba(15,23,42,0.78); }
+    }
+    .pill b { font-weight: 700; }
+    .grid {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1.2fr 0.9fr;
+      gap: 18px;
+    }
+    @media (max-width: 1100px) {
+      .hero { flex-direction: column; }
+      .hero-side { min-width: 0; }
+      .pill-row { justify-content: flex-start; }
+      .grid { grid-template-columns: 1fr; }
+    }
+    .panel {
+      min-height: 0;
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-xl);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-head {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .panel-head h2 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .panel-head p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px;
+      min-height: 0;
+    }
+    .composer {
+      display: grid;
+      grid-template-columns: 1fr 180px;
+      gap: 12px;
+    }
+    @media (max-width: 800px) {
+      .composer { grid-template-columns: 1fr; }
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    input[type="text"],
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--card-border);
+      background: rgba(255,255,255,0.72);
+      color: var(--text);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      font: inherit;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+    }
+    @media (prefers-color-scheme: dark) {
+      input[type="text"], textarea, select { background: rgba(2,6,23,0.4); }
+    }
+    input[type="text"]:focus,
+    textarea:focus,
+    select:focus {
+      border-color: rgba(37, 99, 235, 0.55);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .tab-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 18px 6px;
+    }
+    .tab-btn {
+      border: 1px solid var(--card-border);
+      background: rgba(255,255,255,0.48);
+      color: var(--muted);
+      border-radius: var(--radius-pill);
+      padding: 9px 14px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      transition: transform .15s ease, background .15s ease, color .15s ease, border-color .15s ease;
+    }
+    @media (prefers-color-scheme: dark) {
+      .tab-btn { background: rgba(2,6,23,0.42); }
+    }
+    .tab-btn:hover {
+      transform: translateY(-1px);
+      color: var(--text);
+    }
+    .tab-btn.active {
+      color: var(--primary-strong);
+      background: var(--accent-soft);
+      border-color: rgba(37, 99, 235, 0.30);
+      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.10);
+    }
+    .tab-btn .count {
+      margin-left: 8px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.18);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .tab-btn.active .count {
+      background: rgba(37, 99, 235, 0.16);
+      color: var(--accent);
+    }
+    .view-select-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      flex-wrap: wrap;
+    }
+    .view-select {
+      min-width: 92px;
+      width: 92px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      background: rgba(255,255,255,0.60);
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      outline: none;
+    }
+    @media (prefers-color-scheme: dark) {
+      .view-select { background: rgba(2,6,23,0.42); }
+    }
+    .view-select:focus {
+      border-color: rgba(37, 99, 235, 0.55);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    }
+    .view-select:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn {
+      border: 1px solid transparent;
+      border-radius: var(--radius-pill);
+      padding: 10px 14px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .btn.primary {
+      background: linear-gradient(180deg, var(--primary), var(--primary-strong));
+      color: white;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.24);
+    }
+    .btn.secondary {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--card-border);
+    }
+    .btn.soft {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: rgba(37,99,235,0.16);
+    }
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      background: rgba(255,255,255,0.52);
+      color: var(--text);
+      font: inherit;
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease, color .15s ease;
+    }
+    @media (prefers-color-scheme: dark) {
+      .icon-btn { background: rgba(2,6,23,0.34); }
+    }
+    .icon-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 18px rgba(15,23,42,0.10);
+      border-color: rgba(37,99,235,0.28);
+    }
+    .icon-btn.secondary {
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-color: rgba(37,99,235,0.16);
+    }
+    .icon-btn.good {
+      color: var(--good);
+      background: rgba(5, 150, 105, 0.10);
+      border-color: rgba(5, 150, 105, 0.18);
+    }
+    .icon-btn.bad {
+      color: var(--bad);
+      background: rgba(185, 28, 28, 0.10);
+      border-color: rgba(185, 28, 28, 0.18);
+    }
+    .tiny {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .statusbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--card-border);
+      background: rgba(255,255,255,0.45);
+      font-size: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .status { background: rgba(2,6,23,0.38); }
+    }
+    .status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #94a3b8;
+    }
+    .status.ok .dot { background: var(--good); }
+    .status.warn .dot { background: var(--warn); }
+    .status.bad .dot { background: var(--bad); }
+    .reply-card, .info-card {
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      background: rgba(255,255,255,0.52);
+    }
+    @media (prefers-color-scheme: dark) {
+      .reply-card, .info-card { background: rgba(2,6,23,0.34); }
+    }
+    .reply-card pre,
+    .info-card pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: inherit;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .reply-card .meta {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .mini-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: var(--radius-pill);
+      background: rgba(37,99,235,0.10);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 800px) {
+      .split { grid-template-columns: 1fr; }
+    }
+    .durable-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 18px;
+      overflow: auto;
+      min-height: 0;
+    }
+    .durable-list.archival {
+      background: linear-gradient(180deg, rgba(148, 163, 184, 0.06), transparent 28%);
+    }
+    .durable-card {
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      background: rgba(255,255,255,0.54);
+      cursor: pointer;
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+    @media (prefers-color-scheme: dark) {
+      .durable-card { background: rgba(2,6,23,0.36); }
+    }
+    .durable-card.archival {
+      border-color: rgba(148, 163, 184, 0.22);
+      background: linear-gradient(180deg, rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.03)), rgba(255,255,255,0.62);
+    }
+    @media (prefers-color-scheme: dark) {
+      .durable-card.archival {
+        background: linear-gradient(180deg, rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.03)), rgba(2,6,23,0.32);
+      }
+    }
+    .durable-card.archival .durable-kind {
+      color: #64748b;
+    }
+    .durable-card.archival .durable-title {
+      color: var(--muted);
+    }
+    .durable-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(15,23,42,0.08);
+      border-color: rgba(37,99,235,0.3);
+    }
+    .durable-card.selected {
+      border-color: rgba(37,99,235,0.62);
+      box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
+    }
+    .durable-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 8px;
+    }
+    .durable-kind {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .durable-title {
+      margin-top: 4px;
+      font-size: 14px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+    .durable-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .durable-actions {
+      margin-top: 12px;
+      justify-content: flex-end;
+    }
+    .muted { color: var(--muted); }
+    .empty {
+      border: 1px dashed var(--card-border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.35);
+    }
+    @media (prefers-color-scheme: dark) {
+      .empty { background: rgba(2,6,23,0.26); }
+    }
+    .footer-note {
+      padding: 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(2, 6, 23, 0.42);
+      z-index: 50;
+    }
+    .dialog-backdrop.open { display: flex; }
+    .dialog {
+      width: min(760px, 100%);
+      max-height: min(92vh, 920px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-xl);
+      background: var(--card);
+      box-shadow: 0 30px 70px rgba(2, 6, 23, 0.32);
+      backdrop-filter: blur(18px);
+    }
+    .dialog-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .dialog-head h3 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+    .dialog-body {
+      padding: 18px;
+      overflow: auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .dialog-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 14px 18px 18px;
+      border-top: 1px solid var(--card-border);
+    }
+    .dialog-close {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+    .dialog-close:hover {
+      background: rgba(37, 99, 235, 0.08);
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-main">
+        <span class="eyebrow">Context Agent</span>
+        <h1>${HEADING}</h1>
+        <p class="subtitle">${SUBHEADING}</p>
+      </div>
+      <div class="hero-side">
+        <div class="pill-row">
+          <span id="bridge-pill" class="pill"><b>Bridge</b> <span id="bridge-status">checking</span></span>
+          <span class="pill"><b>Generated</b> ${GENERATED_AT}</span>
+          <span class="pill"><b>Thread</b> <span id="thread-pill">default</span></span>
+        </div>
+        <div class="statusbar">
+          <span id="reply-status" class="status warn"><span class="dot"></span><span>Idle</span></span>
+          <span id="durable-status" class="status"><span class="dot"></span><span>Durables not loaded</span></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Conversation</h2>
+            <p>Send a turn, keep the current subject in view, and surface durable items without losing provenance.</p>
+          </div>
+          <div class="actions">
+            <button id="btn-refresh" class="btn secondary" type="button">Refresh durables</button>
+            <button id="btn-clear" class="btn soft" type="button">Clear feed</button>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="composer">
+            <div class="field" style="grid-column:1 / -1;">
+              <label for="message">Message</label>
+              <textarea id="message" placeholder="Ask the agent, set a reminder, or continue a subject..."></textarea>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="btn-send" class="btn primary" type="button">Send</button>
+            <button id="btn-include-metadata" class="btn secondary" type="button" aria-pressed="true">Metadata: on</button>
+            <span class="tiny">The response feed stays compact unless you ask for more context.</span>
+          </div>
+
+          <div class="info-card">
+            <div class="mini-pill">Current context</div>
+            <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+              <span class="pill"><b>Selected</b> <span id="subject-pill">General mode</span></span>
+              <span class="pill"><b>Tracked</b> <span id="tracked-subject-count">0</span> subject(s)</span>
+            </div>
+            <div id="tracked-subjects" class="meta" style="margin-top:10px;"></div>
+            <div class="tiny" style="margin-top:10px;">The agent infers the subject/context automatically. You only write the message.</div>
+          </div>
+
+          <div class="split">
+            <div class="reply-card">
+              <div class="mini-pill">Assistant reply</div>
+              <pre id="reply-feed">Waiting for a turn...</pre>
+              <div id="reply-meta" class="meta"></div>
+            </div>
+          </div>
+
+          <div class="info-card">
+            <div class="mini-pill">Conversation log</div>
+            <pre id="conversation-log">No turns yet.</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Durables</h2>
+            <p>Reminder and task records live here as first-class durable items for the current thread.</p>
+          </div>
+          <div class="actions">
+            <button id="btn-refresh-json" class="btn secondary" type="button">Load JSON</button>
+          </div>
+        </div>
+        <div class="tab-row" role="tablist" aria-label="Durable items view">
+          <button id="btn-durable-tab-active" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="durable-list">Active tasks <span id="durable-count-active" class="count">0</span></button>
+          <button id="btn-durable-tab-closed" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="durable-list">Archived tasks <span id="durable-count-closed" class="count">0</span></button>
+          <div class="view-select-wrap">
+            <span class="tiny">Archived window</span>
+            <button id="btn-archived-window-minus" class="icon-btn secondary" type="button" title="Decrease archived window by 1 day" aria-label="Decrease archived window by 1 day">−</button>
+            <input id="archived-window-days" class="view-select" type="number" min="1" step="1" inputmode="numeric" aria-label="Archived window days">
+            <button id="btn-archived-window-plus" class="icon-btn secondary" type="button" title="Increase archived window by 1 day" aria-label="Increase archived window by 1 day">+</button>
+            <button id="btn-archived-window-all" class="tab-btn" type="button" title="Show all archived items" aria-label="Show all archived items">All archived</button>
+          </div>
+        </div>
+        <div id="durable-list" class="durable-list">
+          <div class="empty">No durable items loaded yet.</div>
+        </div>
+        <div class="footer-note">Tip: select an item to change its status or inspect the original text.</div>
+      </div>
+    </section>
+  </div>
+
+  <div id="durable-dialog" class="dialog-backdrop" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="durable-dialog-title">
+      <div class="dialog-head">
+        <div>
+          <h3 id="durable-dialog-title">Durable details</h3>
+          <div id="durable-dialog-subtitle" class="muted">Inspect the selected durable and update its status.</div>
+        </div>
+        <button id="btn-durable-dialog-close" class="dialog-close" type="button" aria-label="Close durable details">×</button>
+      </div>
+      <div id="durable-dialog-body" class="dialog-body"></div>
+      <div class="dialog-actions">
+        <button id="btn-durable-dialog-open" class="icon-btn secondary" type="button" title="Mark open" aria-label="Mark open">○</button>
+        <button id="btn-durable-dialog-done" class="icon-btn good" type="button" title="Mark done" aria-label="Mark done">✓</button>
+        <button id="btn-durable-dialog-canceled" class="icon-btn bad" type="button" title="Cancel" aria-label="Cancel">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var bridgeStatus = document.getElementById('bridge-status');
+      var replyStatus = document.getElementById('reply-status');
+      var durableStatus = document.getElementById('durable-status');
+      var threadPill = document.getElementById('thread-pill');
+      var btnSend = document.getElementById('btn-send');
+      var btnRefresh = document.getElementById('btn-refresh');
+      var btnRefreshJson = document.getElementById('btn-refresh-json');
+      var btnClear = document.getElementById('btn-clear');
+      var btnIncludeMetadata = document.getElementById('btn-include-metadata');
+      var btnDurableTabActive = document.getElementById('btn-durable-tab-active');
+      var btnDurableTabClosed = document.getElementById('btn-durable-tab-closed');
+      var durableCountActive = document.getElementById('durable-count-active');
+      var durableCountClosed = document.getElementById('durable-count-closed');
+      var subjectPill = document.getElementById('subject-pill');
+      var trackedSubjectCount = document.getElementById('tracked-subject-count');
+      var trackedSubjects = document.getElementById('tracked-subjects');
+      var archivedWindowDays = document.getElementById('archived-window-days');
+      var btnArchivedWindowMinus = document.getElementById('btn-archived-window-minus');
+      var btnArchivedWindowPlus = document.getElementById('btn-archived-window-plus');
+      var btnArchivedWindowAll = document.getElementById('btn-archived-window-all');
+      var message = document.getElementById('message');
+      var replyFeed = document.getElementById('reply-feed');
+      var replyMeta = document.getElementById('reply-meta');
+      var conversationLog = document.getElementById('conversation-log');
+      var durableList = document.getElementById('durable-list');
+      var includeMetadata = true;
+      var recentInteractions = [];
+      var durableCache = [];
+      var refreshTimer = null;
+      var durableDialog = document.getElementById('durable-dialog');
+      var durableDialogTitle = document.getElementById('durable-dialog-title');
+      var durableDialogSubtitle = document.getElementById('durable-dialog-subtitle');
+      var durableDialogBody = document.getElementById('durable-dialog-body');
+      var btnDurableDialogClose = document.getElementById('btn-durable-dialog-close');
+      var btnDurableDialogOpen = document.getElementById('btn-durable-dialog-open');
+      var btnDurableDialogDone = document.getElementById('btn-durable-dialog-done');
+      var btnDurableDialogCanceled = document.getElementById('btn-durable-dialog-canceled');
+      var dialogRecord = null;
+      var durableView = 'active';
+      var finalizedWindowDays = 30;
+      var subjectTrail = [];
+
+      function bridgeAvailable() {
+        return !!(window.todero && typeof window.todero.callAction === 'function');
+      }
+
+      function render(v) {
+        if (v === undefined) return 'undefined';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return v;
+        try { return JSON.stringify(v, null, 2); } catch (_) { return String(v); }
+      }
+
+      function setStatus(el, kind, text) {
+        el.className = 'status ' + (kind || '');
+        el.innerHTML = '<span class="dot"></span><span>' + escapeHtml(text || '') + '</span>';
+      }
+
+      function escapeHtml(s) {
+        return String(s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function callAction(action, body) {
+        if (!bridgeAvailable()) {
+          return Promise.reject(new Error('window.todero.callAction is not available'));
+        }
+        return window.todero.callAction({ action: action, body: body || '' }).then(function (res) {
+          var text = res && res.response && res.response.body ? (res.response.body.text || '') : '';
+          return { raw: res, text: text };
+        });
+      }
+
+      function tryParseJson(text) {
+        if (!text) return null;
+        try { return JSON.parse(text); } catch (_) { return null; }
+      }
+
+      function appendLog(role, text) {
+        recentInteractions.push(role + ': ' + String(text || '').trim());
+        if (recentInteractions.length > 24) {
+          recentInteractions = recentInteractions.slice(-24);
+        }
+        conversationLog.textContent = recentInteractions.length ? recentInteractions.join('\n\n') : 'No turns yet.';
+      }
+
+      function renderReply(payload, rawText) {
+        var obj = payload || tryParseJson(rawText) || null;
+        if (obj && obj.ok) {
+          replyFeed.textContent = obj.reply || '';
+          var bits = [];
+          if (obj.subjectId) bits.push('subject=' + obj.subjectId);
+          if (obj.branchId) bits.push('branch=' + obj.branchId);
+          if (obj.mode) bits.push('mode=' + obj.mode);
+          if (obj.confirmationRequired !== undefined) bits.push('confirmation=' + obj.confirmationRequired);
+          if (obj.classification && obj.classification.kind) bits.push('kind=' + obj.classification.kind);
+          replyMeta.innerHTML = bits.map(function (part) {
+            return '<span class="mini-pill">' + escapeHtml(part) + '</span>';
+          }).join(' ');
+          var selectedSubject = (obj.subjectId && obj.subjectId.trim()) ? obj.subjectId.trim() : '';
+          subjectPill.textContent = selectedSubject || 'General mode';
+          if (selectedSubject && subjectTrail.indexOf(selectedSubject) === -1) {
+            subjectTrail.push(selectedSubject);
+          }
+          trackedSubjectCount.textContent = String(subjectTrail.length);
+          trackedSubjects.innerHTML = subjectTrail.length ? subjectTrail.map(function (item) {
+            return '<span class="mini-pill">' + escapeHtml(item) + '</span>';
+          }).join(' ') : '<span class="tiny">No subject context tracked yet.</span>';
+          threadPill.textContent = selectedSubject || 'default';
+          return;
+        }
+        replyFeed.textContent = rawText || '';
+        replyMeta.innerHTML = '';
+      }
+
+      function formatDurableCard(record) {
+        var kind = (record.kind || 'UNKNOWN').toUpperCase();
+        var status = (record.status || 'OPEN').toUpperCase();
+        var title = record.content || '';
+        var meta = [];
+        if (record.subjectId) meta.push('subject ' + record.subjectId);
+        if (record.branchId) meta.push('branch ' + record.branchId);
+        return '' +
+          '<div class="durable-head">' +
+            '<div>' +
+              '<div class="durable-kind">' + escapeHtml(kind) + ' · ' + escapeHtml(status) + '</div>' +
+              '<div class="durable-title">' + escapeHtml(title) + '</div>' +
+            '</div>' +
+            '<button class="icon-btn secondary" type="button" data-action="details" title="Show details" aria-label="Show details">○</button>' +
+          '</div>' +
+          '<div class="durable-meta">' + meta.map(function (part) {
+            return '<span class="mini-pill">' + escapeHtml(part) + '</span>';
+          }).join(' ') + '</div>' +
+          (record.sourceText ? '<div class="tiny" style="margin-top:10px;">Source: ' + escapeHtml(record.sourceText) + '</div>' : '') +
+          '<div class="actions durable-actions">' +
+            '<button class="icon-btn secondary" type="button" data-action="details" title="Open details" aria-label="Open details">○</button>' +
+            '<button class="icon-btn good" type="button" data-action="done" title="Mark done" aria-label="Mark done">✓</button>' +
+            '<button class="icon-btn bad" type="button" data-action="canceled" title="Cancel" aria-label="Cancel">✕</button>' +
+          '</div>';
+      }
+
+      function renderDurables(records, view) {
+        durableCache = Array.isArray(records) ? records : [];
+        durableView = view === 'finalized' ? 'closed' : 'active';
+        durableList.classList.toggle('archival', durableView === 'closed');
+        if (durableView === 'active') {
+          durableCountActive.textContent = String(durableCache.length);
+        } else {
+          durableCountClosed.textContent = String(durableCache.length);
+        }
+        if (!durableCache.length) {
+          durableList.innerHTML = '<div class="empty">No ' + escapeHtml(durableView === 'closed' ? 'archived' : 'active') + ' durable reminders or tasks found for this thread yet.</div>';
+          return;
+        }
+        durableList.innerHTML = durableCache.map(function (record) {
+          var cardClass = durableView === 'closed' ? 'durable-card archival' : 'durable-card';
+          return '' +
+            '<article class="' + cardClass + '" data-record-id="' + escapeHtml(record.recordId || '') + '">' +
+              formatDurableCard(record) +
+            '</article>';
+        }).join('');
+        Array.prototype.forEach.call(durableList.querySelectorAll('.durable-card'), function (card) {
+          card.addEventListener('click', function (event) {
+            var actionButton = event.target && event.target.closest ? event.target.closest('[data-action]') : null;
+            var recordId = card.getAttribute('data-record-id');
+            var found = durableCache.find(function (record) { return record.recordId === recordId; });
+            if (!found) return;
+            if (!actionButton) return;
+            event.preventDefault();
+            event.stopPropagation();
+            var action = actionButton.getAttribute('data-action');
+            if (action === 'details') {
+              openDurableDialog(found);
+            } else if (action === 'done') {
+              setDurableStatus(found, 'done');
+            } else if (action === 'canceled') {
+              setDurableStatus(found, 'canceled');
+            }
+          });
+        });
+      }
+
+      function setDurableView(nextView) {
+        var normalizedView = nextView === 'closed' ? 'closed' : 'active';
+        var activeSelected = normalizedView === 'active';
+        btnDurableTabActive.classList.toggle('active', activeSelected);
+        btnDurableTabClosed.classList.toggle('active', !activeSelected);
+        btnDurableTabActive.setAttribute('aria-selected', activeSelected ? 'true' : 'false');
+        btnDurableTabClosed.setAttribute('aria-selected', activeSelected ? 'false' : 'true');
+        if (archivedWindowDays) {
+          archivedWindowDays.hidden = activeSelected;
+        }
+        if (btnArchivedWindowMinus) btnArchivedWindowMinus.hidden = activeSelected;
+        if (btnArchivedWindowPlus) btnArchivedWindowPlus.hidden = activeSelected;
+        if (btnArchivedWindowAll) btnArchivedWindowAll.hidden = activeSelected;
+        if (activeSelected && archivedWindowDays) {
+          archivedWindowDays.value = String(finalizedWindowDays === 'all' ? 30 : finalizedWindowDays);
+        }
+        return loadDurables(normalizedView);
+      }
+
+      function setClosedWindow(daysValue) {
+        var raw = String(daysValue || '').trim().toLowerCase();
+        finalizedWindowDays = raw === 'all' ? 'all' : (function () {
+          var parsed = parseInt(raw, 10);
+          return isNaN(parsed) || parsed <= 0 ? 30 : parsed;
+        })();
+        return durableView === 'closed' ? loadDurables('closed') : Promise.resolve();
+      }
+
+      function syncArchivedWindowInput() {
+        if (archivedWindowDays) {
+          archivedWindowDays.value = finalizedWindowDays === 'all' ? String(30) : String(finalizedWindowDays);
+        }
+      }
+
+      function bumpArchivedWindow(delta) {
+        if (finalizedWindowDays === 'all') {
+          finalizedWindowDays = 30;
+        }
+        var current = parseInt(finalizedWindowDays, 10);
+        if (isNaN(current) || current <= 0) current = 30;
+        finalizedWindowDays = Math.max(1, current + delta);
+        syncArchivedWindowInput();
+        return durableView === 'closed' ? loadDurables('closed') : Promise.resolve();
+      }
+
+      function selectedDurableTarget(record) {
+        if (!record) return '';
+        var candidates = [
+          record.content,
+          record.sourceText,
+          record.subjectId,
+          record.branchId
+        ];
+        for (var i = 0; i < candidates.length; i++) {
+          var value = String(candidates[i] || '').trim();
+          if (value) return value;
+        }
+        return '';
+      }
+
+      function openDurableDialog(record) {
+        dialogRecord = record || null;
+        if (!dialogRecord) return;
+        durableDialogTitle.textContent = (dialogRecord.kind || 'Durable') + ' details';
+        durableDialogSubtitle.textContent = 'Status ' + String(dialogRecord.status || 'OPEN').toUpperCase() + ' · ' + (selectedDurableTarget(dialogRecord) || 'No target text');
+        durableDialogBody.innerHTML = '' +
+          '<div class="info-card">' +
+            '<div class="mini-pill">Target</div>' +
+            '<div style="margin-top:10px; white-space:pre-wrap;">' + escapeHtml(selectedDurableTarget(dialogRecord) || '(none)') + '</div>' +
+          '</div>' +
+          '<div class="info-card">' +
+            '<div class="mini-pill">Status</div>' +
+            '<div style="margin-top:10px;">' + escapeHtml(String(dialogRecord.status || 'OPEN').toUpperCase()) + '</div>' +
+          '</div>' +
+          '<div class="info-card">' +
+            '<div class="mini-pill">Provenance</div>' +
+            '<div style="margin-top:10px; white-space:pre-wrap;">' +
+              (dialogRecord.sourceText ? 'Source: ' + escapeHtml(dialogRecord.sourceText) + '<br>' : '') +
+              (dialogRecord.subjectId ? 'Subject: ' + escapeHtml(dialogRecord.subjectId) + '<br>' : '') +
+              (dialogRecord.branchId ? 'Branch: ' + escapeHtml(dialogRecord.branchId) + '<br>' : '') +
+              (dialogRecord.occurredAt ? 'Occurred: ' + escapeHtml(dialogRecord.occurredAt) + '<br>' : '') +
+              (dialogRecord.capturedAt ? 'Captured: ' + escapeHtml(dialogRecord.capturedAt) : '') +
+            '</div>' +
+          '</div>';
+        durableDialog.classList.add('open');
+        durableDialog.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeDurableDialog() {
+        dialogRecord = null;
+        durableDialog.classList.remove('open');
+        durableDialog.setAttribute('aria-hidden', 'true');
+      }
+
+      function loadDurables(view) {
+        var nextView = view === 'closed' ? 'closed' : 'active';
+        var payload = { limit: 50, format: 'json', view: nextView === 'closed' ? 'finalized' : 'active' };
+        if (nextView === 'closed') {
+          if (finalizedWindowDays === 'all') {
+            payload.view = 'all';
+          } else {
+            payload.days = finalizedWindowDays;
+          }
+        }
+        if (archivedWindowDays) {
+          archivedWindowDays.hidden = nextView !== 'closed';
+          archivedWindowDays.disabled = nextView !== 'closed';
+        }
+        if (btnArchivedWindowMinus) btnArchivedWindowMinus.hidden = nextView !== 'closed';
+        if (btnArchivedWindowPlus) btnArchivedWindowPlus.hidden = nextView !== 'closed';
+        if (btnArchivedWindowAll) btnArchivedWindowAll.hidden = nextView !== 'closed';
+        if (nextView === 'closed') {
+          syncArchivedWindowInput();
+        }
+        setStatus(durableStatus, 'warn', nextView === 'closed'
+          ? ('Loading archived durables (' + (finalizedWindowDays === 'all' ? 'all archived' : finalizedWindowDays + ' days') + ')...')
+          : 'Loading active durables...');
+        return callAction('durables', JSON.stringify(payload))
+          .then(function (res) {
+            var parsed = tryParseJson(res.text);
+            if (parsed && parsed.records) {
+              renderDurables(parsed.records, nextView === 'closed' ? 'finalized' : 'active');
+              setStatus(durableStatus, 'ok', 'Loaded ' + parsed.records.length + ' ' + (nextView === 'closed' ? 'archived' : 'active') + ' durable item(s)');
+              return parsed;
+            }
+            durableList.innerHTML = '<div class="empty">Unable to parse durable list response.</div>';
+            setStatus(durableStatus, 'warn', 'Durables response not structured');
+            return null;
+          })
+          .catch(function (err) {
+            durableList.innerHTML = '<div class="empty">Failed to load durables: ' + escapeHtml(err && err.message ? err.message : String(err)) + '</div>';
+            setStatus(durableStatus, 'bad', 'Load failed');
+            return null;
+          });
+      }
+
+      function sendTurn() {
+        var text = message.value.trim();
+        if (!text) {
+          setStatus(replyStatus, 'warn', 'Enter a message first');
+          return Promise.resolve();
+        }
+        btnSend.disabled = true;
+        setStatus(replyStatus, 'warn', 'Thinking...');
+        var payload = {
+          message: text,
+          includeMetadata: includeMetadata,
+          recentInteractions: recentInteractions.slice(-8),
+          draftCandidates: durableCache.slice(0, 5).map(function (record) {
+            return record.content || record.recordId || '';
+          }).filter(Boolean)
+        };
+        return callAction('process', JSON.stringify(payload))
+          .then(function (res) {
+            var parsed = tryParseJson(res.text);
+            renderReply(parsed, res.text);
+            appendLog('user', text);
+            appendLog('assistant', parsed && parsed.reply ? parsed.reply : res.text);
+            message.value = '';
+            setStatus(replyStatus, parsed && parsed.confirmationRequired ? 'warn' : 'ok', parsed && parsed.confirmationRequired ? 'Confirmation required' : 'Reply received');
+            if (parsed && parsed.subjectId) {
+              threadPill.textContent = parsed.subjectId || 'default';
+            }
+            if (parsed && parsed.confirmationMessage) {
+              replyMeta.insertAdjacentHTML('beforeend', '<span class="mini-pill">confirm: ' + escapeHtml(parsed.confirmationMessage) + '</span>');
+            }
+            return loadDurables(durableView);
+          })
+          .catch(function (err) {
+            setStatus(replyStatus, 'bad', 'Send failed');
+            replyFeed.textContent = 'Send failed: ' + (err && err.message ? err.message : String(err));
+          })
+          .finally(function () {
+            btnSend.disabled = false;
+          });
+      }
+
+      function setDurableStatus(record, nextStatus) {
+        var target = selectedDurableTarget(record);
+        if (!target) {
+          return Promise.resolve();
+        }
+        setStatus(durableStatus, 'warn', 'Updating status...');
+        return callAction('durable-set', JSON.stringify({ target: target, status: nextStatus, refresh: true, limit: 50 }))
+          .then(function (res) {
+            var parsed = tryParseJson(res.text);
+            if (parsed && parsed.ok === false) {
+              throw new Error(parsed.message || 'update failed');
+            }
+            if (parsed && parsed.records) {
+              renderDurables(parsed.records, durableView === 'closed' ? 'finalized' : 'active');
+            }
+            if (parsed && parsed.updated && dialogRecord) {
+              dialogRecord = parsed.updated;
+            }
+            setStatus(durableStatus, parsed && parsed.verified === false ? 'warn' : 'ok', 'Updated ' + nextStatus.toLowerCase());
+            if (parsed && parsed.verified === false) {
+              return loadDurables(durableView);
+            }
+            return parsed;
+          })
+          .catch(function (err) {
+            setStatus(durableStatus, 'bad', 'Update failed');
+            if (dialogRecord) {
+              durableDialogBody.innerHTML = '<div class="empty">Update failed: ' + escapeHtml(err && err.message ? err.message : String(err)) + '</div>';
+            }
+        });
+      }
+
+      function onArchivedWindowInputChange() {
+        if (!archivedWindowDays) return;
+        var raw = String(archivedWindowDays.value || '').trim();
+        if (!raw) {
+          archivedWindowDays.value = String(finalizedWindowDays === 'all' ? 30 : finalizedWindowDays);
+          return;
+        }
+        var parsed = parseInt(raw, 10);
+        if (isNaN(parsed) || parsed <= 0) {
+          archivedWindowDays.value = String(finalizedWindowDays === 'all' ? 30 : finalizedWindowDays);
+          return;
+        }
+        finalizedWindowDays = parsed;
+        if (durableView === 'closed') {
+          loadDurables('closed');
+        }
+      }
+
+      function wireStatusButtons() {
+        btnDurableDialogClose.addEventListener('click', closeDurableDialog);
+        btnDurableDialogOpen.addEventListener('click', function () {
+          if (dialogRecord) setDurableStatus(dialogRecord, 'open');
+        });
+        btnDurableDialogDone.addEventListener('click', function () {
+          if (dialogRecord) setDurableStatus(dialogRecord, 'done');
+        });
+        btnDurableDialogCanceled.addEventListener('click', function () {
+          if (dialogRecord) setDurableStatus(dialogRecord, 'canceled');
+        });
+        durableDialog.addEventListener('click', function (event) {
+          if (event.target === durableDialog) closeDurableDialog();
+        });
+        window.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape' && durableDialog.classList.contains('open')) {
+            closeDurableDialog();
+          }
+        });
+      }
+
+      function refreshBridgeState() {
+        if (bridgeAvailable()) {
+          bridgeStatus.textContent = 'ready';
+          setStatus(replyStatus, 'ok', 'Bridge ready');
+          return true;
+        }
+        bridgeStatus.textContent = 'unavailable';
+        setStatus(replyStatus, 'warn', 'Bridge unavailable');
+        return false;
+      }
+
+      btnSend.addEventListener('click', sendTurn);
+      btnRefresh.addEventListener('click', function () { loadDurables(durableView); });
+      btnRefreshJson.addEventListener('click', function () { loadDurables(durableView); });
+      btnDurableTabActive.addEventListener('click', function () { setDurableView('active'); });
+      btnDurableTabClosed.addEventListener('click', function () { setDurableView('closed'); });
+      if (archivedWindowDays) {
+        archivedWindowDays.addEventListener('change', onArchivedWindowInputChange);
+      }
+      if (btnArchivedWindowMinus) {
+        btnArchivedWindowMinus.addEventListener('click', function () {
+          bumpArchivedWindow(-1);
+        });
+      }
+      if (btnArchivedWindowPlus) {
+        btnArchivedWindowPlus.addEventListener('click', function () {
+          bumpArchivedWindow(1);
+        });
+      }
+      if (btnArchivedWindowAll) {
+        btnArchivedWindowAll.addEventListener('click', function () {
+          finalizedWindowDays = 'all';
+          syncArchivedWindowInput();
+          if (durableView === 'closed') {
+            loadDurables('closed');
+          }
+        });
+      }
+      btnClear.addEventListener('click', function () {
+        recentInteractions = [];
+        conversationLog.textContent = 'No turns yet.';
+        replyFeed.textContent = 'Waiting for a turn...';
+        replyMeta.innerHTML = '';
+        setStatus(replyStatus, 'warn', 'Idle');
+      });
+      btnIncludeMetadata.addEventListener('click', function () {
+        includeMetadata = !includeMetadata;
+        btnIncludeMetadata.setAttribute('aria-pressed', includeMetadata ? 'true' : 'false');
+        btnIncludeMetadata.textContent = 'Metadata: ' + (includeMetadata ? 'on' : 'off');
+      });
+      message.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          sendTurn();
+        }
+      });
+
+      wireStatusButtons();
+      refreshBridgeState();
+      subjectPill.textContent = 'General mode';
+      trackedSubjectCount.textContent = '0';
+      trackedSubjects.innerHTML = '<span class="tiny">No subject context tracked yet.</span>';
+      if (archivedWindowDays) {
+        archivedWindowDays.value = String(finalizedWindowDays === 'all' ? 30 : finalizedWindowDays);
+        archivedWindowDays.hidden = true;
+        archivedWindowDays.disabled = true;
+      }
+      if (btnArchivedWindowMinus) btnArchivedWindowMinus.hidden = true;
+      if (btnArchivedWindowPlus) btnArchivedWindowPlus.hidden = true;
+      if (btnArchivedWindowAll) btnArchivedWindowAll.hidden = true;
+      loadDurables('active');
+      var poll = setInterval(function () {
+        if (!refreshBridgeState()) return;
+      }, 2000);
+      window.addEventListener('beforeunload', function () { clearInterval(poll); });
+    })();
+  </script>
+</body>
+</html>
