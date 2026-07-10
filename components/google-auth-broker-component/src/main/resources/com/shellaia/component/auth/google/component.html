@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${TITLE}</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f7fb;
+      --card: rgba(255,255,255,0.82);
+      --card-border: rgba(148,163,184,0.20);
+      --text: #0f172a;
+      --muted: #475569;
+      --primary: #0f172a;
+      --accent: #2563eb;
+      --accent-soft: rgba(37,99,235,0.10);
+      --good: #059669;
+      --warn: #b45309;
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
+      --radius-xl: 22px;
+      --radius-md: 14px;
+      --radius-pill: 999px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1220;
+        --card: rgba(15,23,42,0.88);
+        --card-border: rgba(148,163,184,0.14);
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --primary: #e5e7eb;
+        --accent: #60a5fa;
+        --accent-soft: rgba(96,165,250,0.12);
+        --shadow: 0 28px 70px rgba(2, 6, 23, 0.42);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(37,99,235,0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(15,23,42,0.08), transparent 24%),
+        linear-gradient(180deg, var(--bg), rgba(255,255,255,0.40));
+    }
+    .shell { min-height: 100%; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
+    .hero, .card {
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-xl);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+    }
+    .hero { padding: 22px 24px; display: flex; flex-direction: column; gap: 10px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
+      padding: 6px 10px; border-radius: var(--radius-pill);
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--accent); }
+    h1 { margin: 0; font-size: clamp(28px, 3vw, 42px); line-height: 1.05; letter-spacing: -0.04em; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; max-width: 76ch; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+    .card-head {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .card-head h2 { margin: 0; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .card-head p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .stack { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .row { display: grid; grid-template-columns: 180px 1fr; gap: 12px; align-items: center; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+    label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    input, textarea {
+      width: 100%; border: 1px solid var(--card-border); border-radius: var(--radius-md);
+      padding: 12px 14px; background: rgba(255,255,255,0.72); color: var(--text); font: inherit; outline: none;
+    }
+    @media (prefers-color-scheme: dark) { input, textarea { background: rgba(2,6,23,0.40); } }
+    textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .btn {
+      border: 1px solid var(--primary); background: var(--primary); color: #fff;
+      border-radius: 12px; padding: 10px 14px; font: inherit; font-size: 13px; cursor: pointer;
+    }
+    .btn.secondary { background: #fff; color: var(--primary); border-color: var(--card-border); }
+    @media (prefers-color-scheme: dark) { .btn.secondary { background: rgba(15,23,42,0.78); color: var(--text); } }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: var(--radius-pill);
+      border: 1px solid var(--card-border); background: rgba(255,255,255,0.56);
+      font-size: 12px; white-space: nowrap;
+    }
+    @media (prefers-color-scheme: dark) { .pill { background: rgba(15,23,42,0.75); } }
+    pre {
+      margin: 0; padding: 14px; border-radius: var(--radius-md); background: #0b1220; color: #e2e8f0;
+      overflow: auto; white-space: pre-wrap; line-height: 1.45; font-size: 12px;
+    }
+    .result {
+      padding: 12px 14px; border-radius: var(--radius-md);
+      border: 1px solid var(--card-border); background: rgba(255,255,255,0.6); color: var(--muted);
+    }
+    @media (prefers-color-scheme: dark) { .result { background: rgba(15,23,42,0.72); } }
+    .result.good { color: var(--good); }
+    .result.warn { color: var(--warn); }
+    .tiny { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Todero Auth Broker</div>
+      <h1>${HEADING}</h1>
+      <p class="subtitle">${SUBHEADING}</p>
+      <div class="tiny">Auth state root: <code>${STATE_FILE}</code></div>
+      <div class="tiny">Generated at ${GENERATED_AT}</div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2>Settings</h2>
+            <p>Google device-flow configuration for the broker. You can paste a downloaded Google client JSON blob too; the broker reads the installed/web fields and ignores the browser auth URI for device flow.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="row"><label for="client-id">Client ID</label><input id="client-id" type="text" spellcheck="false" placeholder="Google OAuth client id"></div>
+          <div class="row"><label for="client-secret">Client Secret</label><input id="client-secret" type="password" spellcheck="false" placeholder="Optional, keep blank if not needed"></div>
+          <div class="row"><label for="project-id">Project ID</label><input id="project-id" type="text" spellcheck="false" placeholder="Google project id"></div>
+          <div class="row"><label for="auth-provider">Auth Provider</label><input id="auth-provider" type="text" spellcheck="false" placeholder="google"></div>
+          <div class="row"><label for="device-auth-uri">Device Auth URI</label><input id="device-auth-uri" type="text" spellcheck="false" placeholder="https://oauth2.googleapis.com/device/code"></div>
+          <div class="row"><label for="token-uri">Token URI</label><input id="token-uri" type="text" spellcheck="false" placeholder="https://oauth2.googleapis.com/token"></div>
+          <div class="row"><label for="userinfo-uri">Userinfo URI</label><input id="userinfo-uri" type="text" spellcheck="false" placeholder="https://openidconnect.googleapis.com/v1/userinfo"></div>
+          <div class="row"><label for="scope">Scope</label><input id="scope" type="text" spellcheck="false" placeholder="openid email profile"></div>
+          <div class="row"><label for="project-name">Project Name</label><input id="project-name" type="text" spellcheck="false" placeholder="Todero"></div>
+          <div class="actions">
+            <button id="btn-save-settings" class="btn" type="button">Save settings</button>
+            <button id="btn-refresh-status" class="btn secondary" type="button">Refresh status</button>
+          </div>
+          <div id="settings-status" class="result">Idle.</div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2>Auth Session</h2>
+            <p>Begin, poll, or cancel the limited-input sign-in flow. The broker owns the HTML.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="actions">
+            <button id="btn-begin" class="btn" type="button">Begin sign-in</button>
+            <button id="btn-poll" class="btn secondary" type="button">Poll now</button>
+            <button id="btn-cancel" class="btn secondary" type="button">Cancel session</button>
+          </div>
+          <div class="row"><label for="session-id">Session id</label><input id="session-id" type="text" spellcheck="false" placeholder="auto-filled after begin" readonly></div>
+          <div class="row"><label for="verification-url">Verification URL</label><input id="verification-url" type="text" spellcheck="false" placeholder="auto-filled after begin" readonly></div>
+          <div class="row"><label for="user-code">User code</label><input id="user-code" type="text" spellcheck="false" placeholder="auto-filled after begin" readonly></div>
+          <div class="row"><label for="poll-interval">Poll interval</label><input id="poll-interval" type="text" spellcheck="false" placeholder="seconds" readonly></div>
+          <div class="pill"><b>Verification</b> <span id="auth-url">${AUTH_URL}</span></div>
+          <div id="session-status" class="result">Idle.</div>
+        </div>
+      </article>
+
+      <article class="card" style="grid-column:1 / -1;">
+        <div class="card-head">
+          <div>
+            <h2>Current broker state</h2>
+            <p>Current settings, session, and principal as stored on disk.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="row" style="align-items:start;"><label>Settings</label><pre id="settings-json">${SETTINGS}</pre></div>
+          <div class="row" style="align-items:start;"><label>Session</label><pre id="session-json">${SESSION}</pre></div>
+          <div class="row" style="align-items:start;"><label>Principal</label><pre id="principal-json">${PRINCIPAL}</pre></div>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      var clientId = document.getElementById('client-id');
+      var clientSecret = document.getElementById('client-secret');
+      var projectId = document.getElementById('project-id');
+      var authProvider = document.getElementById('auth-provider');
+      var deviceAuthUri = document.getElementById('device-auth-uri');
+      var tokenUri = document.getElementById('token-uri');
+      var userinfoUri = document.getElementById('userinfo-uri');
+      var scope = document.getElementById('scope');
+      var projectName = document.getElementById('project-name');
+      var sessionId = document.getElementById('session-id');
+      var verificationUrl = document.getElementById('verification-url');
+      var userCode = document.getElementById('user-code');
+      var pollInterval = document.getElementById('poll-interval');
+      var authUrl = document.getElementById('auth-url');
+      var settingsJson = document.getElementById('settings-json');
+      var sessionJson = document.getElementById('session-json');
+      var principalJson = document.getElementById('principal-json');
+      var settingsStatus = document.getElementById('settings-status');
+      var sessionStatus = document.getElementById('session-status');
+      var btnSaveSettings = document.getElementById('btn-save-settings');
+      var btnRefreshStatus = document.getElementById('btn-refresh-status');
+      var btnBegin = document.getElementById('btn-begin');
+      var btnPoll = document.getElementById('btn-poll');
+      var btnCancel = document.getElementById('btn-cancel');
+
+      function bridgeAvailable() {
+        return !!(window.todero && typeof window.todero.callAction === 'function');
+      }
+
+      function render(v) {
+        if (v === undefined) return 'undefined';
+        if (v === null) return 'null';
+        if (typeof v === 'string') return v;
+        try { return JSON.stringify(v, null, 2); } catch (_) { return String(v); }
+      }
+
+      function callAction(action, body) {
+        if (!bridgeAvailable()) {
+          return Promise.reject(new Error('window.todero.callAction is not available'));
+        }
+        return window.todero.callAction({ action: action, body: body || '' }).then(function (res) {
+          var text = res && res.response && res.response.body ? (res.response.body.text || '') : '';
+          return { raw: res, text: text };
+        });
+      }
+
+      function refreshFieldsFromJson() {
+        try {
+          var settings = JSON.parse(settingsJson.textContent || '{}');
+          clientId.value = settings.clientId || '';
+          clientSecret.value = settings.clientSecret && settings.clientSecret !== '••••••••' ? settings.clientSecret : '';
+          projectId.value = settings.projectId || '';
+          authProvider.value = settings.authProvider || 'google';
+          deviceAuthUri.value = settings.deviceAuthorizationUri || '';
+          tokenUri.value = settings.tokenUri || '';
+          userinfoUri.value = settings.userInfoUri || '';
+          scope.value = settings.scope || 'openid email profile';
+          projectName.value = settings.projectName || '';
+        } catch (_) {}
+        try {
+          var session = JSON.parse(sessionJson.textContent || '{}');
+          sessionId.value = session.sessionId || '';
+          verificationUrl.value = session.verificationUrl || '';
+          userCode.value = session.userCode || '';
+          pollInterval.value = session.pollIntervalSeconds ? String(session.pollIntervalSeconds) + ' seconds' : '';
+          authUrl.textContent = session.verificationUrl || authUrl.textContent;
+        } catch (_) {}
+      }
+
+      function applyResult(target, text, json) {
+        target.className = 'result ' + (json && json.ok ? 'good' : 'warn');
+        target.textContent = text;
+      }
+
+      function saveSettings() {
+        btnSaveSettings.disabled = true;
+        return callAction('settings_put', JSON.stringify({
+          clientId: clientId.value || '',
+          clientSecret: clientSecret.value || '',
+          projectId: projectId.value || '',
+          authProvider: authProvider.value || 'google',
+          deviceAuthorizationUri: deviceAuthUri.value || '',
+          tokenUri: tokenUri.value || '',
+          userInfoUri: userinfoUri.value || '',
+          scope: scope.value || 'openid email profile',
+          projectName: projectName.value || ''
+        })).then(function (res) {
+          var json = JSON.parse(res.text || '{}');
+          applyResult(settingsStatus, json.message || 'Settings saved.', json);
+          return refreshStatus();
+        }).catch(function (err) {
+          applyResult(settingsStatus, err && err.message ? err.message : String(err), { ok: false });
+        }).finally(function () {
+          btnSaveSettings.disabled = false;
+        });
+      }
+
+      function refreshStatus() {
+        return callAction('auth_status', '').then(function (res) {
+          var json = JSON.parse(res.text || '{}');
+          settingsJson.textContent = render(json.settings || {});
+          sessionJson.textContent = render(json.session || {});
+          principalJson.textContent = render(json.principal || {});
+          applyResult(settingsStatus, 'Status refreshed.', json);
+          applyResult(sessionStatus, json.authenticated ? 'Authenticated.' : 'Not authenticated.', json);
+          refreshFieldsFromJson();
+        }).catch(function (err) {
+          applyResult(settingsStatus, err && err.message ? err.message : String(err), { ok: false });
+        });
+      }
+
+      function beginAuth() {
+        btnBegin.disabled = true;
+        return callAction('auth_begin', JSON.stringify({
+          scope: scope.value || 'openid email profile',
+          projectId: projectId.value || '',
+          authProvider: authProvider.value || 'google',
+          deviceAuthorizationUri: deviceAuthUri.value || '',
+          tokenUri: tokenUri.value || '',
+          userInfoUri: userinfoUri.value || ''
+        })).then(function (res) {
+          var json = JSON.parse(res.text || '{}');
+          sessionJson.textContent = render(json.session || {});
+          if (json.verificationUrl) authUrl.textContent = json.verificationUrl;
+          applyResult(sessionStatus, json.message || 'Google auth session created.', json);
+          return refreshStatus();
+        }).catch(function (err) {
+          applyResult(sessionStatus, err && err.message ? err.message : String(err), { ok: false });
+        }).finally(function () {
+          btnBegin.disabled = false;
+        });
+      }
+
+      function pollAuth() {
+        btnPoll.disabled = true;
+        return callAction('auth_poll', '').then(function (res) {
+          var json = JSON.parse(res.text || '{}');
+          sessionJson.textContent = render(json.session || {});
+          principalJson.textContent = render(json.principal || {});
+          applyResult(sessionStatus, json.message || 'Poll completed.', json);
+          return refreshStatus();
+        }).catch(function (err) {
+          applyResult(sessionStatus, err && err.message ? err.message : String(err), { ok: false });
+        }).finally(function () {
+          btnPoll.disabled = false;
+        });
+      }
+
+      function cancelAuth() {
+        btnCancel.disabled = true;
+        return callAction('auth_cancel', '').then(function () {
+          return refreshStatus();
+        }).finally(function () {
+          btnCancel.disabled = false;
+        });
+      }
+
+      btnSaveSettings.addEventListener('click', saveSettings);
+      btnRefreshStatus.addEventListener('click', refreshStatus);
+      btnBegin.addEventListener('click', beginAuth);
+      btnPoll.addEventListener('click', pollAuth);
+      btnCancel.addEventListener('click', cancelAuth);
+
+      refreshFieldsFromJson();
+      refreshStatus();
+    })();
+  </script>
+</body>
+</html>

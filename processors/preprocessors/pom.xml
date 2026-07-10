@@ -33,5 +33,6 @@
   </build>
   <modules>
     <module>auth-header-preprocessor</module>
+    <module>google-auth-gate-preprocessor</module>
   </modules>
 </project>

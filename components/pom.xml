@@ -39,6 +39,7 @@
     <module>renderer-component</module>
     <module>simple-component</module>
     <module>ssh-component</module>
+    <module>google-auth-broker-component</module>
     <module>spotify-component</module>
   </modules>
 </project>
