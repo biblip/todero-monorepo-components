@@ -34,9 +34,20 @@
       <version>${todero.version}</version>
     </dependency>
     <dependency>
+      <groupId>com.social100.todero</groupId>
+      <artifactId>aia-server</artifactId>
+      <version>${todero.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.11.4</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
   <build>

@@ -5,6 +5,7 @@ import com.social100.processor.Action;
 import com.shellaia.aia.parser.AIAArgumentParser;
 import com.shellaia.aia.service.ApiAIAProtocolService;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.common.aiatpio.RuntimeEnvelope;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.common.config.ServerType;
 import com.social100.todero.common.aiatpio.AiatpIO;
@@ -69,11 +70,11 @@ public class AIARemote {
         return false;
       }
       ApiAIAProtocolService service = new ApiAIAProtocolService(cli, (eventName, message) -> {
-        AiatpIORequestWrapper wrapper = message;
-        if (wrapper.getAiatpEvent() != null) {
-          context.emitEvent(wrapper.getAiatpEvent());
-        } else if (wrapper.getAiatpResponse() != null) {
-          context.complete(wrapper.getAiatpResponse());
+        RuntimeEnvelope wrapper = message;
+        if (wrapper.getEvent() != null) {
+          context.emitEvent(wrapper.getEvent());
+        } else if (wrapper.getResponse() != null) {
+          context.complete(wrapper.getResponse());
         }
       });
       respondText(context, 200, "Connecting ... '" + cli.getServerRawHost() + "'   called: " + name);

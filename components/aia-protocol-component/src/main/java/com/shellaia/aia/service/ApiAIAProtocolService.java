@@ -3,12 +3,14 @@ package com.shellaia.aia.service;
 import com.social100.todero.common.channels.EventChannel;
 import com.social100.todero.common.lineparser.LineParserUtil;
 import com.social100.todero.common.aiatpio.AiatpRequest;
-import com.social100.todero.remote.RemoteApiCommandLineInterface;
-import com.social100.todero.remote.RemoteCliConfig;
-import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
+import com.social100.todero.remote.RemoteCliConfig;
+import com.social100.todero.aiaserver.remote.HttpRemoteEngineClient;
+import com.social100.todero.aiaserver.remote.RemoteCommandManager;
+import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,11 +21,12 @@ public class ApiAIAProtocolService {
   private final String server;
   private final Map<String, String> sessionHeaders = new ConcurrentHashMap<>();
 
-  RemoteApiCommandLineInterface apiCommandLineInterface;
+  RemoteCommandManager remoteCommandManager;
 
   public ApiAIAProtocolService(RemoteCliConfig cli, EventChannel.EventListener eventListener) {
     server = cli.getServerRawHost() + ":" + cli.getPort();
-    apiCommandLineInterface = new RemoteApiCommandLineInterface(cli, eventListener);
+    HttpRemoteEngineClient remoteEngineClient = new HttpRemoteEngineClient(cli.getBaseUri(), Duration.ofSeconds(30));
+    remoteCommandManager = new RemoteCommandManager(remoteEngineClient, eventListener);
   }
 
   public String getServer() {
@@ -49,26 +52,22 @@ public class ApiAIAProtocolService {
   }
 
   public void exec(String line) {
-    AiatpIORequestWrapper httpIORequestWrapper = null;
     LineParserUtil.ParsedLine parsedLine = LineParserUtil.parse(line);
+    AiatpRequest request;
     if (parsedLine.isDottedFormat) {
-      AiatpRequest request = AiatpRuntimeAdapter.request("ACTION", "/" + parsedLine.first + (parsedLine.secondValid ? "/" + parsedLine.second : ""), AiatpIO.Body.none());
+      request = AiatpRuntimeAdapter.request("ACTION", "/" + parsedLine.first + (parsedLine.secondValid ? "/" + parsedLine.second : ""), AiatpIO.Body.none());
       if (parsedLine.remaining != null) {
         request = request.toBuilder().body(AiatpIO.Body.ofString(parsedLine.remaining, AiatpIO.UTF_8)).build();
       }
-      request = applySessionHeaders(request);
-      httpIORequestWrapper = AiatpIORequestWrapper.builder()
-          .aiatpRequest(request)
-          .build();
     } else {
-      AiatpRequest request = AiatpRuntimeAdapter.request("ACTION", "/" + parsedLine.first + "/" + (parsedLine.secondValid ? parsedLine.second + "?" + (parsedLine.remaining != null ? parsedLine.remaining : "") : ""), AiatpIO.Body.none());
-      request = applySessionHeaders(request);
-      httpIORequestWrapper = AiatpIORequestWrapper.builder()
-          .aiatpRequest(request)
-          .build();
+      request = AiatpRuntimeAdapter.request("ACTION", "/" + parsedLine.first + "/" + (parsedLine.secondValid ? parsedLine.second + "?" + (parsedLine.remaining != null ? parsedLine.remaining : "") : ""), AiatpIO.Body.none());
     }
-    Optional.ofNullable(httpIORequestWrapper)
-        .ifPresent(h -> apiCommandLineInterface.process(h));
+    request = applySessionHeaders(request);
+    Optional.ofNullable(request)
+        .ifPresent(h -> remoteCommandManager.process(AiatpIORequestWrapper.builder()
+            .aiatpRequest(h)
+            .responderId(server)
+            .build()));
   }
 
   private AiatpRequest applySessionHeaders(AiatpRequest request) {
@@ -80,8 +79,9 @@ public class ApiAIAProtocolService {
   }
 
   public void unregister() {
-    if (apiCommandLineInterface != null) {
-      apiCommandLineInterface = null;
+    if (remoteCommandManager != null) {
+      remoteCommandManager.terminate();
+      remoteCommandManager = null;
     }
   }
 
