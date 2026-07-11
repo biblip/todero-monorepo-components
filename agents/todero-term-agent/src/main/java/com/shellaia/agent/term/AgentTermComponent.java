@@ -544,7 +544,7 @@ public class AgentTermComponent {
       internalReq = AiatpRuntimeAdapter.withHeader(internalReq, CommandContext.HDR_INTERNAL_EVENT_DELIVERY, "local");
     }
 
-    CommandContext internalContext = parentContext.cloneBuilder()
+    CommandContext internalContext = parentContext.toBuilder()
         .aiatpRequest(internalReq)
         .responseConsumer(out::complete)
         .build();

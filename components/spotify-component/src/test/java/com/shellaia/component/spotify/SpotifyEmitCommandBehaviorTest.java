@@ -1,9 +1,9 @@
 package com.shellaia.component.spotify;
 
 import com.social100.todero.common.aiatpio.AiatpIO;
-import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.common.aiatpio.AiatpResponse;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
+import com.social100.todero.common.aiatpio.RuntimeEnvelope;
 import com.social100.todero.common.command.CommandContext;
 import com.social100.todero.component.testkit.TestStorage;
 import org.junit.jupiter.api.Test;
@@ -22,14 +22,15 @@ class SpotifyEmitCommandBehaviorTest {
     CapturedEmit captured = executeEmit("/com.shellaia.spotify/emit?channel=chat&message=hello");
 
     assertEquals(200, captured.response.getStatusCode());
-    assertEquals("chat", captured.event.getAiatpEvent().getChannel());
+    assertNotNull(captured.event.getEvent());
+    assertEquals("chat", captured.event.getEvent().getChannel());
     assertEquals(
         "text/plain; charset=utf-8",
-        captured.event.getAiatpEvent().getHeaders().getFirst("Content-Type")
+        captured.event.getEvent().getHeaders().getFirst("Content-Type")
     );
     assertEquals(
         "hello",
-        AiatpIO.bodyToString(captured.event.getAiatpEvent().getBody(), StandardCharsets.UTF_8)
+        AiatpIO.bodyToString(captured.event.getEvent().getBody(), StandardCharsets.UTF_8)
     );
   }
 
@@ -38,12 +39,13 @@ class SpotifyEmitCommandBehaviorTest {
     CapturedEmit captured = executeEmit("/com.shellaia.spotify/emit?channel=html&message=hello");
 
     assertEquals(200, captured.response.getStatusCode());
-    assertEquals("html", captured.event.getAiatpEvent().getChannel());
+    assertNotNull(captured.event.getEvent());
+    assertEquals("html", captured.event.getEvent().getChannel());
     assertEquals(
         "text/html; charset=utf-8",
-        captured.event.getAiatpEvent().getHeaders().getFirst("Content-Type")
+        captured.event.getEvent().getHeaders().getFirst("Content-Type")
     );
-    String body = AiatpIO.bodyToString(captured.event.getAiatpEvent().getBody(), StandardCharsets.UTF_8);
+    String body = AiatpIO.bodyToString(captured.event.getEvent().getBody(), StandardCharsets.UTF_8);
     assertTrue(body.contains("Spotify emit(html)"));
     assertTrue(body.contains("hello"));
   }
@@ -53,17 +55,18 @@ class SpotifyEmitCommandBehaviorTest {
     CapturedEmit captured = executeEmit("/com.shellaia.spotify/emit?channel=thought&message=route%3Dspotify");
 
     assertEquals(200, captured.response.getStatusCode());
-    assertEquals("thought", captured.event.getAiatpEvent().getChannel());
+    assertNotNull(captured.event.getEvent());
+    assertEquals("thought", captured.event.getEvent().getChannel());
     assertEquals(
         "route=spotify",
-        AiatpIO.bodyToString(captured.event.getAiatpEvent().getBody(), StandardCharsets.UTF_8)
+        AiatpIO.bodyToString(captured.event.getEvent().getBody(), StandardCharsets.UTF_8)
     );
   }
 
   @Test
   void invalidChannelReturnsUsageAndDoesNotEmitEvent() {
     SpotifyComponent component = new SpotifyComponent(new TestStorage());
-    AtomicReference<AiatpIORequestWrapper> event = new AtomicReference<>();
+    AtomicReference<RuntimeEnvelope> event = new AtomicReference<>();
     AtomicReference<AiatpResponse> response = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
@@ -88,7 +91,7 @@ class SpotifyEmitCommandBehaviorTest {
 
   private static CapturedEmit executeEmit(String route) {
     SpotifyComponent component = new SpotifyComponent(new TestStorage());
-    AtomicReference<AiatpIORequestWrapper> event = new AtomicReference<>();
+    AtomicReference<RuntimeEnvelope> event = new AtomicReference<>();
     AtomicReference<AiatpResponse> response = new AtomicReference<>();
 
     CommandContext context = CommandContext.builder()
@@ -108,5 +111,5 @@ class SpotifyEmitCommandBehaviorTest {
     return new CapturedEmit(event.get(), response.get());
   }
 
-  private record CapturedEmit(AiatpIORequestWrapper event, AiatpResponse response) {}
+  private record CapturedEmit(RuntimeEnvelope event, AiatpResponse response) {}
 }

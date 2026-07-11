@@ -1,10 +1,10 @@
 package com.shellaia.aia.parser;
 
-import com.social100.todero.common.config.ServerType;
 import com.social100.todero.remote.RemoteCliConfig;
 import com.social100.todero.util.ArgumentParser;
 
 import java.net.URI;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -90,7 +90,6 @@ public class AIAArgumentParser {
       urlHost = uri.toString();
     }
     String rawHostForLog = urlHost;
-    ServerType scheme;
     int port;
 
     if (uri.getPort() != -1) {
@@ -98,10 +97,10 @@ public class AIAArgumentParser {
     } else {
       if (schemeString != null) {
         port = switch (schemeString) {
-          case "aia" -> ServerType.AIA.getPort();
-          case "uaia" -> 41414; // ServerType.AIA.getPort() * 1001;
-          case "ai" -> ServerType.AI.getPort();
-          case "uai" -> ServerType.AI.getPort() * 101;
+          case "aia" -> 414;
+          case "uaia" -> 41414;
+          case "ai" -> 41;
+          case "uai" -> 4141;
           default -> 0;
         };
       } else {
@@ -112,22 +111,16 @@ public class AIAArgumentParser {
 
     boolean tlsEnabled = schemeString == null || !schemeString.startsWith("u");
 
-    scheme = switch (schemeString) {
-      case "aia" -> ServerType.AIA;
-      case "uaia" -> ServerType.AIA;
-      case "ai" -> ServerType.AI;
-      case "uai" -> ServerType.AI;
-      default -> null;
-    };
-
     String vhost = (sniOverride != null && !sniOverride.isEmpty()) ? sniOverride : urlHost;
     if (vhost != null && vhost.startsWith("[") && vhost.endsWith("]")) {
       vhost = vhost.substring(1, vhost.length() - 1);
     }
     if (rawHostForLog == null && sniOverride != null) rawHostForLog = sniOverride;
 
+    URI normalizedUri = normalizeBaseUri(uri);
+
     return new RemoteCliConfig(
-        scheme,
+        normalizedUri,
         urlHost,
         rawHostForLog,
         vhost,
@@ -142,7 +135,7 @@ public class AIAArgumentParser {
         java.util.Collections.<String>emptyList(),
         null,
         null,
-        "v3",
+        "http",
         false);
   }
 
@@ -152,5 +145,37 @@ public class AIAArgumentParser {
 
   public String errorMessage() {
     return parser.errorMessage();
+  }
+
+  private static URI normalizeBaseUri(URI uri) {
+    if (uri == null) {
+      return null;
+    }
+    String scheme = uri.getScheme();
+    if (scheme == null) {
+      return uri;
+    }
+    String normalizedScheme = scheme.trim().toLowerCase(Locale.ROOT);
+    if (!"ai".equals(normalizedScheme) && !"aia".equals(normalizedScheme)) {
+      return uri;
+    }
+    int port = uri.getPort();
+    if (port == -1) {
+      port = "aia".equals(normalizedScheme) ? 414 : 41;
+    }
+    String authority = uri.getRawAuthority();
+    if (authority == null || authority.isBlank()) {
+      authority = uri.getHost();
+    }
+    if (authority == null || authority.isBlank()) {
+      authority = uri.toString();
+    }
+    if (!authority.contains(":")) {
+      authority = authority + ":" + port;
+    }
+    String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+    String query = uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery();
+    String fragment = uri.getRawFragment() == null ? "" : "#" + uri.getRawFragment();
+    return URI.create("https://" + authority + path + query + fragment);
   }
 }

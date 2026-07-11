@@ -1283,7 +1283,7 @@ public class SpotifyAgent {
             "/" + "com.shellaia.spotify" + "/" + safeTrim(command),
             AiatpIO.Body.ofString(spotifyArgs, StandardCharsets.UTF_8)
         );
-        CommandContext internalContext = parentContext.cloneBuilder()
+        CommandContext internalContext = parentContext.toBuilder()
             .aiatpRequest(internalRequest)
             .responseConsumer(responseRef::set)
             .build();

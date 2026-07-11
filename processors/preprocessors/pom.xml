@@ -3,7 +3,7 @@
   <parent>
     <groupId>com.shellaia</groupId>
     <artifactId>processors</artifactId>
-    <version>0.1.42-SNAPSHOT</version>
+    <version>1.0.0-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>preprocessors</artifactId>

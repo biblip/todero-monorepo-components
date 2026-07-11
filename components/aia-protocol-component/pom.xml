@@ -3,7 +3,7 @@
   <parent>
     <groupId>com.shellaia</groupId>
     <artifactId>components</artifactId>
-    <version>0.1.42-SNAPSHOT</version>
+    <version>1.0.0-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>aia-protocol-component</artifactId>
@@ -37,6 +37,12 @@
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.11.4</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
   <build>

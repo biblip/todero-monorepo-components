@@ -42,6 +42,18 @@ Runtime workspace layout does not change:
 
 ## Build
 
+The monorepo version is centralized in `version.txt`. Sync it into the POMs before building or publishing:
+
+```sh
+./sync-version.sh
+```
+
+Override the version for a one-off sync:
+
+```sh
+./sync-version.sh --version 0.1.43-SNAPSHOT
+```
+
 Build the whole monorepo:
 
 ```sh
@@ -54,10 +66,12 @@ Publish all components, agents, preprocessors, and postprocessors to the Nexus s
 
 ```sh
 cd todero-monorepo-components
+./sync-version.sh
 ./publish-nexus.sh
 ```
 
 Behavior:
+- reads the release/snapshot version from `version.txt` via the synced root `pom.xml`
 - derives the release version from the root `pom.xml`
 - if the current version is `x.y.z-SNAPSHOT`, it publishes `x.y.z`
 - if the current version is `x.y.z`, it publishes `x.y.z`
