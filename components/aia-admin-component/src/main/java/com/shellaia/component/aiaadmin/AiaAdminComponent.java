@@ -47,14 +47,33 @@ public class AiaAdminComponent {
         LifecycleRuntimeAction.UPDATE_CURRENT_SET,
         null,
         List.of(),
-        Map.of()
+        Map.of("async", "true", "reload", "true")
     );
 
     PrivilegedOperationResult result = executeLifecycle(context, "update", request);
-    if (result == null || !result.success()) {
-      return false;
+    return result != null && result.success();
+  }
+
+  @Action(group = MAIN_GROUP,
+      command = "job-status",
+      description = "Get the status of the latest or a specific asynchronous lifecycle job. Usage: job-status [<jobId>]")
+  public Boolean jobStatus(CommandContext context) {
+    ParsedArgs args = parseBody(context);
+    if (!args.values.isEmpty() || args.positional.size() > 1) {
+      return invalidArgs(context, "Usage: job-status [<jobId>]", args.positional);
     }
-    return reloadInternal(context, new ParsedArgs(List.of(), Map.of(), List.of()));
+    Map<String, String> options = new LinkedHashMap<>();
+    if (!args.positional.isEmpty()) {
+      options.put("job-id", args.positional.get(0));
+    }
+    LifecycleRuntimeRequest request = new LifecycleRuntimeRequest(
+        lifecycleAction("STATUS"),
+        null,
+        List.of(),
+        options
+    );
+    PrivilegedOperationResult result = executeLifecycle(context, "job-status", request);
+    return result != null && result.success();
   }
 
   @Action(group = MAIN_GROUP,
@@ -77,14 +96,11 @@ public class AiaAdminComponent {
         LifecycleRuntimeAction.INSTALL,
         null,
         coords,
-        Map.of()
+        Map.of("async", "true", "reload", "true")
     );
 
     PrivilegedOperationResult result = executeLifecycle(context, "install", request);
-    if (result == null || !result.success()) {
-      return false;
-    }
-    return reloadInternal(context, new ParsedArgs(List.of(), Map.of(), List.of()));
+    return result != null && result.success();
   }
 
   @Action(group = MAIN_GROUP,
@@ -107,14 +123,11 @@ public class AiaAdminComponent {
         LifecycleRuntimeAction.UNINSTALL,
         null,
         coords,
-        Map.of()
+        Map.of("async", "true", "reload", "true")
     );
 
     PrivilegedOperationResult result = executeLifecycle(context, "uninstall", request);
-    if (result == null || !result.success()) {
-      return false;
-    }
-    return reloadInternal(context, new ParsedArgs(List.of(), Map.of(), List.of()));
+    return result != null && result.success();
   }
 
   @Action(group = MAIN_GROUP,
@@ -197,14 +210,11 @@ public class AiaAdminComponent {
         LifecycleRuntimeAction.CHECKOUT,
         null,
         List.of(),
-        options
+        withAsyncReload(options)
     );
 
     PrivilegedOperationResult result = executeLifecycle(context, "checkout", request);
-    if (result == null || !result.success()) {
-      return false;
-    }
-    return reloadInternal(context, new ParsedArgs(List.of(), Map.of(), List.of()));
+    return result != null && result.success();
   }
 
   @Action(group = MAIN_GROUP,
@@ -225,14 +235,11 @@ public class AiaAdminComponent {
         LifecycleRuntimeAction.PRUNE,
         null,
         List.of(),
-        options
+        withAsyncReload(options)
     );
 
     PrivilegedOperationResult result = executeLifecycle(context, "prune", request);
-    if (result == null || !result.success()) {
-      return false;
-    }
-    return reloadInternal(context, new ParsedArgs(List.of(), Map.of(), List.of()));
+    return result != null && result.success();
   }
 
   @Action(group = MAIN_GROUP,
@@ -251,6 +258,14 @@ public class AiaAdminComponent {
     AdminRuntimeRequest request = new AdminRuntimeRequest(AdminRuntimeAction.RELOAD_RUNTIME, options);
     PrivilegedOperationResult result = executeAdmin(context, "reload", request);
     return result != null && result.success();
+  }
+
+  private Map<String, String> withAsyncReload(Map<String, String> options) {
+    Map<String, String> async = new LinkedHashMap<>();
+    if (options != null) async.putAll(options);
+    async.put("async", "true");
+    async.put("reload", "true");
+    return async;
   }
 
   private PrivilegedOperationResult executeLifecycle(CommandContext context,
@@ -352,6 +367,10 @@ public class AiaAdminComponent {
 
   private String usagePrune() {
     return "Usage: prune [--days <N>] [--dry-run]";
+  }
+
+  private LifecycleRuntimeAction lifecycleAction(String name) {
+    return LifecycleRuntimeAction.valueOf(name);
   }
 
   private boolean isBlank(String value) {

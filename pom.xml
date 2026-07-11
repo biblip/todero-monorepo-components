@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.shellaia</groupId>
   <artifactId>shellaia-components</artifactId>
-  <version>0.1.42-SNAPSHOT</version>
+  <version>1.0.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>shellaia-components</name>
   <modules>
@@ -15,7 +15,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
     <nexus.baseUrl>https://nexus.shellaia.com</nexus.baseUrl>
-    <todero.version>1.0-SNAPSHOT</todero.version>
+    <todero.version>1.0.3</todero.version>
     <dotenv.version>5.2.2</dotenv.version>
     <spark.version>2.9.4</spark.version>
     <gson.version>2.11.0</gson.version>

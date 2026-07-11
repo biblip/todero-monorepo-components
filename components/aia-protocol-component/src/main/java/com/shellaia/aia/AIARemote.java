@@ -26,7 +26,8 @@ import java.util.stream.Collectors;
     type = ServerType.AIA,
     visible = true,
     description = "AIA Protocol Component",
-    events = AIARemote.AIAProtocolEvents.class)
+    events = AIARemote.AIAProtocolEvents.class,
+    toolCapabilityProvider = AiaProtocolToolCapabilities.class)
 public class AIARemote {
   final CommandContext[] context = {null};
   Map<String, Map<String, ApiAIAProtocolService>> sessionUserApiAIAProtocolServiceMap = new ConcurrentHashMap<>();

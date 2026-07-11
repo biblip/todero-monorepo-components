@@ -5,8 +5,8 @@ import com.social100.todero.common.lineparser.LineParserUtil;
 import com.social100.todero.common.aiatpio.AiatpRequest;
 import com.social100.todero.common.aiatpio.AiatpIORequestWrapper;
 import com.social100.todero.remote.RemoteCliConfig;
-import com.social100.todero.aiaserver.remote.HttpRemoteEngineClient;
-import com.social100.todero.aiaserver.remote.RemoteCommandManager;
+import com.social100.todero.remote.HttpRemoteEngineClient;
+import com.social100.todero.remote.RemoteCommandManager;
 import com.social100.todero.common.aiatpio.AiatpIO;
 import com.social100.todero.common.aiatpio.AiatpRuntimeAdapter;
 
