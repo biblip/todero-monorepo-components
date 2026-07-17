@@ -42,17 +42,7 @@ Runtime workspace layout does not change:
 
 ## Build
 
-The monorepo version is centralized in `version.txt`. Sync it into the POMs before building or publishing:
-
-```sh
-./sync-version.sh
-```
-
-Override the version for a one-off sync:
-
-```sh
-./sync-version.sh --version 0.1.43-SNAPSHOT
-```
+The monorepo version is centralized in the root `pom.xml`. Build and publish flows read that version directly.
 
 Build the whole monorepo:
 
@@ -66,19 +56,19 @@ Publish all components, agents, preprocessors, and postprocessors to the Nexus s
 
 ```sh
 cd todero-monorepo-components
-./sync-version.sh
 ./publish-nexus.sh
 ```
 
 Behavior:
-- reads the release/snapshot version from `version.txt` via the synced root `pom.xml`
-- derives the release version from the root `pom.xml`
-- if the current version is `x.y.z-SNAPSHOT`, it publishes `x.y.z`
-- if the current version is `x.y.z`, it publishes `x.y.z`
-- sets the reactor to that release version and runs `mvn deploy`
+- snapshot publishing uses the root `pom.xml` version exactly as-is
+- release publishing is only allowed on `main`
+- release publishing requires a clean working tree and `origin/main` to match HEAD
+- if the current version is `x.y.z-SNAPSHOT`, release publishing deploys `x.y.z`
+- if the current version is `x.y.z`, release publishing deploys `x.y.z`
+- after a successful release publish, the script bumps to `x.y.(z+1)-SNAPSHOT`
+- the release bump is committed and pushed to `main`
 - Maven routes releases to `maven-releases` using root `distributionManagement`
-- leaves the Maven project on the next patch `-SNAPSHOT`
-- current Nexus server is releases-only; snapshot deployment is not part of the operational flow for this server
+- snapshot deployment remains available on any branch
 
 Credential sources:
 - `CI_NEXUS_USER` and `CI_NEXUS_PASSWORD`, or
@@ -90,10 +80,6 @@ Optional env file:
 
 Example:
 ```sh
-cp .env.example .env
-set -a
-source .env
-set +a
 ./publish-nexus.sh
 ```
 
@@ -103,6 +89,7 @@ Useful options:
 ./publish-nexus.sh --with-tests
 ./publish-nexus.sh --version 0.1.7
 ./publish-nexus.sh --dry-run
+./publish-nexus.sh --release
 ```
 
 ## Publish releases with `mvn deploy`
@@ -110,7 +97,7 @@ Useful options:
 The root POM declares `distributionManagement` for the release repository:
 - releases: `nexus-releases`
 
-Set Maven credentials in `~/.m2/settings.xml`:
+If you need to deploy manually with Maven, set credentials in `~/.m2/settings.xml`:
 
 ```xml
 <settings>
@@ -124,18 +111,9 @@ Set Maven credentials in `~/.m2/settings.xml`:
 </settings>
 ```
 
-Publish the current release version from the monorepo root:
-
-```sh
-CI_NEXUS_USER=user-to-deploy-maven-releases \
-CI_NEXUS_PASSWORD='your-password' \
-mvn -f todero-monorepo-components/pom.xml \
-  -Dnexus.baseUrl=https://nexus.shellaia.com \
-  clean deploy
-```
-
-Release versions deploy to `maven-releases`.
-Snapshot publishing is disabled for the current Nexus server.
+For normal usage, prefer `./publish-nexus.sh`:
+- snapshot publishing uses the snapshots repository and the root POM version as-is
+- release publishing is guarded to `main` and performs the version bump commit after publishing
 
 Build selected modules by role path:
 

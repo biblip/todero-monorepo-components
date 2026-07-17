@@ -17,13 +17,17 @@ Usage: ./publish-nexus.sh [--release] [--with-tests] [--version <x.y.z>] [--modu
 Publishes modules in todero-monorepo-components to the Nexus server.
 
 Default behavior (no flags): publish SNAPSHOTs
-  - Does not change versions.
+  - Uses the root pom.xml version exactly as-is.
   - Deploys using altDeploymentRepository to ${nexus.baseUrl}/repository/maven-snapshots/
 
 Release behavior (--release): publish RELEASES
+  - Requires the local branch to be main.
+  - Requires a clean working tree.
+  - Requires origin/main to match HEAD.
   - If the current version is x.y.z-SNAPSHOT, it publishes x.y.z
   - If the current version is x.y.z, it publishes x.y.z
-  - After a successful publish, leaves the Maven project on the next patch snapshot locally.
+  - After a successful publish, bumps the patch version to x.y.(z+1)-SNAPSHOT.
+  - Commits and pushes that snapshot bump to main.
 
 Module selection:
   - Default: deploys the full reactor (all modules).
@@ -90,10 +94,11 @@ require_cmd() {
 require_cmd mvn
 require_cmd python3
 require_cmd curl
+require_cmd git
 
 current_project_version="$(
   python3 - "${repo_dir}/pom.xml" <<'PY'
-import syussss
+import sys
 import xml.etree.ElementTree as ET
 
 ns = {"m": "http://maven.apache.org/POM/4.0.0"}
@@ -134,6 +139,44 @@ PY
   next_snapshot_version="${next_version}-SNAPSHOT"
 fi
 
+get_branch() {
+  git -C "${repo_dir}" rev-parse --abbrev-ref HEAD
+}
+
+is_clean_tree() {
+  [[ -z "$(git -C "${repo_dir}" status --porcelain)" ]]
+}
+
+assert_release_preconditions() {
+  local branch head_sha origin_main_sha
+
+  branch="$(get_branch)"
+  if [[ "${branch}" != "main" ]]; then
+    echo "Release mode requires the local main branch. Current branch: ${branch}" >&2
+    exit 1
+  fi
+
+  if ! is_clean_tree; then
+    echo "Release mode requires a clean working tree." >&2
+    git -C "${repo_dir}" status --short >&2
+    exit 1
+  fi
+
+  git -C "${repo_dir}" fetch origin main >/dev/null
+  head_sha="$(git -C "${repo_dir}" rev-parse HEAD)"
+  origin_main_sha="$(git -C "${repo_dir}" rev-parse origin/main)"
+  if [[ "${head_sha}" != "${origin_main_sha}" ]]; then
+    echo "Release mode requires local main to match origin/main." >&2
+    echo "HEAD=${head_sha}" >&2
+    echo "origin/main=${origin_main_sha}" >&2
+    exit 1
+  fi
+}
+
+if [[ "${mode}" == "release" ]]; then
+  assert_release_preconditions
+fi
+
 if [[ "${dry_run}" == "true" ]]; then
   modules_label="(all modules)"
   if [[ ${#selected_modules[@]} -gt 0 ]]; then
@@ -146,6 +189,7 @@ Publish version: ${publish_version}
 Mode: ${mode}
 Modules: ${modules_label}
 Next project snapshot version: ${next_snapshot_version:-n/a}
+Publish source: root pom.xml
 Deploy target:
   - snapshot: ${nexus_host%/}/repository/maven-snapshots/ (altDeploymentRepository)
   - release: ${nexus_host%/}/repository/maven-releases/ (distributionManagement)
@@ -239,21 +283,6 @@ set_version() {
     versions:set
 }
 
-restore_original_version() {
-  if [[ "${restore_needed}" == "true" && "${current_project_version}" != "${next_snapshot_version}" ]]; then
-    set +e
-    set_version "${current_project_version}" >/dev/null 2>&1
-    set -e
-  fi
-}
-
-restore_needed="true"
-trap 'restore_original_version; cleanup' EXIT
-
-if [[ "${mode}" == "release" ]]; then
-  set_version "${publish_version}"
-fi
-
 deploy_goal=(clean deploy)
 if [[ "${run_tests}" != "true" ]]; then
   deploy_goal+=(-DskipTests)
@@ -280,29 +309,44 @@ if [[ "${mode}" == "snapshot" ]]; then
       "${deploy_goal[@]}"
   fi
 else
+  original_version="${current_project_version}"
+  set_version "${publish_version}"
+
   if [[ ${#deploy_modules[@]} -gt 0 ]]; then
-    mvn -f "${repo_dir}/pom.xml" \
+    if ! mvn -f "${repo_dir}/pom.xml" \
       -s "${tmp_settings}" \
       -Dnexus.baseUrl="${nexus_host%/}" \
       "${deploy_modules[@]}" \
-      "${deploy_goal[@]}"
+      "${deploy_goal[@]}"; then
+      set +e
+      set_version "${original_version}" >/dev/null 2>&1
+      set -e
+      exit 1
+    fi
   else
-    mvn -f "${repo_dir}/pom.xml" \
+    if ! mvn -f "${repo_dir}/pom.xml" \
       -s "${tmp_settings}" \
       -Dnexus.baseUrl="${nexus_host%/}" \
-      "${deploy_goal[@]}"
+      "${deploy_goal[@]}"; then
+      set +e
+      set_version "${original_version}" >/dev/null 2>&1
+      set -e
+      exit 1
+    fi
   fi
-fi
 
-if [[ "${mode}" == "release" ]]; then
   set_version "${next_snapshot_version}"
-  restore_needed="false"
+
+  git -C "${repo_dir}" add pom.xml components agents processors tutil
+  git -C "${repo_dir}" commit -m "chore(release): bump to ${next_snapshot_version}"
+  git -C "${repo_dir}" push origin HEAD:main
 fi
 
 cat <<EOF
 Published version: ${publish_version}
 Mode: ${mode}
 Project version set to: ${next_snapshot_version:-${current_project_version}}
+Publish source: root pom.xml
 Deployment repository:
   - snapshot: ${nexus_host%/}/repository/maven-snapshots/
   - release: ${nexus_host%/}/repository/maven-releases/
