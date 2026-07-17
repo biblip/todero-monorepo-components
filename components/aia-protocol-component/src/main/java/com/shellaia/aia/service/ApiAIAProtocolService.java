@@ -66,7 +66,7 @@ public class ApiAIAProtocolService {
     Optional.ofNullable(request)
         .ifPresent(h -> remoteCommandManager.process(AiatpIORequestWrapper.builder()
             .aiatpRequest(h)
-            .responderId(server)
+            .sourceId(server)
             .build()));
   }
 
