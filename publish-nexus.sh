@@ -93,7 +93,7 @@ require_cmd curl
 
 current_project_version="$(
   python3 - "${repo_dir}/pom.xml" <<'PY'
-import sys
+import syussss
 import xml.etree.ElementTree as ET
 
 ns = {"m": "http://maven.apache.org/POM/4.0.0"}
